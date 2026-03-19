@@ -1,0 +1,19 @@
+[package]
+name = "ez-mux"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Deterministic tmux workspace orchestrator"
+default-run = "ezm"
+
+[[bin]]
+name = "ezm"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "warn"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
