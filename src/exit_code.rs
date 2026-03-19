@@ -19,7 +19,9 @@ impl ExitCode {
     pub fn from_app_error(error: &AppError) -> Self {
         match error {
             AppError::Config(_) => Self::UsageOrConfigFailure,
-            AppError::Logging(_) | AppError::Runtime(_) => Self::RuntimeFailure,
+            AppError::Logging(_) | AppError::Session(_) | AppError::Runtime(_) => {
+                Self::RuntimeFailure
+            }
             AppError::Interrupted => Self::Interrupt,
         }
     }
@@ -30,6 +32,7 @@ mod tests {
     use crate::app::AppError;
     use crate::config::ConfigError;
     use crate::logging::LoggingError;
+    use crate::session::SessionError;
 
     use super::ExitCode;
 
@@ -57,6 +60,15 @@ mod tests {
     fn logging_errors_map_to_runtime_code() {
         let error = AppError::Logging(LoggingError::NoLogFiles {
             root: std::path::PathBuf::from("/tmp/logs"),
+        });
+        assert_eq!(ExitCode::from_app_error(&error), ExitCode::RuntimeFailure);
+    }
+
+    #[test]
+    fn session_errors_map_to_runtime_code() {
+        let error = AppError::Session(SessionError::TmuxCommandFailed {
+            command: String::from("has-session -t test"),
+            stderr: String::from("unexpected tmux failure"),
         });
         assert_eq!(ExitCode::from_app_error(&error), ExitCode::RuntimeFailure);
     }

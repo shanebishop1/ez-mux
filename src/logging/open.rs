@@ -5,7 +5,8 @@ use std::process::Command;
 
 use crate::config::OperatingSystem;
 
-use super::{LOG_FILE_EXTENSION, LoggingError};
+use super::LOG_FILE_EXTENSION;
+use super::LoggingError;
 
 pub trait LogOpener {
     /// Opens a log file using the platform-specific opener.

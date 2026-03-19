@@ -1,8 +1,10 @@
 use thiserror::Error;
 
-use crate::cli::{Cli, Command, LogsCommand};
-use crate::config::{self, ConfigError, OPERATOR_ENV, OperatingSystem, ValueSource};
+use crate::cli::{Cli, Command, InternalCommand, LogsCommand};
+use crate::config::OPERATOR_ENV;
+use crate::config::{self, ConfigError, OperatingSystem, ValueSource};
 use crate::logging::{self, LogOpener, LoggingError};
+use crate::session::{self, SessionError};
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -10,6 +12,8 @@ pub enum AppError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Logging(#[from] LoggingError),
+    #[error(transparent)]
+    Session(#[from] SessionError),
     #[error("{0}")]
     Runtime(String),
     #[error("interrupted")]
@@ -46,16 +50,28 @@ fn execute_with_opener(
     );
 
     let message = match cli.command {
-        None => format!(
-            "ezm v1 contract locked; operator source={}.",
-            source_label(resolved_operator.source)
-        ),
+        None => {
+            let outcome = session::ensure_current_project_session(&session::ProcessTmuxClient)?;
+            format!(
+                "ezm v1 contract locked; operator source={}. session={}; session_action={}.",
+                source_label(resolved_operator.source),
+                outcome.identity.session_name,
+                outcome.action.label()
+            )
+        }
         Some(Command::Repair) => {
             String::from("repair contract entrypoint accepted (implementation pending).")
         }
         Some(Command::Logs(LogsCommand::OpenLatest)) => {
             let opened_log_path = logging::open_latest_log(active_log_root, os, opener)?;
             format!("opened latest log: {}", opened_log_path.display())
+        }
+        Some(Command::Internal {
+            command: InternalCommand::Swap { session, slot },
+        }) => {
+            let tmux = session::ProcessTmuxClient;
+            session::TmuxClient::swap_slot_with_center(&tmux, &session, slot)?;
+            format!("internal swap complete: session={session}; slot={slot}")
         }
     };
 
@@ -75,7 +91,8 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{AppError, execute_with_opener};
+    use super::AppError;
+    use super::execute_with_opener;
     use crate::cli::{Cli, Command, LogsCommand};
     use crate::config::OperatingSystem;
     use crate::logging::LogOpener;

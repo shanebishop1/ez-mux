@@ -24,6 +24,12 @@ pub enum Command {
     /// Log utilities.
     #[command(subcommand)]
     Logs(LogsCommand),
+
+    #[command(name = "__internal", hide = true)]
+    Internal {
+        #[command(subcommand)]
+        command: InternalCommand,
+    },
 }
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
@@ -33,11 +39,22 @@ pub enum LogsCommand {
     OpenLatest,
 }
 
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum InternalCommand {
+    #[command(name = "swap")]
+    Swap {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        slot: u8,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
 
-    use super::{Cli, Command, LogsCommand};
+    use super::{Cli, Command, InternalCommand, LogsCommand};
 
     #[test]
     fn parses_default_invocation() {
@@ -56,6 +73,29 @@ mod tests {
         let parsed =
             Cli::try_parse_from(["ezm", "logs", "open-latest"]).expect("parse should succeed");
         assert_eq!(parsed.command, Some(Command::Logs(LogsCommand::OpenLatest)));
+    }
+
+    #[test]
+    fn parses_internal_swap_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "swap",
+            "--session",
+            "ezm-test-session",
+            "--slot",
+            "4",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Swap {
+                    session: String::from("ezm-test-session"),
+                    slot: 4,
+                },
+            })
+        );
     }
 
     #[test]

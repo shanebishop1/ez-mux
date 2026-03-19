@@ -1,0 +1,28 @@
+mod error;
+mod resolver;
+mod runtime;
+mod slot_registry;
+mod swap;
+mod tmux;
+mod topology;
+
+pub use error::SessionError;
+pub use resolver::SessionIdentity;
+pub use resolver::resolve_session_identity;
+pub use runtime::SessionAction;
+pub use runtime::SessionLaunchOutcome;
+pub use runtime::ensure_current_project_session;
+pub use runtime::ensure_project_session;
+pub use slot_registry::CANONICAL_SLOT_IDS;
+pub use slot_registry::SlotBinding;
+pub use slot_registry::SlotRegistry;
+pub use slot_registry::SlotRegistryError;
+pub use slot_registry::assign_worktrees_to_slots;
+pub use slot_registry::build_registry_for_canonical_panes;
+pub use swap::PaneWidthSample;
+pub use swap::pick_center_pane;
+pub use swap::supports_zoom_flag_fallback;
+pub use tmux::{ProcessTmuxClient, TmuxClient};
+pub use topology::CENTER_WIDTH_TOLERANCE_PCT;
+pub use topology::DEFAULT_CENTER_WIDTH_PCT;
+pub use topology::canonical_five_pane_column_widths;

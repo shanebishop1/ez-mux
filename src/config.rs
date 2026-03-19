@@ -223,10 +223,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{
-        ConfigError, EZM_CONFIG_ENV, FileConfig, OPERATOR_ENV, OperatingSystem, ValueSource,
-        load_config, resolve_config_path, resolve_operator,
-    };
+    use super::*;
 
     #[test]
     fn linux_uses_xdg_config_home() {

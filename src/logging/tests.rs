@@ -6,11 +6,15 @@ use std::path::Path;
 use tempfile::tempdir;
 use time::OffsetDateTime;
 
+use super::Clock;
+use super::LogOpener;
+use super::LoggingError;
+use super::RunIdSource;
+use super::fallback_log_root;
+use super::initialize_launch_log;
 use super::open::latest_log_file;
-use super::{
-    Clock, LogOpener, LoggingError, RunIdSource, fallback_log_root, initialize_launch_log,
-    open_latest_log, resolve_primary_log_root,
-};
+use super::open_latest_log;
+use super::resolve_primary_log_root;
 use crate::config::OperatingSystem;
 
 struct FixedClock {
