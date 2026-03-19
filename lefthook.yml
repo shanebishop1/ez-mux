@@ -1,0 +1,17 @@
+pre-commit:
+  parallel: true
+  commands:
+    rust-fmt-check:
+      run: |
+        if [ -f Cargo.toml ]; then
+          cargo fmt --all -- --check
+        else
+          echo "skip rust-fmt-check: Cargo.toml not found"
+        fi
+    rust-clippy-check:
+      run: |
+        if [ -f Cargo.toml ]; then
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+        else
+          echo "skip rust-clippy-check: Cargo.toml not found"
+        fi
