@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+use crate::session::SlotMode;
+
 #[derive(Debug, Parser, PartialEq, Eq)]
 #[command(
     name = "ezm",
@@ -48,11 +50,22 @@ pub enum InternalCommand {
         #[arg(long)]
         slot: u8,
     },
+    #[command(name = "mode")]
+    Mode {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        slot: u8,
+        #[arg(long)]
+        mode: SlotMode,
+    },
 }
 
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+
+    use crate::session::SlotMode;
 
     use super::{Cli, Command, InternalCommand, LogsCommand};
 
@@ -93,6 +106,32 @@ mod tests {
                 command: InternalCommand::Swap {
                     session: String::from("ezm-test-session"),
                     slot: 4,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_internal_mode_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "mode",
+            "--session",
+            "ezm-test-session",
+            "--slot",
+            "4",
+            "--mode",
+            "neovim",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Mode {
+                    session: String::from("ezm-test-session"),
+                    slot: 4,
+                    mode: SlotMode::Neovim,
                 },
             })
         );

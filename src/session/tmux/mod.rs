@@ -5,6 +5,7 @@ use super::CANONICAL_SLOT_IDS;
 use super::DEFAULT_CENTER_WIDTH_PCT;
 use super::PaneWidthSample;
 use super::SessionError;
+use super::SlotMode;
 use super::SlotRegistry;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
@@ -14,6 +15,7 @@ use super::supports_zoom_flag_fallback;
 mod attach;
 mod command;
 mod layout;
+mod mode_runtime;
 mod options;
 mod slot_swap;
 mod worktree;
@@ -68,6 +70,20 @@ pub trait TmuxClient {
     /// Returns an error when slot metadata is invalid, target slot is
     /// outside the canonical range, or tmux swap/select operations fail.
     fn swap_slot_with_center(&self, _session_name: &str, _slot_id: u8) -> Result<(), SessionError> {
+        Ok(())
+    }
+
+    /// Switches a canonical slot to one runtime mode.
+    ///
+    /// # Errors
+    /// Returns an error when slot metadata is invalid or tmux cannot execute
+    /// teardown/respawn actions for the target mode.
+    fn switch_slot_mode(
+        &self,
+        _session_name: &str,
+        _slot_id: u8,
+        _mode: SlotMode,
+    ) -> Result<(), SessionError> {
         Ok(())
     }
 }
@@ -136,5 +152,14 @@ impl TmuxClient for ProcessTmuxClient {
 
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError> {
         slot_swap::swap_slot_with_center(session_name, slot_id)
+    }
+
+    fn switch_slot_mode(
+        &self,
+        session_name: &str,
+        slot_id: u8,
+        mode: SlotMode,
+    ) -> Result<(), SessionError> {
+        mode_runtime::switch_slot_mode(session_name, slot_id, mode)
     }
 }
