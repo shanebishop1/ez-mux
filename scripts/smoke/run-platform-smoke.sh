@@ -40,7 +40,12 @@ case "$platform" in
   macos) expected_os="Darwin" ;;
 esac
 
-tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/ezm-smoke-${platform}-XXXXXX")"
+tmp_base="${TMPDIR:-/tmp}"
+if [ "$platform" = "macos" ]; then
+  tmp_base="/tmp"
+fi
+
+tmp_root="$(mktemp -d "$tmp_base/ezm-smoke-${platform}-XXXXXX")"
 namespace="smoke-${platform}-$(date +%s)-$$"
 
 cleanup() {
