@@ -7,10 +7,12 @@ use super::PaneWidthSample;
 use super::SessionError;
 use super::SlotMode;
 use super::SlotRegistry;
+use super::ZoomFlagSupport;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
 use super::pick_center_pane;
-use super::supports_zoom_flag_fallback;
+use super::tmux_diagnostics_exit_status;
+use super::zoom_flag_support_for_command;
 
 mod attach;
 mod command;
@@ -47,9 +49,7 @@ pub trait TmuxClient {
     /// # Errors
     /// Returns an error when required session or pane options are missing,
     /// invalid, or inconsistent.
-    fn validate_session_invariants(&self, _session_name: &str) -> Result<(), SessionError> {
-        Ok(())
-    }
+    fn validate_session_invariants(&self, session_name: &str) -> Result<(), SessionError>;
 
     /// Builds the canonical five-pane layout and persists slot metadata.
     ///
@@ -58,20 +58,16 @@ pub trait TmuxClient {
     /// be persisted consistently.
     fn bootstrap_default_layout(
         &self,
-        _session_name: &str,
-        _project_dir: &Path,
-    ) -> Result<(), SessionError> {
-        Ok(())
-    }
+        session_name: &str,
+        project_dir: &Path,
+    ) -> Result<(), SessionError>;
 
     /// Swaps a target slot with the center pane while preserving zoom state.
     ///
     /// # Errors
     /// Returns an error when slot metadata is invalid, target slot is
     /// outside the canonical range, or tmux swap/select operations fail.
-    fn swap_slot_with_center(&self, _session_name: &str, _slot_id: u8) -> Result<(), SessionError> {
-        Ok(())
-    }
+    fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError>;
 
     /// Switches a canonical slot to one runtime mode.
     ///
@@ -80,33 +76,30 @@ pub trait TmuxClient {
     /// teardown/respawn actions for the target mode.
     fn switch_slot_mode(
         &self,
-        _session_name: &str,
-        _slot_id: u8,
-        _mode: SlotMode,
-    ) -> Result<(), SessionError> {
-        Ok(())
-    }
+        session_name: &str,
+        slot_id: u8,
+        mode: SlotMode,
+    ) -> Result<(), SessionError>;
 }
 
 pub struct ProcessTmuxClient;
 
 impl TmuxClient for ProcessTmuxClient {
     fn session_exists(&self, session_name: &str) -> Result<bool, SessionError> {
-        let args = ["has-session", "-t", session_name];
+        let args = ["-q", "has-session", "-t", session_name];
         let output = command::tmux_output(&args)?;
 
         if output.status.success() {
             return Ok(true);
         }
 
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        if stderr.contains("can't find session") {
+        if output.status.code() == Some(1) {
             return Ok(false);
         }
 
         Err(SessionError::TmuxCommandFailed {
             command: args.join(" "),
-            stderr,
+            stderr: command::format_output_diagnostics(&output),
         })
     }
 

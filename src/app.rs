@@ -35,7 +35,7 @@ pub fn execute(
     execute_with_opener(cli, env, os, active_log_root, &logging::ProcessLogOpener)
 }
 
-fn execute_with_opener(
+pub(crate) fn execute_with_opener(
     cli: Cli,
     env: &impl config::EnvProvider,
     os: OperatingSystem,

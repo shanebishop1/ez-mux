@@ -20,7 +20,7 @@ pub(super) fn tmux_run(args: &[&str]) -> Result<(), SessionError> {
 
     Err(SessionError::TmuxCommandFailed {
         command: args.join(" "),
-        stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        stderr: format_output_diagnostics(&output),
     })
 }
 
@@ -32,6 +32,17 @@ pub(super) fn tmux_output_value(args: &[&str]) -> Result<String, SessionError> {
 
     Err(SessionError::TmuxCommandFailed {
         command: args.join(" "),
-        stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        stderr: format_output_diagnostics(&output),
     })
+}
+
+pub(super) fn format_output_diagnostics(output: &Output) -> String {
+    let status = output
+        .status
+        .code()
+        .map_or_else(|| String::from("signal"), |code| code.to_string());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+
+    format!("status={status}; stdout={stdout:?}; stderr={stderr:?}")
 }

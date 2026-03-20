@@ -1,3 +1,4 @@
+use super::CANONICAL_SLOT_IDS;
 use super::SessionError;
 use super::SlotMode;
 use super::TmuxClient;
@@ -19,6 +20,12 @@ pub fn switch_slot_mode(
     mode: SlotMode,
     tmux: &impl TmuxClient,
 ) -> Result<SlotModeSwitchOutcome, SessionError> {
+    if !CANONICAL_SLOT_IDS.contains(&slot_id) {
+        return Err(SessionError::SlotRegistry(
+            super::SlotRegistryError::InvalidSlotId { slot_id },
+        ));
+    }
+
     tmux.switch_slot_mode(session_name, slot_id, mode)?;
 
     Ok(SlotModeSwitchOutcome {

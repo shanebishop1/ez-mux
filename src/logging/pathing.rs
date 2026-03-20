@@ -37,6 +37,7 @@ pub fn resolve_primary_log_root(
                 .join("Logs")
                 .join("ez-mux"))
         }
+        OperatingSystem::Unsupported => Err(LoggingError::UnsupportedPlatform { os: os.label() }),
     }
 }
 
@@ -46,5 +47,7 @@ pub fn fallback_log_root(fallback_base: &Path) -> PathBuf {
 }
 
 fn env_var_non_empty(env: &impl EnvProvider, key: &str) -> Option<String> {
-    env.get_var(key).filter(|value| !value.is_empty())
+    env.get_var(key)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }

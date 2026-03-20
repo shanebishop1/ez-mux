@@ -125,13 +125,18 @@ pub fn initialize_launch_log_with_defaults(
     env: &impl EnvProvider,
     os: OperatingSystem,
 ) -> Result<LaunchLog, LoggingError> {
-    initialize_launch_log(
-        env,
-        os,
-        &SystemClock,
-        &SystemRunIdSource,
-        &std::env::temp_dir(),
-    )
+    let fallback_base = default_fallback_base();
+    initialize_launch_log(env, os, &SystemClock, &SystemRunIdSource, &fallback_base)
+}
+
+fn default_fallback_base() -> PathBuf {
+    if let Some(home) = std::env::var_os("HOME") {
+        let trimmed = home.to_string_lossy().trim().to_owned();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed).join(".ez-mux-fallback");
+        }
+    }
+    std::env::temp_dir().join("ez-mux-fallback")
 }
 
 fn create_unique_log_file(

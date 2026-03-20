@@ -7,6 +7,7 @@ use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
 use super::command::{tmux_output_value, tmux_run};
 use super::options::{set_or_verify_pane_option, set_or_verify_session_option};
+use super::slot_swap::validate_canonical_slot_registry;
 use super::worktree::discover_worktrees_for_slots;
 
 pub(super) fn bootstrap_default_layout(
@@ -35,17 +36,48 @@ pub(super) fn bootstrap_default_layout(
     let (_left_width, center_width, right_width) =
         canonical_five_pane_column_widths(window_width, DEFAULT_CENTER_WIDTH_PCT);
 
-    let right_top = split_pane_horizontal(&initial_pane, right_width)?;
-    let center = split_pane_horizontal(&initial_pane, center_width)?;
-    let left_bottom = split_pane_vertical(&initial_pane)?;
-    let right_bottom = split_pane_vertical(&right_top)?;
+    let mut created_panes = Vec::with_capacity(4);
+    let result = (|| {
+        let right_top = split_pane_horizontal(&initial_pane, right_width)?;
+        created_panes.push(right_top.clone());
+        let center = split_pane_horizontal(&initial_pane, center_width)?;
+        created_panes.push(center.clone());
+        let left_bottom = split_pane_vertical(&initial_pane)?;
+        created_panes.push(left_bottom.clone());
+        let right_bottom = split_pane_vertical(&right_top)?;
+        created_panes.push(right_bottom.clone());
 
-    let canonical_pane_ids = [initial_pane, center, right_top, left_bottom, right_bottom];
-    let worktrees = discover_worktrees_for_slots(project_dir);
-    let registry = build_registry_for_canonical_panes(&canonical_pane_ids, &worktrees)?;
-    persist_registry(session_name, &registry)?;
+        let canonical_pane_ids = [
+            initial_pane.clone(),
+            center,
+            right_top,
+            left_bottom,
+            right_bottom,
+        ];
+        let discovery = discover_worktrees_for_slots(project_dir);
+        if let Some(warning) = &discovery.warning {
+            eprintln!("warning: {warning}");
+        }
+        let registry =
+            build_registry_for_canonical_panes(&canonical_pane_ids, &discovery.worktrees)?;
+        persist_registry(session_name, &registry)?;
+        validate_canonical_slot_registry(session_name)?;
+        tmux_run(&["select-pane", "-t", &canonical_pane_ids[1]])
+    })();
 
-    tmux_run(&["select-pane", "-t", &canonical_pane_ids[1]])?;
+    if let Err(error) = result {
+        if let Err(compensation_error) = kill_created_panes(&created_panes) {
+            return Err(SessionError::TmuxCommandFailed {
+                command: format!("bootstrap-default-layout -t {session_name}"),
+                stderr: format!(
+                    "layout bootstrap failed: {error}; compensation failed while cleaning panes: {compensation_error}"
+                ),
+            });
+        }
+
+        return Err(error);
+    }
+
     Ok(())
 }
 
@@ -102,5 +134,13 @@ fn persist_registry(session_name: &str, registry: &SlotRegistry) -> Result<(), S
         set_or_verify_pane_option(&binding.pane_id, pane_cwd_key, &worktree_value)?;
         set_or_verify_pane_option(&binding.pane_id, pane_mode_key, "shell")?;
     }
+    Ok(())
+}
+
+fn kill_created_panes(created_panes: &[String]) -> Result<(), SessionError> {
+    for pane_id in created_panes.iter().rev() {
+        tmux_run(&["kill-pane", "-t", pane_id])?;
+    }
+
     Ok(())
 }

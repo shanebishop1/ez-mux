@@ -1,3 +1,5 @@
+use std::process::Output;
+
 use super::SessionError;
 use super::command::{tmux_output, tmux_run};
 
@@ -94,39 +96,51 @@ pub(super) fn show_session_option(
     session_name: &str,
     key: &str,
 ) -> Result<Option<String>, SessionError> {
-    let output = tmux_output(&["show-options", "-v", "-t", session_name, key])?;
+    let output = tmux_output(&["-q", "show-options", "-v", "-t", session_name, key])?;
     if output.status.success() {
         return Ok(Some(
             String::from_utf8_lossy(&output.stdout).trim().to_owned(),
         ));
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    if stderr.contains("invalid option") || stderr.contains("unknown option") {
+    if missing_option_diagnostic(&output) {
         return Ok(None);
     }
 
     Err(SessionError::TmuxCommandFailed {
         command: format!("show-options -v -t {session_name} {key}"),
-        stderr,
+        stderr: super::command::format_output_diagnostics(&output),
     })
 }
 
 pub(super) fn show_pane_option(pane_id: &str, key: &str) -> Result<Option<String>, SessionError> {
-    let output = tmux_output(&["show-options", "-p", "-v", "-t", pane_id, key])?;
+    let output = tmux_output(&["-q", "show-options", "-p", "-v", "-t", pane_id, key])?;
     if output.status.success() {
         return Ok(Some(
             String::from_utf8_lossy(&output.stdout).trim().to_owned(),
         ));
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    if stderr.contains("invalid option") || stderr.contains("unknown option") {
+    if missing_option_diagnostic(&output) {
         return Ok(None);
     }
 
     Err(SessionError::TmuxCommandFailed {
         command: format!("show-options -p -v -t {pane_id} {key}"),
-        stderr,
+        stderr: super::command::format_output_diagnostics(&output),
     })
+}
+
+fn missing_option_diagnostic(output: &Output) -> bool {
+    if output.status.success() || output.status.code() != Some(1) {
+        return false;
+    }
+
+    if !String::from_utf8_lossy(&output.stdout).trim().is_empty() {
+        return false;
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let trimmed = stderr.trim();
+    trimmed.is_empty() || trimmed.contains("invalid option") || trimmed.contains("unknown option")
 }
