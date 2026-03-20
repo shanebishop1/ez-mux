@@ -51,7 +51,7 @@ pub(crate) fn execute_with_opener(
 
     let message = match cli.command {
         None => {
-            let outcome = session::ensure_current_project_session(&session::ProcessTmuxClient)?;
+            let outcome = execute_default_session_flow(&session::ProcessTmuxClient)?;
             format!(
                 "ezm v1 contract locked; operator source={}. session={}; session_action={}; remote_project_dir={}",
                 source_label(resolved_operator.source),
@@ -73,6 +73,29 @@ pub(crate) fn execute_with_opener(
     };
 
     Ok(message)
+}
+
+fn execute_default_session_flow(
+    tmux: &impl session::TmuxClient,
+) -> Result<session::SessionLaunchOutcome, AppError> {
+    let project_dir = std::env::current_dir().map_err(session::SessionError::CurrentDir)?;
+    execute_default_session_flow_for_project_dir(&project_dir, tmux)
+}
+
+fn execute_default_session_flow_for_project_dir(
+    project_dir: &std::path::Path,
+    tmux: &impl session::TmuxClient,
+) -> Result<session::SessionLaunchOutcome, AppError> {
+    let identity = session::resolve_session_identity(project_dir)?;
+
+    match session::ensure_project_session(project_dir, tmux) {
+        Ok(outcome) => Ok(outcome),
+        Err(session::SessionError::Interrupted) => {
+            let _ = session::teardown_session(&identity.session_name, tmux);
+            Err(AppError::Interrupted)
+        }
+        Err(error) => Err(AppError::Session(error)),
+    }
 }
 
 fn execute_open_latest(
@@ -196,11 +219,16 @@ mod tests {
     use tempfile::tempdir;
 
     use super::AppError;
+    use super::execute_default_session_flow_for_project_dir;
     use super::execute_with_opener;
     use super::format_repair_message;
     use crate::cli::{Cli, Command, LogsCommand};
     use crate::config::OperatingSystem;
     use crate::logging::LogOpener;
+    use crate::session::{
+        AuxiliaryViewerOutcome, PopupShellOutcome, SessionError, SlotMode, TeardownOutcome,
+        TmuxClient,
+    };
 
     struct OkOpener;
 
@@ -328,5 +356,126 @@ mod tests {
         assert!(rendered.contains("missing_visible_slots=4"));
         assert!(rendered.contains("missing_backing_slots=none"));
         assert!(rendered.contains("recreated_slots=4"));
+    }
+
+    struct InterruptingTmuxClient {
+        teardown_calls: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl InterruptingTmuxClient {
+        fn new() -> Self {
+            Self {
+                teardown_calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+
+        fn teardown_calls(&self) -> Vec<String> {
+            self.teardown_calls.borrow().clone()
+        }
+    }
+
+    impl TmuxClient for InterruptingTmuxClient {
+        fn session_exists(&self, _: &str) -> Result<bool, SessionError> {
+            Ok(true)
+        }
+
+        fn create_detached_session(&self, _: &str, _: &Path) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        fn attach_session(&self, _: &str) -> Result<(), SessionError> {
+            Err(SessionError::Interrupted)
+        }
+
+        fn validate_session_invariants(&self, _: &str) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        fn bootstrap_default_layout(&self, _: &str, _: &Path) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        fn swap_slot_with_center(&self, _: &str, _: u8) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        fn switch_slot_mode(
+            &self,
+            _: &str,
+            _: u8,
+            _: SlotMode,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        fn toggle_popup_shell(&self, _: &str, _: u8) -> Result<PopupShellOutcome, SessionError> {
+            Err(SessionError::TmuxCommandFailed {
+                command: String::from("toggle-popup"),
+                stderr: String::from("not used in this test"),
+            })
+        }
+
+        fn auxiliary_viewer(
+            &self,
+            _: &str,
+            _: bool,
+        ) -> Result<AuxiliaryViewerOutcome, SessionError> {
+            Err(SessionError::TmuxCommandFailed {
+                command: String::from("auxiliary-viewer"),
+                stderr: String::from("not used in this test"),
+            })
+        }
+
+        fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError> {
+            self.teardown_calls
+                .borrow_mut()
+                .push(session_name.to_owned());
+            Ok(TeardownOutcome {
+                session_name: session_name.to_owned(),
+                helper_sessions_removed: 0,
+                helper_processes_removed: 0,
+                project_session_removed: false,
+            })
+        }
+
+        fn analyze_session_damage(
+            &self,
+            _: &str,
+        ) -> Result<crate::session::SessionDamageAnalysis, SessionError> {
+            Err(SessionError::TmuxCommandFailed {
+                command: String::from("analyze-damage"),
+                stderr: String::from("not used in this test"),
+            })
+        }
+
+        fn reconcile_session_damage(
+            &self,
+            _: &str,
+        ) -> Result<crate::session::SessionRepairOutcome, SessionError> {
+            Err(SessionError::TmuxCommandFailed {
+                command: String::from("reconcile-damage"),
+                stderr: String::from("not used in this test"),
+            })
+        }
+    }
+
+    #[test]
+    fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
+        let temp = tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        std::fs::create_dir(&project_dir).expect("project dir");
+
+        let expected_session = crate::session::resolve_session_identity(&project_dir)
+            .expect("session identity")
+            .session_name;
+
+        let tmux = InterruptingTmuxClient::new();
+        let error = execute_default_session_flow_for_project_dir(&project_dir, &tmux)
+            .expect_err("interrupt should map to app error");
+
+        assert!(matches!(error, AppError::Interrupted));
+        assert_eq!(tmux.teardown_calls(), vec![expected_session]);
     }
 }

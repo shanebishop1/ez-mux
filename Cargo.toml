@@ -21,6 +21,7 @@ pedantic = "warn"
 [dependencies]
 clap = { version = "4.5.38", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
+signal-hook = "0.3.18"
 thiserror = "2.0.12"
 time = { version = "0.3.41", features = ["formatting", "macros"] }
 toml = "0.8.23"

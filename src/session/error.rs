@@ -27,6 +27,13 @@ pub enum SessionError {
         #[source]
         source: io::Error,
     },
+    #[error("failed registering SIGINT handler: {source}")]
+    SignalRegistrationFailed {
+        #[source]
+        source: io::Error,
+    },
+    #[error("interrupted")]
+    Interrupted,
     #[error(transparent)]
     SlotRegistry(#[from] SlotRegistryError),
 }
