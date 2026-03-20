@@ -1,4 +1,7 @@
 mod error;
+mod mode;
+mod mode_adapter;
+mod mode_runtime;
 mod resolver;
 mod runtime;
 mod slot_registry;
@@ -7,6 +10,12 @@ mod tmux;
 mod topology;
 
 pub use error::SessionError;
+pub use mode::SlotMode;
+pub use mode_adapter::ModeLaunchContract;
+pub use mode_adapter::TeardownHook;
+pub use mode_adapter::mode_launch_contract;
+pub use mode_runtime::SlotModeSwitchOutcome;
+pub use mode_runtime::switch_slot_mode;
 pub use resolver::SessionIdentity;
 pub use resolver::resolve_session_identity;
 pub use runtime::SessionAction;

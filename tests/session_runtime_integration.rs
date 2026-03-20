@@ -3,15 +3,20 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use ez_mux::session::SessionAction;
+use ez_mux::session::SlotMode;
 use ez_mux::session::TmuxClient;
 use ez_mux::session::ensure_project_session;
+use ez_mux::session::mode_launch_contract;
 use ez_mux::session::resolve_session_identity;
+use ez_mux::session::switch_slot_mode;
 
 #[derive(Default)]
 struct FakeTmux {
     sessions: RefCell<HashSet<String>>,
     created: RefCell<Vec<(String, PathBuf)>>,
     attached: RefCell<Vec<String>>,
+    mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
+    mode_switch_error: RefCell<Option<String>>,
     skipped_non_interactive_attach: RefCell<u32>,
     interactive_attach: bool,
 }
@@ -37,6 +42,26 @@ impl TmuxClient for FakeTmux {
         self.attached.borrow_mut().push(session_name.to_string());
         if !self.interactive_attach {
             *self.skipped_non_interactive_attach.borrow_mut() += 1;
+        }
+
+        Ok(())
+    }
+
+    fn switch_slot_mode(
+        &self,
+        session_name: &str,
+        slot_id: u8,
+        mode: SlotMode,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        self.mode_switches
+            .borrow_mut()
+            .push((session_name.to_string(), slot_id, mode));
+
+        if let Some(stderr) = self.mode_switch_error.borrow().as_ref() {
+            return Err(ez_mux::session::SessionError::TmuxCommandFailed {
+                command: String::from("__internal mode"),
+                stderr: stderr.clone(),
+            });
         }
 
         Ok(())
@@ -111,4 +136,57 @@ fn runtime_attach_path_is_non_interactive_safe() {
     assert_eq!(tmux.created.borrow().len(), 1);
     assert_eq!(tmux.attached.borrow().len(), 1);
     assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 1);
+}
+
+#[test]
+fn slot_targeted_mode_switch_routes_to_tmux_client() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let outcome = switch_slot_mode("ezm-session-42", 3, SlotMode::Neovim, &tmux)
+        .expect("mode switch should succeed");
+
+    assert_eq!(outcome.session_name, "ezm-session-42");
+    assert_eq!(outcome.slot_id, 3);
+    assert_eq!(outcome.mode, SlotMode::Neovim);
+    assert_eq!(tmux.mode_switches.borrow().len(), 1);
+    assert_eq!(
+        tmux.mode_switches.borrow()[0],
+        (String::from("ezm-session-42"), 3, SlotMode::Neovim)
+    );
+}
+
+#[test]
+fn slot_targeted_mode_switch_surfaces_tmux_failures() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        mode_switch_error: RefCell::new(Some(String::from("respawn-pane failed"))),
+        ..FakeTmux::default()
+    };
+
+    let error = switch_slot_mode("ezm-session-77", 4, SlotMode::Agent, &tmux)
+        .expect_err("mode switch should fail");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("respawn-pane failed"));
+    assert_eq!(tmux.mode_switches.borrow().len(), 1);
+}
+
+#[test]
+fn per_mode_launch_contracts_define_runtime_command_and_hooks() {
+    let shell = mode_launch_contract(SlotMode::Shell);
+    let agent = mode_launch_contract(SlotMode::Agent);
+    let neovim = mode_launch_contract(SlotMode::Neovim);
+    let lazygit = mode_launch_contract(SlotMode::Lazygit);
+
+    assert!(shell.launch_command.contains("SHELL"));
+    assert!(agent.launch_command.contains("opencode"));
+    assert!(neovim.launch_command.contains("nvim"));
+    assert!(lazygit.launch_command.contains("lazygit"));
+    assert_eq!(shell.teardown_hooks.len(), 0);
+    assert_eq!(agent.teardown_hooks.len(), 1);
+    assert_eq!(neovim.teardown_hooks.len(), 1);
+    assert_eq!(lazygit.teardown_hooks.len(), 1);
 }

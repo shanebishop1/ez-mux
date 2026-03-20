@@ -73,6 +73,23 @@ fn execute_with_opener(
             session::TmuxClient::swap_slot_with_center(&tmux, &session, slot)?;
             format!("internal swap complete: session={session}; slot={slot}")
         }
+        Some(Command::Internal {
+            command:
+                InternalCommand::Mode {
+                    session,
+                    slot,
+                    mode,
+                },
+        }) => {
+            let tmux = session::ProcessTmuxClient;
+            let outcome = session::switch_slot_mode(&session, slot, mode, &tmux)?;
+            format!(
+                "internal mode complete: session={}; slot={}; mode={}",
+                outcome.session_name,
+                outcome.slot_id,
+                outcome.mode.label()
+            )
+        }
     };
 
     Ok(message)

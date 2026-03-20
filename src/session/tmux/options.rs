@@ -59,6 +59,14 @@ pub(super) fn set_or_verify_session_option(
     tmux_run(&["set-option", "-t", session_name, key, value])
 }
 
+pub(super) fn set_session_option(
+    session_name: &str,
+    key: &str,
+    value: &str,
+) -> Result<(), SessionError> {
+    tmux_run(&["set-option", "-t", session_name, key, value])
+}
+
 pub(super) fn set_or_verify_pane_option(
     pane_id: &str,
     key: &str,
@@ -78,7 +86,14 @@ pub(super) fn set_or_verify_pane_option(
     tmux_run(&["set-option", "-p", "-t", pane_id, key, value])
 }
 
-fn show_session_option(session_name: &str, key: &str) -> Result<Option<String>, SessionError> {
+pub(super) fn set_pane_option(pane_id: &str, key: &str, value: &str) -> Result<(), SessionError> {
+    tmux_run(&["set-option", "-p", "-t", pane_id, key, value])
+}
+
+pub(super) fn show_session_option(
+    session_name: &str,
+    key: &str,
+) -> Result<Option<String>, SessionError> {
     let output = tmux_output(&["show-options", "-v", "-t", session_name, key])?;
     if output.status.success() {
         return Ok(Some(
@@ -97,7 +112,7 @@ fn show_session_option(session_name: &str, key: &str) -> Result<Option<String>, 
     })
 }
 
-fn show_pane_option(pane_id: &str, key: &str) -> Result<Option<String>, SessionError> {
+pub(super) fn show_pane_option(pane_id: &str, key: &str) -> Result<Option<String>, SessionError> {
     let output = tmux_output(&["show-options", "-p", "-v", "-t", pane_id, key])?;
     if output.status.success() {
         return Ok(Some(

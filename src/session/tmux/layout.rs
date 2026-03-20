@@ -81,25 +81,26 @@ fn persist_registry(session_name: &str, registry: &SlotRegistry) -> Result<(), S
     for binding in registry.bindings() {
         let slot_pane_key = format!("@ezm_slot_{}_pane", binding.slot_id);
         let slot_worktree_key = format!("@ezm_slot_{}_worktree", binding.slot_id);
+        let slot_cwd_key = format!("@ezm_slot_{}_cwd", binding.slot_id);
+        let slot_mode_key = format!("@ezm_slot_{}_mode", binding.slot_id);
+        let worktree_value = binding.worktree_path.display().to_string();
         set_or_verify_session_option(session_name, &slot_pane_key, &binding.pane_id)?;
-        set_or_verify_session_option(
-            session_name,
-            &slot_worktree_key,
-            &binding.worktree_path.display().to_string(),
-        )?;
+        set_or_verify_session_option(session_name, &slot_worktree_key, &worktree_value)?;
+        set_or_verify_session_option(session_name, &slot_cwd_key, &worktree_value)?;
+        set_or_verify_session_option(session_name, &slot_mode_key, "shell")?;
 
         let pane_worktree_key = "@ezm_slot_worktree";
         let pane_slot_key = "@ezm_slot_id";
+        let pane_cwd_key = "@ezm_slot_cwd";
+        let pane_mode_key = "@ezm_slot_mode";
         set_or_verify_pane_option(
             &binding.pane_id,
             pane_slot_key,
             &binding.slot_id.to_string(),
         )?;
-        set_or_verify_pane_option(
-            &binding.pane_id,
-            pane_worktree_key,
-            &binding.worktree_path.display().to_string(),
-        )?;
+        set_or_verify_pane_option(&binding.pane_id, pane_worktree_key, &worktree_value)?;
+        set_or_verify_pane_option(&binding.pane_id, pane_cwd_key, &worktree_value)?;
+        set_or_verify_pane_option(&binding.pane_id, pane_mode_key, "shell")?;
     }
     Ok(())
 }
