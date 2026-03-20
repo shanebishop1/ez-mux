@@ -62,6 +62,8 @@ impl TmuxClient for FakeTmux {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
+        _operator: Option<&str>,
+        _remote_prefix: Option<&str>,
     ) -> Result<(), ez_mux::session::SessionError> {
         self.mode_switches
             .borrow_mut()
@@ -306,7 +308,7 @@ fn slot_targeted_mode_switch_routes_to_tmux_client() {
         ..FakeTmux::default()
     };
 
-    let outcome = switch_slot_mode("ezm-session-42", 3, SlotMode::Neovim, &tmux)
+    let outcome = switch_slot_mode("ezm-session-42", 3, SlotMode::Neovim, None, None, &tmux)
         .expect("mode switch should succeed");
 
     assert_eq!(outcome.session_name, "ezm-session-42");
@@ -327,7 +329,7 @@ fn slot_targeted_mode_switch_surfaces_tmux_failures() {
         ..FakeTmux::default()
     };
 
-    let error = switch_slot_mode("ezm-session-77", 4, SlotMode::Agent, &tmux)
+    let error = switch_slot_mode("ezm-session-77", 4, SlotMode::Agent, None, None, &tmux)
         .expect_err("mode switch should fail");
 
     let rendered = error.to_string();
@@ -342,7 +344,7 @@ fn slot_targeted_mode_switch_rejects_non_canonical_slot_id_at_runtime_boundary()
         ..FakeTmux::default()
     };
 
-    let error = switch_slot_mode("ezm-session-77", 9, SlotMode::Agent, &tmux)
+    let error = switch_slot_mode("ezm-session-77", 9, SlotMode::Agent, None, None, &tmux)
         .expect_err("mode switch should reject non-canonical slot id");
 
     let rendered = error.to_string();

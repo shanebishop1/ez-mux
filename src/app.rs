@@ -83,7 +83,15 @@ pub(crate) fn execute_with_opener(
                 },
         }) => {
             let tmux = session::ProcessTmuxClient;
-            let outcome = session::switch_slot_mode(&session, slot, mode, &tmux)?;
+            let remote_prefix = env.get_var(session::OPENCODE_REMOTE_DIR_PREFIX_ENV);
+            let outcome = session::switch_slot_mode(
+                &session,
+                slot,
+                mode,
+                resolved_operator.value.as_deref(),
+                remote_prefix.as_deref(),
+                &tmux,
+            )?;
             format!(
                 "internal mode complete: session={}; slot={}; mode={}",
                 outcome.session_name,
