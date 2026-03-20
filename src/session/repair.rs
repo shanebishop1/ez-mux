@@ -286,6 +286,7 @@ mod tests {
             _: SlotMode,
             _: Option<&str>,
             _: Option<&str>,
+            _: Option<&crate::session::SharedServerAttachConfig>,
         ) -> Result<(), crate::session::SessionError> {
             Ok(())
         }

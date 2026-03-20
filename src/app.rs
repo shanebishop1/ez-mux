@@ -46,18 +46,36 @@ pub(crate) fn execute_with_opener(
     let resolved_operator = config::resolve_operator(
         cli.operator,
         env.get_var(OPERATOR_ENV),
-        loaded.values.operator,
+        loaded.values.operator.clone(),
     );
+    let resolved_remote_runtime = config::resolve_remote_runtime(env, &loaded.values)?;
 
     let message = match cli.command {
         None => {
-            let outcome = execute_default_session_flow(&session::ProcessTmuxClient)?;
+            let outcome = execute_default_session_flow(
+                resolved_remote_runtime.remote_dir_prefix.value.as_deref(),
+                &session::ProcessTmuxClient,
+            )?;
             format!(
-                "ezm v1 contract locked; operator source={}. session={}; session_action={}; remote_project_dir={}",
+                "ezm v1 contract locked; operator source={}. session={}; session_action={}; remote_project_dir={}; remote_dir_prefix={}; remote_dir_prefix_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_host={}; opencode_server_host_source={}; opencode_server_port={}; opencode_server_port_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
                 source_label(resolved_operator.source),
                 outcome.identity.session_name,
                 outcome.action.label(),
-                outcome.remote_project_dir.display()
+                outcome.remote_project_dir.display(),
+                optional_value_label(resolved_remote_runtime.remote_dir_prefix.value.as_deref()),
+                source_label(resolved_remote_runtime.remote_dir_prefix.source),
+                resolved_remote_runtime.shared_server.attach_url,
+                source_label(resolved_remote_runtime.shared_server.url.source),
+                resolved_remote_runtime.shared_server.host.value,
+                source_label(resolved_remote_runtime.shared_server.host.source),
+                resolved_remote_runtime.shared_server.port.value,
+                source_label(resolved_remote_runtime.shared_server.port.source),
+                resolved_remote_runtime
+                    .shared_server
+                    .password
+                    .value
+                    .is_some(),
+                source_label(resolved_remote_runtime.shared_server.password.source)
             )
         }
         Some(Command::Repair) => {
@@ -69,7 +87,10 @@ pub(crate) fn execute_with_opener(
         }
         Some(Command::Preset { preset }) => {
             let tmux = session::ProcessTmuxClient;
-            let outcome = execute_default_session_flow(&tmux)?;
+            let outcome = execute_default_session_flow(
+                resolved_remote_runtime.remote_dir_prefix.value.as_deref(),
+                &tmux,
+            )?;
             let preset_outcome =
                 session::apply_layout_preset(&outcome.identity.session_name, preset, &tmux)?;
             format!(
@@ -78,28 +99,32 @@ pub(crate) fn execute_with_opener(
                 preset_outcome.preset.label()
             )
         }
-        Some(Command::Internal { command }) => {
-            execute_internal(command, env, resolved_operator.value.as_deref())?
-        }
+        Some(Command::Internal { command }) => execute_internal(
+            command,
+            resolved_operator.value.as_deref(),
+            &resolved_remote_runtime,
+        )?,
     };
 
     Ok(message)
 }
 
 fn execute_default_session_flow(
+    remote_prefix: Option<&str>,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let project_dir = std::env::current_dir().map_err(session::SessionError::CurrentDir)?;
-    execute_default_session_flow_for_project_dir(&project_dir, tmux)
+    execute_default_session_flow_for_project_dir(&project_dir, remote_prefix, tmux)
 }
 
 fn execute_default_session_flow_for_project_dir(
     project_dir: &std::path::Path,
+    remote_prefix: Option<&str>,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let identity = session::resolve_session_identity(project_dir)?;
 
-    match session::ensure_project_session(project_dir, tmux) {
+    match session::ensure_project_session_with_remote_prefix(project_dir, remote_prefix, tmux) {
         Ok(outcome) => Ok(outcome),
         Err(session::SessionError::Interrupted) => {
             let _ = session::teardown_session(&identity.session_name, tmux);
@@ -120,8 +145,8 @@ fn execute_open_latest(
 
 fn execute_internal(
     command: InternalCommand,
-    env: &impl config::EnvProvider,
     operator: Option<&str>,
+    remote_runtime: &config::RemoteRuntimeResolution,
 ) -> Result<String, AppError> {
     match command {
         InternalCommand::Swap { session, slot } => {
@@ -137,13 +162,17 @@ fn execute_internal(
             mode,
         } => {
             let tmux = session::ProcessTmuxClient;
-            let remote_prefix = env.get_var(session::OPENCODE_REMOTE_DIR_PREFIX_ENV);
+            let shared_server = session::SharedServerAttachConfig {
+                url: remote_runtime.shared_server.attach_url.clone(),
+                password: remote_runtime.shared_server.password.value.clone(),
+            };
             let outcome = session::switch_slot_mode(
                 &session,
                 slot,
                 mode,
                 operator,
-                remote_prefix.as_deref(),
+                remote_runtime.remote_dir_prefix.value.as_deref(),
+                Some(&shared_server),
                 &tmux,
             )?;
             Ok(format!(
@@ -203,6 +232,10 @@ fn execute_internal(
 
 fn source_label(source: ValueSource) -> &'static str {
     source.label()
+}
+
+fn optional_value_label(value: Option<&str>) -> &str {
+    value.unwrap_or("none")
 }
 
 fn format_repair_message(outcome: &session::SessionRepairExecution) -> String {
@@ -430,6 +463,7 @@ mod tests {
             _: SlotMode,
             _: Option<&str>,
             _: Option<&str>,
+            _: Option<&crate::session::SharedServerAttachConfig>,
         ) -> Result<(), SessionError> {
             Ok(())
         }
@@ -496,7 +530,7 @@ mod tests {
             .session_name;
 
         let tmux = InterruptingTmuxClient::new();
-        let error = execute_default_session_flow_for_project_dir(&project_dir, &tmux)
+        let error = execute_default_session_flow_for_project_dir(&project_dir, None, &tmux)
             .expect_err("interrupt should map to app error");
 
         assert!(matches!(error, AppError::Interrupted));

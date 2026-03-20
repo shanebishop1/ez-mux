@@ -75,6 +75,7 @@ impl TmuxClient for FakeTmux {
         mode: SlotMode,
         _operator: Option<&str>,
         _remote_prefix: Option<&str>,
+        _shared_server: Option<&ez_mux::session::SharedServerAttachConfig>,
     ) -> Result<(), ez_mux::session::SessionError> {
         self.mode_switches
             .borrow_mut()
@@ -402,8 +403,16 @@ fn slot_targeted_mode_switch_routes_to_tmux_client() {
         ..FakeTmux::default()
     };
 
-    let outcome = switch_slot_mode("ezm-session-42", 3, SlotMode::Neovim, None, None, &tmux)
-        .expect("mode switch should succeed");
+    let outcome = switch_slot_mode(
+        "ezm-session-42",
+        3,
+        SlotMode::Neovim,
+        None,
+        None,
+        None,
+        &tmux,
+    )
+    .expect("mode switch should succeed");
 
     assert_eq!(outcome.session_name, "ezm-session-42");
     assert_eq!(outcome.slot_id, 3);
@@ -423,8 +432,16 @@ fn slot_targeted_mode_switch_surfaces_tmux_failures() {
         ..FakeTmux::default()
     };
 
-    let error = switch_slot_mode("ezm-session-77", 4, SlotMode::Agent, None, None, &tmux)
-        .expect_err("mode switch should fail");
+    let error = switch_slot_mode(
+        "ezm-session-77",
+        4,
+        SlotMode::Agent,
+        None,
+        None,
+        None,
+        &tmux,
+    )
+    .expect_err("mode switch should fail");
 
     let rendered = error.to_string();
     assert!(rendered.contains("respawn-pane failed"));
@@ -438,8 +455,16 @@ fn slot_targeted_mode_switch_rejects_non_canonical_slot_id_at_runtime_boundary()
         ..FakeTmux::default()
     };
 
-    let error = switch_slot_mode("ezm-session-77", 9, SlotMode::Agent, None, None, &tmux)
-        .expect_err("mode switch should reject non-canonical slot id");
+    let error = switch_slot_mode(
+        "ezm-session-77",
+        9,
+        SlotMode::Agent,
+        None,
+        None,
+        None,
+        &tmux,
+    )
+    .expect_err("mode switch should reject non-canonical slot id");
 
     let rendered = error.to_string();
     assert!(rendered.contains("outside canonical range 1..5"));

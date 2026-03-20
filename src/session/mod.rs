@@ -24,6 +24,7 @@ pub use mode::SlotMode;
 pub use mode_adapter::ModeLaunchContract;
 pub use mode_adapter::TeardownHook;
 pub use mode_adapter::mode_launch_contract;
+pub use mode_runtime::SharedServerAttachConfig;
 pub use mode_runtime::SlotModeSwitchOutcome;
 pub use mode_runtime::switch_slot_mode;
 pub use operator_identity::resolve_operator_identity_for_remote_prefix;
