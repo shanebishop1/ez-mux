@@ -21,6 +21,7 @@ use super::zoom_flag_support_for_command;
 mod attach;
 mod auxiliary;
 mod command;
+mod keybinds;
 mod layout;
 mod mode_runtime;
 mod options;
@@ -197,7 +198,8 @@ impl TmuxClient for ProcessTmuxClient {
     }
 
     fn validate_session_invariants(&self, session_name: &str) -> Result<(), SessionError> {
-        slot_swap::validate_canonical_slot_registry(session_name)
+        slot_swap::validate_canonical_slot_registry(session_name)?;
+        keybinds::install_runtime_keybinds()
     }
 
     fn bootstrap_default_layout(

@@ -33,10 +33,10 @@ pub fn mode_launch_contract(mode: SlotMode) -> ModeLaunchContract {
             launch_command: launch_tool_command(
                 "opencode",
                 "opencode",
-                ModeToolFailurePolicy::FailModeSwitch,
+                ModeToolFailurePolicy::ContinueToShell,
             ),
             teardown_hooks: vec![TeardownHook::SendCtrlC],
-            tool_failure_policy: ModeToolFailurePolicy::FailModeSwitch,
+            tool_failure_policy: ModeToolFailurePolicy::ContinueToShell,
         },
         SlotMode::Neovim => ModeLaunchContract {
             mode,

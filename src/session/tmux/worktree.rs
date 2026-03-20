@@ -68,6 +68,7 @@ fn format_worktree_diagnostic(
 }
 
 fn normalize_worktrees(project_dir: &Path, candidates: Vec<PathBuf>) -> Vec<PathBuf> {
+    use std::cmp::Ordering;
     use std::collections::BTreeSet;
 
     let canonical_project = project_dir
@@ -82,48 +83,97 @@ fn normalize_worktrees(project_dir: &Path, candidates: Vec<PathBuf>) -> Vec<Path
 
     unique.insert(canonical_project.clone());
 
-    let mut ordered = unique.into_iter().collect::<Vec<_>>();
-    if let Some(index) = ordered.iter().position(|path| *path == canonical_project) {
-        let primary = ordered.remove(index);
-        ordered.insert(0, primary);
-    }
+    let mut ordered = unique
+        .into_iter()
+        .filter(|candidate| {
+            *candidate == canonical_project || !excluded_worktree_candidate(candidate)
+        })
+        .collect::<Vec<_>>();
+
+    ordered.sort_by(|left, right| {
+        match (slot_suffix_priority(left), slot_suffix_priority(right)) {
+            (Some(left_suffix), Some(right_suffix)) => {
+                left_suffix.cmp(&right_suffix).then_with(|| left.cmp(right))
+            }
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => left.cmp(right),
+        }
+    });
 
     ordered
 }
 
+fn excluded_worktree_candidate(candidate: &Path) -> bool {
+    let Some(name) = candidate.file_name().and_then(std::ffi::OsStr::to_str) else {
+        return false;
+    };
+
+    name.starts_with("beads") || name.contains("beads-sync")
+}
+
+fn slot_suffix_priority(candidate: &Path) -> Option<u8> {
+    let name = candidate.file_name().and_then(std::ffi::OsStr::to_str)?;
+    (1_u8..=5).find(|slot| name.ends_with(&format!("-{slot}")))
+}
+
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::normalize_worktrees;
+    use super::slot_suffix_priority;
 
     #[test]
-    fn normalize_worktrees_is_deterministic_and_project_first() {
+    fn normalize_worktrees_applies_exclusion_and_suffix_priority() {
         let temp = tempfile::tempdir().expect("tempdir");
         let project_dir = temp.path().join("project");
-        let wt_b = temp.path().join("wt-b");
-        let wt_a = temp.path().join("wt-a");
+        let wt_2 = temp.path().join("feature-2");
+        let wt_1 = temp.path().join("feature-1");
+        let excluded_beads = temp.path().join("beads-main");
+        let excluded_sync = temp.path().join("foo-beads-sync-copy");
         std::fs::create_dir_all(&project_dir).expect("project dir");
-        std::fs::create_dir_all(&wt_a).expect("wt-a dir");
-        std::fs::create_dir_all(&wt_b).expect("wt-b dir");
+        std::fs::create_dir_all(&wt_1).expect("wt-1 dir");
+        std::fs::create_dir_all(&wt_2).expect("wt-2 dir");
+        std::fs::create_dir_all(&excluded_beads).expect("excluded beads dir");
+        std::fs::create_dir_all(&excluded_sync).expect("excluded sync dir");
 
         let ordered = normalize_worktrees(
             &project_dir,
             vec![
-                wt_b.clone(),
+                excluded_beads.clone(),
+                wt_2.clone(),
                 project_dir.clone(),
-                wt_a.clone(),
-                wt_a.clone(),
+                wt_1.clone(),
+                excluded_sync.clone(),
+                wt_2.clone(),
             ],
         );
 
         assert_eq!(ordered.len(), 3);
+        assert_eq!(ordered[0], wt_1.canonicalize().expect("canonical wt-1"));
+        assert_eq!(ordered[1], wt_2.canonicalize().expect("canonical wt-2"));
         assert_eq!(
-            ordered[0],
+            ordered[2],
             project_dir.canonicalize().expect("canonical project")
         );
-        assert_eq!(ordered[1], wt_a.canonicalize().expect("canonical wt-a"));
-        assert_eq!(ordered[2], wt_b.canonicalize().expect("canonical wt-b"));
-        assert!(ordered[0].starts_with(Path::new(temp.path())));
+    }
+
+    #[test]
+    fn slot_suffix_priority_is_constrained_to_one_through_five() {
+        assert_eq!(
+            slot_suffix_priority(std::path::Path::new("/tmp/worktree-1")),
+            Some(1)
+        );
+        assert_eq!(
+            slot_suffix_priority(std::path::Path::new("/tmp/worktree-5")),
+            Some(5)
+        );
+        assert_eq!(
+            slot_suffix_priority(std::path::Path::new("/tmp/worktree-9")),
+            None
+        );
+        assert_eq!(
+            slot_suffix_priority(std::path::Path::new("/tmp/worktree")),
+            None
+        );
     }
 }

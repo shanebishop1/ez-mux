@@ -3,8 +3,9 @@ use std::fs;
 use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
-    CaseEvidence, SessionSnapshot, extract_stdout_field, map_settle, normalize_existing_path,
-    paths_equivalent, prepare_fresh_create_path, read_slot_snapshot, sample, settle_snapshot,
+    CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot, extract_stdout_field,
+    map_settle, normalize_existing_path, paths_equivalent, poll_until, prepare_fresh_create_path,
+    read_slot_snapshot, sample, settle_snapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -23,14 +24,31 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let launch_action = extract_stdout_field(&launch.stdout, "session_action").unwrap_or_default();
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
 
-    let slot_id = 4_u8;
     let slots = read_slot_snapshot(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-07 failed reading slot snapshot: {error}"));
-    let slot_pane = slots
-        .iter()
-        .find(|slot| slot.slot_id == slot_id)
-        .map(|slot| slot.pane_id.clone())
-        .unwrap_or_default();
+    let slot_pane = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &format!("{session}:0"),
+            "#{pane_id}",
+        ])
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let slot_id = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &format!("{session}:0"),
+            "#{@ezm_slot_id}",
+        ])
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u8>().ok())
+        .filter(|slot| (1..=5).contains(slot))
+        .unwrap_or(2);
 
     let popup_cwd_path = harness.work_dir().join("e2e07-popup-cwd");
     fs::create_dir_all(&popup_cwd_path)
@@ -42,28 +60,25 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .tmux_capture(&["set-option", "-t", &session, &slot_cwd_key, &popup_cwd])
         .unwrap_or_else(|error| panic!("E2E-07 failed setting slot cwd fixture: {error}"));
 
-    harness
-        .tmux_capture(&["select-pane", "-t", &slot_pane])
-        .unwrap_or_else(|error| panic!("E2E-07 failed selecting originating pane: {error}"));
+    let popup_keybind = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "P"])
+        .unwrap_or_default();
+    let popup_keybind_present = popup_keybind.contains("__internal popup");
+    assertions.push(format!(
+        "popup keybind prefix+P routes to internal popup runtime = {popup_keybind_present}"
+    ));
 
-    let slot_id_text = slot_id.to_string();
-    let open_args = vec![
-        "__internal",
-        "popup",
-        "--session",
-        &session,
-        "--slot",
-        &slot_id_text,
-    ];
-    let open = harness
-        .run_ezm(&open_args, &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-07 popup open failed to execute: {error}"));
-    samples.push(sample(&open_args, &open));
+    harness
+        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "P"])
+        .unwrap_or_else(|error| panic!("E2E-07 failed sending popup open keybind: {error}"));
 
     let popup_session = format!("{session}__popup_slot_{slot_id}");
-    let popup_exists_after_open = harness
-        .tmux_capture(&["has-session", "-t", &popup_session])
-        .is_ok();
+    let popup_exists_after_open = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+        Ok(harness
+            .tmux_capture(&["has-session", "-t", &popup_session])
+            .is_ok())
+    })
+    .unwrap_or_else(|error| panic!("E2E-07 failed polling popup open state: {error}"));
     let popup_pane_cwd = harness
         .tmux_capture(&[
             "display-message",
@@ -92,14 +107,17 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .trim()
         .to_owned();
 
-    let close = harness
-        .run_ezm(&open_args, &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-07 popup close failed to execute: {error}"));
-    samples.push(sample(&open_args, &close));
+    harness
+        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "P"])
+        .unwrap_or_else(|error| panic!("E2E-07 failed sending popup close keybind: {error}"));
 
-    let popup_exists_after_close = harness
-        .tmux_capture(&["has-session", "-t", &popup_session])
-        .is_ok();
+    let popup_closed_observed = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+        Ok(harness
+            .tmux_capture(&["has-session", "-t", &popup_session])
+            .is_err())
+    })
+    .unwrap_or_else(|error| panic!("E2E-07 failed polling popup close state: {error}"));
+    let popup_exists_after_close = !popup_closed_observed;
     let selected_after_close = harness
         .tmux_capture(&[
             "display-message",
@@ -114,8 +132,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     assertions.push(format!("launch action = {launch_action}"));
     assertions.push(format!("session = {session}"));
-    assertions.push(format!("open exit_code = {}", open.exit_code));
-    assertions.push(format!("close exit_code = {}", close.exit_code));
     assertions.push(format!(
         "popup helper session exists after open = {popup_exists_after_open}"
     ));
@@ -141,8 +157,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let pass = launch.exit_code == 0
         && launch_action == "create"
         && session == expected_session
-        && open.exit_code == 0
-        && close.exit_code == 0
+        && popup_keybind_present
         && popup_exists_after_open
         && !popup_exists_after_close
         && paths_equivalent(&popup_pane_cwd, &popup_cwd)

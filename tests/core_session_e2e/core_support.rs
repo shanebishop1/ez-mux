@@ -470,8 +470,10 @@ pub(super) fn create_worktree_fixture(
 ) -> Result<WorktreeFixture, String> {
     let fixture_root = harness.work_dir().join("e2e03-worktree-fixture");
     let project_dir = fixture_root.join("project");
-    let wt_a = fixture_root.join("wt-a");
-    let wt_b = fixture_root.join("wt-b");
+    let wt_1 = fixture_root.join("feature-1");
+    let wt_2 = fixture_root.join("feature-2");
+    let excluded_beads = fixture_root.join("beads-main");
+    let excluded_sync = fixture_root.join("alpha-beads-sync-copy");
 
     if fixture_root.exists() {
         fs::remove_dir_all(&fixture_root).map_err(|error| {
@@ -499,21 +501,25 @@ pub(super) fn create_worktree_fixture(
     run_git(&project_dir, &["add", "README.md"])?;
     run_git(&project_dir, &["commit", "-m", "fixture init"])?;
 
-    let primary_worktree_arg = wt_a.to_string_lossy().into_owned();
-    let secondary_checkout_path = wt_b.to_string_lossy().into_owned();
+    let wt_1_arg = wt_1.to_string_lossy().into_owned();
+    let wt_2_arg = wt_2.to_string_lossy().into_owned();
+    let excluded_beads_arg = excluded_beads.to_string_lossy().into_owned();
+    let excluded_sync_arg = excluded_sync.to_string_lossy().into_owned();
     run_git(
         &project_dir,
-        &["worktree", "add", "--detach", &primary_worktree_arg, "HEAD"],
+        &["worktree", "add", "--detach", &wt_2_arg, "HEAD"],
     )?;
     run_git(
         &project_dir,
-        &[
-            "worktree",
-            "add",
-            "--detach",
-            &secondary_checkout_path,
-            "HEAD",
-        ],
+        &["worktree", "add", "--detach", &wt_1_arg, "HEAD"],
+    )?;
+    run_git(
+        &project_dir,
+        &["worktree", "add", "--detach", &excluded_beads_arg, "HEAD"],
+    )?;
+    run_git(
+        &project_dir,
+        &["worktree", "add", "--detach", &excluded_sync_arg, "HEAD"],
     )?;
 
     Ok(WorktreeFixture {
@@ -522,10 +528,10 @@ pub(super) fn create_worktree_fixture(
             .canonicalize()
             .map_err(|error| format!("failed canonicalizing fixture project: {error}"))?,
         extra_worktrees: vec![
-            wt_a.canonicalize()
-                .map_err(|error| format!("failed canonicalizing fixture wt-a: {error}"))?,
-            wt_b.canonicalize()
-                .map_err(|error| format!("failed canonicalizing fixture wt-b: {error}"))?,
+            wt_1.canonicalize()
+                .map_err(|error| format!("failed canonicalizing fixture wt-1: {error}"))?,
+            wt_2.canonicalize()
+                .map_err(|error| format!("failed canonicalizing fixture wt-2: {error}"))?,
         ],
     })
 }
@@ -593,20 +599,60 @@ pub(super) fn create_remote_remap_fixture(
 }
 
 pub(super) fn expected_worktree_cycle(fixture: &WorktreeFixture) -> Vec<(u8, String)> {
-    let mut ordered = vec![fixture.canonical_project_dir.clone()];
-    let mut extras = fixture.extra_worktrees.clone();
-    extras.sort();
-    ordered.extend(extras);
+    let mut ordered = fixture.extra_worktrees.clone();
+    ordered.sort();
+    ordered.push(fixture.canonical_project_dir.clone());
+    let fallback = fixture.canonical_project_dir.display().to_string();
 
     (1_u8..=5)
         .enumerate()
         .map(|(index, slot_id)| {
-            (
-                slot_id,
-                ordered[index % ordered.len()].display().to_string(),
-            )
+            let selected = ordered
+                .get(index)
+                .map_or_else(|| fallback.clone(), |path| path.display().to_string());
+            (slot_id, selected)
         })
         .collect()
+}
+
+pub(super) fn slot_worktrees_exclude_utility_paths(slots: &[SlotSnapshot]) -> bool {
+    slots.iter().all(|slot| {
+        let name = Path::new(&slot.worktree)
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        !name.starts_with("beads") && !name.contains("beads-sync")
+    })
+}
+
+pub(super) fn slot_suffix_priority_holds(slots: &[SlotSnapshot]) -> bool {
+    let first_non_suffix_slot = slots
+        .iter()
+        .find(|slot| {
+            let name = Path::new(&slot.worktree)
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or_default();
+            !(name.ends_with("-1")
+                || name.ends_with("-2")
+                || name.ends_with("-3")
+                || name.ends_with("-4")
+                || name.ends_with("-5"))
+        })
+        .map_or(u8::MAX, |slot| slot.slot_id);
+
+    slots.iter().all(|slot| {
+        let name = Path::new(&slot.worktree)
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or_default();
+        let suffix = name.ends_with("-1")
+            || name.ends_with("-2")
+            || name.ends_with("-3")
+            || name.ends_with("-4")
+            || name.ends_with("-5");
+        !suffix || slot.slot_id <= first_non_suffix_slot
+    })
 }
 
 fn run_git(repo_dir: &Path, args: &[&str]) -> Result<(), String> {

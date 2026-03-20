@@ -3,7 +3,8 @@ use crate::support::foundation_harness::FoundationHarness;
 use super::core_support::{
     CaseEvidence, SessionSnapshot, create_worktree_fixture, expected_worktree_cycle,
     extract_stdout_field, map_settle, prepare_fresh_create_path, read_slot_snapshot, sample,
-    settle_snapshot, slot_snapshots_match,
+    settle_snapshot, slot_snapshots_match, slot_suffix_priority_holds,
+    slot_worktrees_exclude_utility_paths,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -104,8 +105,16 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
                     .find(|slot| slot.slot_id == *slot_id)
                     .is_some_and(|slot| slot.worktree == *expected_worktree)
             });
+    let exclusion_policy_holds = slot_worktrees_exclude_utility_paths(&first_slots);
+    let suffix_priority_holds = slot_suffix_priority_holds(&first_slots);
     assertions.push(format!(
         "deterministic slot/worktree cycle matches expected fixture mapping = {deterministic_assignment_verified}"
+    ));
+    assertions.push(format!(
+        "utility worktrees excluded from canonical slots = {exclusion_policy_holds}"
+    ));
+    assertions.push(format!(
+        "suffix priority holds ahead of non-suffixed candidates = {suffix_priority_holds}"
     ));
 
     let remap_target = second_slots
@@ -170,6 +179,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && slot_snapshots_match(&first_slots, &second_slots)
         && distinct_worktrees >= 3
         && deterministic_assignment_verified
+        && exclusion_policy_holds
+        && suffix_priority_holds
         && remap_applied
         && slot1_overwritten
         && third_failed

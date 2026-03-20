@@ -1,9 +1,10 @@
 use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
-    CaseEvidence, SessionSnapshot, center_pane_from_geometry, extract_stdout_field, map_settle,
-    pane_geometry_by_id, prepare_fresh_create_path, read_pane_geometry, read_slot_snapshot, sample,
-    settle_snapshot, slot_snapshots_match,
+    CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot,
+    center_pane_from_geometry, extract_stdout_field, map_settle, pane_geometry_by_id, poll_until,
+    prepare_fresh_create_path, read_pane_geometry, read_slot_snapshot, sample, settle_snapshot,
+    slot_snapshots_match,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -48,19 +49,34 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     assertions.push(format!("slot pane before swap = {slot_pane_id}"));
     assertions.push(format!("center pane before swap = {center_before}"));
 
-    let slot_id_text = slot_id.to_string();
-    let swap_args = vec![
-        "__internal",
-        "swap",
-        "--session",
-        &session,
-        "--slot",
-        &slot_id_text,
-    ];
-    let swap = harness
-        .run_ezm(&swap_args, &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-04 swap invocation failed: {error}"));
-    samples.push(sample(&swap_args, &swap));
+    let swap_prefix_keybind = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "g"])
+        .unwrap_or_default();
+    let swap_slot_keybind = harness
+        .tmux_capture(&["list-keys", "-T", "ezm-swap", "1"])
+        .unwrap_or_default();
+    let keybind_matrix_present = swap_prefix_keybind.contains("ezm-swap")
+        && swap_slot_keybind.contains("__internal swap")
+        && swap_slot_keybind.contains("--slot 1");
+    assertions.push(format!(
+        "swap keybind matrix present for prefix g -> table -> slot 1 = {keybind_matrix_present}"
+    ));
+
+    harness
+        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "g"])
+        .unwrap_or_else(|error| panic!("E2E-04 failed sending swap table prefix: {error}"));
+    harness
+        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "1"])
+        .unwrap_or_else(|error| panic!("E2E-04 failed sending swap slot key: {error}"));
+
+    let swap_applied = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+        let geometry = read_pane_geometry(harness, &session)?;
+        Ok(center_pane_from_geometry(&geometry) == slot_pane_id)
+    })
+    .unwrap_or_else(|error| panic!("E2E-04 failed polling keybind swap completion: {error}"));
+    assertions.push(format!(
+        "swap keybind invocation moved target slot to center = {swap_applied}"
+    ));
 
     let after_slots = read_slot_snapshot(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-04 failed reading post-swap slots: {error}"));
@@ -105,7 +121,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && launch_action == "create"
         && session == expected_session
         && settle.stable
-        && swap.exit_code == 0
+        && keybind_matrix_present
+        && swap_applied
         && slot_snapshots_match(&before_slots, &after_slots)
         && slot_moved_to_center
         && slot_position_changed

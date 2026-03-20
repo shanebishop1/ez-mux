@@ -10,6 +10,7 @@ use super::SlotRegistry;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
 use super::command::{tmux_output, tmux_output_value, tmux_primary_window_target, tmux_run};
+use super::keybinds::install_runtime_keybinds;
 use super::options::{
     required_pane_option, required_session_option, set_or_verify_pane_option,
     set_or_verify_session_option, set_session_option, show_session_option,
@@ -18,9 +19,6 @@ use super::repair::reconcile_session_damage;
 use super::slot_swap::validate_canonical_slot_registry;
 use super::worktree::discover_worktrees_for_slots;
 
-const THREE_PANE_PRESET_KEY: &str = "M-3";
-const THREE_PANE_PRESET_RUN_SHELL: &str =
-    "${EZM_BIN:-ezm} __internal preset --session #{session_name} --preset three-pane";
 pub(super) const LAYOUT_MODE_KEY: &str = "@ezm_layout_mode";
 pub(super) const LAYOUT_MODE_FIVE_PANE: &str = "five-pane";
 pub(super) const LAYOUT_MODE_THREE_PANE: &str = "three-pane";
@@ -83,13 +81,15 @@ pub(super) fn bootstrap_default_layout(
         if let Some(warning) = &discovery.warning {
             eprintln!("warning: {warning}");
         }
+        let populated_slots = discovery.worktrees.len().min(5);
         let registry =
             build_registry_for_canonical_panes(&canonical_pane_ids, &discovery.worktrees)?;
-        persist_registry(session_name, &registry)?;
+        persist_registry(session_name, &registry, populated_slots)?;
         set_session_option(session_name, &slot_suspended_key(4), "0")?;
         set_session_option(session_name, &slot_suspended_key(5), "0")?;
         set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_FIVE_PANE)?;
-        wire_preset_keybinds()?;
+        install_runtime_keybinds()?;
+
         validate_canonical_slot_registry(session_name)?;
         tmux_run(&["select-pane", "-t", &canonical_pane_ids[1]])
     })();
@@ -108,17 +108,6 @@ pub(super) fn bootstrap_default_layout(
     }
 
     Ok(())
-}
-
-fn wire_preset_keybinds() -> Result<(), SessionError> {
-    tmux_run(&[
-        "bind-key",
-        "-T",
-        "prefix",
-        THREE_PANE_PRESET_KEY,
-        "run-shell",
-        THREE_PANE_PRESET_RUN_SHELL,
-    ])
 }
 
 pub(super) fn apply_layout_preset(
@@ -482,8 +471,17 @@ fn split_pane_vertical(target_pane: &str) -> Result<String, SessionError> {
     .map(|value| value.trim().to_owned())
 }
 
-fn persist_registry(session_name: &str, registry: &SlotRegistry) -> Result<(), SessionError> {
+fn persist_registry(
+    session_name: &str,
+    registry: &SlotRegistry,
+    populated_slots: usize,
+) -> Result<(), SessionError> {
     for binding in registry.bindings() {
+        let mode = if usize::from(binding.slot_id) <= populated_slots {
+            "agent"
+        } else {
+            "shell"
+        };
         let slot_pane_key = format!("@ezm_slot_{}_pane", binding.slot_id);
         let slot_worktree_key = format!("@ezm_slot_{}_worktree", binding.slot_id);
         let slot_cwd_key = format!("@ezm_slot_{}_cwd", binding.slot_id);
@@ -492,7 +490,7 @@ fn persist_registry(session_name: &str, registry: &SlotRegistry) -> Result<(), S
         set_or_verify_session_option(session_name, &slot_pane_key, &binding.pane_id)?;
         set_or_verify_session_option(session_name, &slot_worktree_key, &worktree_value)?;
         set_or_verify_session_option(session_name, &slot_cwd_key, &worktree_value)?;
-        set_or_verify_session_option(session_name, &slot_mode_key, "shell")?;
+        set_or_verify_session_option(session_name, &slot_mode_key, mode)?;
 
         let pane_worktree_key = "@ezm_slot_worktree";
         let pane_slot_key = "@ezm_slot_id";
@@ -505,7 +503,7 @@ fn persist_registry(session_name: &str, registry: &SlotRegistry) -> Result<(), S
         )?;
         set_or_verify_pane_option(&binding.pane_id, pane_worktree_key, &worktree_value)?;
         set_or_verify_pane_option(&binding.pane_id, pane_cwd_key, &worktree_value)?;
-        set_or_verify_pane_option(&binding.pane_id, pane_mode_key, "shell")?;
+        set_or_verify_pane_option(&binding.pane_id, pane_mode_key, mode)?;
     }
     Ok(())
 }
