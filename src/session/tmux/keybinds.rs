@@ -125,6 +125,7 @@ fn missing_binding_diagnostic(output: &std::process::Output) -> bool {
     stderr.contains("unknown key")
         || stderr.contains("key not found")
         || stderr.contains("not bound")
+        || (stderr.contains("table") && stderr.contains("doesn't exist"))
 }
 
 fn swap_command(slot_id: u8) -> String {
@@ -151,6 +152,11 @@ fn popup_command() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::process::{ExitStatus, Output};
+
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+
     use super::{mode_command, popup_command, swap_command, toggle_mode_command};
 
     #[test]
@@ -182,5 +188,17 @@ mod tests {
         let rendered = popup_command();
         assert!(rendered.contains("__internal popup"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_binding_diagnostic_accepts_missing_table_error() {
+        let output = Output {
+            status: ExitStatus::from_raw(256),
+            stdout: Vec::new(),
+            stderr: b"table ezm-swap doesn't exist".to_vec(),
+        };
+
+        assert!(super::missing_binding_diagnostic(&output));
     }
 }
