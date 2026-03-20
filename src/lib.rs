@@ -171,7 +171,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let code = run_with_io(
-            ["ezm", "repair"],
+            ["ezm", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -180,7 +180,7 @@ mod tests {
 
         assert_eq!(code, ExitCode::Success.as_i32());
         let stdout = String::from_utf8(stdout).expect("utf8");
-        assert!(stdout.contains("repair contract entrypoint accepted"));
+        assert!(stdout.contains("Usage:"));
         let stderr = String::from_utf8(stderr).expect("utf8");
         assert!(stderr.contains("active log file:"));
     }
@@ -234,7 +234,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let first_code = run_with_io(
-            ["ezm", "repair"],
+            ["ezm", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -245,7 +245,7 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let second_code = run_with_io(
-            ["ezm", "repair"],
+            ["ezm", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -285,7 +285,7 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let code = run_with_io(
-            ["ezm", "repair"],
+            ["ezm", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -431,7 +431,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let code = run_with_io(
-            ["ezm", "repair"],
+            ["ezm", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -448,7 +448,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let code = run_with_io(
-            ["ezm", "repair"],
+            ["ezm", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
