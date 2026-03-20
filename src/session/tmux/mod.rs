@@ -1,9 +1,11 @@
 use std::path::Path;
 use std::process::Command;
 
+use super::AuxiliaryViewerOutcome;
 use super::CANONICAL_SLOT_IDS;
 use super::DEFAULT_CENTER_WIDTH_PCT;
 use super::PaneWidthSample;
+use super::PopupShellOutcome;
 use super::SessionError;
 use super::SlotMode;
 use super::SlotRegistry;
@@ -15,10 +17,12 @@ use super::tmux_diagnostics_exit_status;
 use super::zoom_flag_support_for_command;
 
 mod attach;
+mod auxiliary;
 mod command;
 mod layout;
 mod mode_runtime;
 mod options;
+mod popup;
 mod slot_swap;
 mod worktree;
 
@@ -80,6 +84,27 @@ pub trait TmuxClient {
         slot_id: u8,
         mode: SlotMode,
     ) -> Result<(), SessionError>;
+
+    /// Toggles popup shell helper session for one canonical slot.
+    ///
+    /// # Errors
+    /// Returns an error when slot metadata is invalid or popup orchestration
+    /// fails.
+    fn toggle_popup_shell(
+        &self,
+        session_name: &str,
+        slot_id: u8,
+    ) -> Result<PopupShellOutcome, SessionError>;
+
+    /// Creates/reuses or closes the auxiliary viewer window.
+    ///
+    /// # Errors
+    /// Returns an error when tmux cannot reconcile auxiliary window state.
+    fn auxiliary_viewer(
+        &self,
+        session_name: &str,
+        open: bool,
+    ) -> Result<AuxiliaryViewerOutcome, SessionError>;
 }
 
 pub struct ProcessTmuxClient;
@@ -154,5 +179,21 @@ impl TmuxClient for ProcessTmuxClient {
         mode: SlotMode,
     ) -> Result<(), SessionError> {
         mode_runtime::switch_slot_mode(session_name, slot_id, mode)
+    }
+
+    fn toggle_popup_shell(
+        &self,
+        session_name: &str,
+        slot_id: u8,
+    ) -> Result<PopupShellOutcome, SessionError> {
+        popup::toggle_popup_shell(session_name, slot_id)
+    }
+
+    fn auxiliary_viewer(
+        &self,
+        session_name: &str,
+        open: bool,
+    ) -> Result<AuxiliaryViewerOutcome, SessionError> {
+        auxiliary::auxiliary_viewer(session_name, open)
     }
 }

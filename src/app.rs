@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::cli::{Cli, Command, InternalCommand, LogsCommand};
+use crate::cli::{AuxiliaryAction, Cli, Command, InternalCommand, LogsCommand};
 use crate::config::OPERATOR_ENV;
 use crate::config::{self, ConfigError, OperatingSystem, ValueSource};
 use crate::logging::{self, LogOpener, LoggingError};
@@ -88,6 +88,35 @@ pub(crate) fn execute_with_opener(
                 outcome.session_name,
                 outcome.slot_id,
                 outcome.mode.label()
+            )
+        }
+        Some(Command::Internal {
+            command: InternalCommand::Popup { session, slot },
+        }) => {
+            let tmux = session::ProcessTmuxClient;
+            let outcome = session::toggle_popup_shell(&session, slot, &tmux)?;
+            format!(
+                "internal popup complete: session={}; slot={}; action={}; cwd={}; width_pct={}; height_pct={}",
+                outcome.session_name,
+                outcome.slot_id,
+                outcome.action.label(),
+                outcome.cwd,
+                outcome.width_pct,
+                outcome.height_pct
+            )
+        }
+        Some(Command::Internal {
+            command: InternalCommand::Auxiliary { session, action },
+        }) => {
+            let tmux = session::ProcessTmuxClient;
+            let open = matches!(action, AuxiliaryAction::Open);
+            let outcome = session::auxiliary_viewer(&session, open, &tmux)?;
+            format!(
+                "internal auxiliary complete: session={}; action={}; window_name={}; window_id={}",
+                outcome.session_name,
+                outcome.action.label(),
+                outcome.window_name,
+                outcome.window_id.unwrap_or_else(|| String::from("none"))
             )
         }
     };
