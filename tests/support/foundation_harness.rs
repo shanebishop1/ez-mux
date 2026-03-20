@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -34,8 +35,8 @@ pub struct FoundationHarness {
     project_root: PathBuf,
 }
 
-#[allow(dead_code)]
 impl FoundationHarness {
+    #[allow(dead_code)]
     pub fn new() -> Result<Self, String> {
         Self::new_for_suite("foundation")
     }
@@ -114,10 +115,12 @@ impl FoundationHarness {
         &self.work_dir
     }
 
+    #[allow(dead_code)]
     pub fn open_capture_path(&self) -> &Path {
         &self.open_capture_path
     }
 
+    #[allow(dead_code)]
     pub fn write_file(path: &Path, content: &str) -> Result<(), String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
@@ -248,6 +251,7 @@ impl FoundationHarness {
         }
     }
 
+    #[allow(dead_code)]
     pub fn tmux_capture(&self, args: &[&str]) -> Result<String, String> {
         self.tmux_raw(args)
     }
@@ -308,19 +312,31 @@ impl Drop for FoundationHarness {
 }
 
 fn build_run_id() -> String {
-    let millis = SystemTime::now()
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    format!("run-{millis:x}-{}", std::process::id())
+        .as_nanos();
+    let seq = next_unique_sequence();
+    format!("run-{nanos:x}-{:x}-{:x}", std::process::id(), seq)
 }
 
 fn short_socket_token() -> String {
-    let millis = SystemTime::now()
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    format!("{:x}{:x}", millis & 0xfffff, std::process::id() & 0xffff)
+        .as_nanos();
+    let seq = next_unique_sequence();
+    format!(
+        "{:x}{:x}{:x}",
+        nanos & 0xfffff,
+        std::process::id() & 0xffff,
+        seq & 0xfff
+    )
+}
+
+fn next_unique_sequence() -> u64 {
+    static UNIQUE_SEQ: AtomicU64 = AtomicU64::new(0);
+    UNIQUE_SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
 fn install_fake_opener_scripts(fake_bin_dir: &Path) -> Result<(), String> {

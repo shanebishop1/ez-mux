@@ -36,52 +36,101 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    run_with_io_and_opener(args, env, os, stdout, stderr, &logging::ProcessLogOpener)
+}
+
+fn run_with_io_and_opener<I, T>(
+    args: I,
+    env: &impl config::EnvProvider,
+    os: OperatingSystem,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    opener: &impl logging::LogOpener,
+) -> i32
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
     let launch_log = match logging::initialize_launch_log_with_defaults(env, os) {
         Ok(launch_log) => launch_log,
         Err(error) => {
-            let _ = writeln!(stderr, "error: {error}");
+            if let Err(code) = checked_write(writeln!(stderr, "error: {error}"), stderr) {
+                return code;
+            }
             return ExitCode::RuntimeFailure.as_i32();
         }
     };
 
     if let Some(warning) = &launch_log.warning {
-        let _ = writeln!(stderr, "warning: {warning}");
+        if let Err(code) = checked_write(writeln!(stderr, "warning: {warning}"), stderr) {
+            return code;
+        }
     }
-    let _ = writeln!(
+    if let Err(code) = checked_write(
+        writeln!(
+            stderr,
+            "active log file: {}",
+            launch_log.file_path.display()
+        ),
         stderr,
-        "active log file: {}",
-        launch_log.file_path.display()
-    );
+    ) {
+        return code;
+    }
 
     match cli::Cli::try_parse_from(args) {
-        Ok(cli) => match app::execute(cli, env, os, &launch_log.root) {
+        Ok(cli) => match app::execute_with_opener(cli, env, os, &launch_log.root, opener) {
             Ok(message) => {
-                let _ = writeln!(stdout, "{message}");
+                if let Err(code) = checked_write(writeln!(stdout, "{message}"), stderr) {
+                    return code;
+                }
                 ExitCode::Success.as_i32()
             }
             Err(error) => {
-                let _ = writeln!(stderr, "error: {error}");
+                if let Err(code) = checked_write(writeln!(stderr, "error: {error}"), stderr) {
+                    return code;
+                }
                 ExitCode::from_app_error(&error).as_i32()
             }
         },
         Err(parse_error) => match parse_error.kind() {
             clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
-                let _ = write!(stdout, "{parse_error}");
+                if let Err(code) = checked_write(write!(stdout, "{parse_error}"), stderr) {
+                    return code;
+                }
                 ExitCode::Success.as_i32()
             }
             _ => {
-                let _ = write!(stderr, "{parse_error}");
+                if let Err(code) = checked_write(write!(stderr, "{parse_error}"), stderr) {
+                    return code;
+                }
                 ExitCode::UsageOrConfigFailure.as_i32()
             }
         },
     }
 }
 
+fn checked_write(result: std::io::Result<()>, stderr: &mut impl Write) -> Result<(), i32> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {
+            Err(ExitCode::Success.as_i32())
+        }
+        Err(error) => {
+            let _ = writeln!(stderr, "error: failed writing output: {error}");
+            Err(ExitCode::RuntimeFailure.as_i32())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::path::Path;
+
     use super::*;
 
     use crate::config::OperatingSystem;
+    use crate::logging::LogOpener;
 
     #[derive(Default)]
     struct TestEnv {
@@ -104,6 +153,14 @@ mod tests {
                 temp.path().display().to_string(),
             );
             (Self { vars }, temp)
+        }
+    }
+
+    struct FailingOpener;
+
+    impl LogOpener for FailingOpener {
+        fn open(&self, _: OperatingSystem, _: &Path) -> io::Result<()> {
+            Err(io::Error::other("simulated opener failure"))
         }
     }
 
@@ -248,12 +305,13 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        let code = run_with_io(
+        let code = run_with_io_and_opener(
             ["ezm", "logs", "open-latest"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
             &mut stderr,
+            &FailingOpener,
         );
 
         assert_eq!(code, ExitCode::RuntimeFailure.as_i32());
@@ -298,5 +356,68 @@ mod tests {
         assert!(stderr.contains("active log file:"));
         assert!(stderr.contains("error:"));
         assert!(stderr.contains("invalid TOML"));
+    }
+
+    struct BrokenPipeWriter;
+
+    impl std::io::Write for BrokenPipeWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "closed",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct OtherIoErrorWriter;
+
+    impl std::io::Write for OtherIoErrorWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn broken_pipe_on_stdout_returns_success() {
+        let (env, _state) = TestEnv::with_temp_state();
+        let mut stdout = BrokenPipeWriter;
+        let mut stderr = Vec::new();
+
+        let code = run_with_io(
+            ["ezm", "repair"],
+            &env,
+            OperatingSystem::Linux,
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::Success.as_i32());
+    }
+
+    #[test]
+    fn non_broken_pipe_stdout_write_failure_is_runtime_failure() {
+        let (env, _state) = TestEnv::with_temp_state();
+        let mut stdout = OtherIoErrorWriter;
+        let mut stderr = Vec::new();
+
+        let code = run_with_io(
+            ["ezm", "repair"],
+            &env,
+            OperatingSystem::Linux,
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::RuntimeFailure.as_i32());
+        let stderr = String::from_utf8(stderr).expect("utf8");
+        assert!(stderr.contains("failed writing output"));
     }
 }

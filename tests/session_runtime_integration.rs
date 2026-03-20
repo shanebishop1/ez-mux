@@ -66,6 +66,29 @@ impl TmuxClient for FakeTmux {
 
         Ok(())
     }
+
+    fn validate_session_invariants(
+        &self,
+        _session_name: &str,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        Ok(())
+    }
+
+    fn bootstrap_default_layout(
+        &self,
+        _session_name: &str,
+        _project_dir: &Path,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        Ok(())
+    }
+
+    fn swap_slot_with_center(
+        &self,
+        _session_name: &str,
+        _slot_id: u8,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -175,6 +198,21 @@ fn slot_targeted_mode_switch_surfaces_tmux_failures() {
 }
 
 #[test]
+fn slot_targeted_mode_switch_rejects_non_canonical_slot_id_at_runtime_boundary() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let error = switch_slot_mode("ezm-session-77", 9, SlotMode::Agent, &tmux)
+        .expect_err("mode switch should reject non-canonical slot id");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("outside canonical range 1..5"));
+    assert!(tmux.mode_switches.borrow().is_empty());
+}
+
+#[test]
 fn per_mode_launch_contracts_define_runtime_command_and_hooks() {
     let shell = mode_launch_contract(SlotMode::Shell);
     let agent = mode_launch_contract(SlotMode::Agent);
@@ -182,9 +220,19 @@ fn per_mode_launch_contracts_define_runtime_command_and_hooks() {
     let lazygit = mode_launch_contract(SlotMode::Lazygit);
 
     assert!(shell.launch_command.contains("SHELL"));
+    assert!(shell.launch_command.contains("\"${SHELL:-/bin/sh}\""));
     assert!(agent.launch_command.contains("opencode"));
     assert!(neovim.launch_command.contains("nvim"));
     assert!(lazygit.launch_command.contains("lazygit"));
+    assert!(!agent.launch_command.contains("|| true"));
+    assert!(!neovim.launch_command.contains("|| true"));
+    assert!(!lazygit.launch_command.contains("|| true"));
+    assert!(
+        agent
+            .launch_command
+            .contains("mode tool opencode exited with status")
+    );
+    assert!(agent.launch_command.contains("\"${SHELL:-/bin/sh}\""));
     assert_eq!(shell.teardown_hooks.len(), 0);
     assert_eq!(agent.teardown_hooks.len(), 1);
     assert_eq!(neovim.teardown_hooks.len(), 1);

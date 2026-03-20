@@ -27,6 +27,14 @@ pub enum SlotRegistryError {
     InvalidPaneCount { pane_count: usize },
     #[error("at least one worktree is required for slot assignment")]
     MissingWorktrees,
+    #[error(
+        "pane {pane_id} is already bound to slot {existing_slot_id}; cannot also bind slot {conflicting_slot_id}"
+    )]
+    DuplicatePaneBinding {
+        pane_id: String,
+        existing_slot_id: u8,
+        conflicting_slot_id: u8,
+    },
 }
 
 impl SlotRegistry {
@@ -43,6 +51,16 @@ impl SlotRegistry {
     ) -> Result<(), SlotRegistryError> {
         if !CANONICAL_SLOT_IDS.contains(&slot_id) {
             return Err(SlotRegistryError::InvalidSlotId { slot_id });
+        }
+
+        for (&existing_slot_id, existing_binding) in &self.slots {
+            if existing_slot_id != slot_id && existing_binding.pane_id == pane_id {
+                return Err(SlotRegistryError::DuplicatePaneBinding {
+                    pane_id,
+                    existing_slot_id,
+                    conflicting_slot_id: slot_id,
+                });
+            }
         }
 
         if let Some(existing) = self.slots.get(&slot_id) {
@@ -120,6 +138,7 @@ mod tests {
     use super::SlotRegistry;
     use super::SlotRegistryError;
     use super::assign_worktrees_to_slots;
+    use super::build_registry_for_canonical_panes;
 
     #[test]
     fn deterministic_assignment_maps_worktrees_to_slots_1_through_5() {
@@ -172,5 +191,50 @@ mod tests {
             .expect_err("remap should fail");
 
         assert_eq!(error, SlotRegistryError::RemapBlocked { slot_id: 1 });
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_pane_identity_across_slots() {
+        let mut registry = SlotRegistry::default();
+        registry
+            .bind(1, String::from("%10"), std::path::PathBuf::from("/wt/1"))
+            .expect("initial bind should succeed");
+
+        let error = registry
+            .bind(2, String::from("%10"), std::path::PathBuf::from("/wt/2"))
+            .expect_err("duplicate pane id across slots should fail");
+
+        assert_eq!(
+            error,
+            SlotRegistryError::DuplicatePaneBinding {
+                pane_id: String::from("%10"),
+                existing_slot_id: 1,
+                conflicting_slot_id: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn build_registry_rejects_duplicate_pane_id_input() {
+        let pane_ids = vec!["%10", "%10", "%12", "%13", "%14"]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>();
+        let worktrees = vec!["/wt/1", "/wt/2", "/wt/3", "/wt/4", "/wt/5"]
+            .into_iter()
+            .map(std::path::PathBuf::from)
+            .collect::<Vec<_>>();
+
+        let error = build_registry_for_canonical_panes(&pane_ids, &worktrees)
+            .expect_err("duplicate pane ids should violate registry invariants");
+
+        assert_eq!(
+            error,
+            SlotRegistryError::DuplicatePaneBinding {
+                pane_id: String::from("%10"),
+                existing_slot_id: 1,
+                conflicting_slot_id: 2,
+            }
+        );
     }
 }

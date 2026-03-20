@@ -1,19 +1,25 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub(super) fn discover_worktrees_for_slots(project_dir: &Path) -> Vec<PathBuf> {
-    let mut discovered = Vec::new();
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct WorktreeDiscovery {
+    pub(super) worktrees: Vec<PathBuf>,
+    pub(super) warning: Option<String>,
+}
 
-    let output = Command::new("git")
+pub(super) fn discover_worktrees_for_slots(project_dir: &Path) -> WorktreeDiscovery {
+    let mut discovered = Vec::new();
+    let mut warning = None;
+
+    match Command::new("git")
         .arg("-C")
         .arg(project_dir)
         .arg("worktree")
         .arg("list")
         .arg("--porcelain")
-        .output();
-
-    if let Ok(result) = output {
-        if result.status.success() {
+        .output()
+    {
+        Ok(result) if result.status.success() => {
             for line in String::from_utf8_lossy(&result.stdout).lines() {
                 if let Some(path) = line.strip_prefix("worktree ") {
                     let path = path.trim();
@@ -23,10 +29,42 @@ pub(super) fn discover_worktrees_for_slots(project_dir: &Path) -> Vec<PathBuf> {
                 }
             }
         }
+        Ok(result) => {
+            warning = Some(format_worktree_diagnostic(
+                "git worktree list returned non-zero status",
+                result.status,
+                &result.stdout,
+                &result.stderr,
+            ));
+        }
+        Err(error) => {
+            warning = Some(format!(
+                "git worktree list could not start: project_dir={}; error={error}",
+                project_dir.display()
+            ));
+        }
     }
 
     discovered.push(project_dir.to_path_buf());
-    normalize_worktrees(project_dir, discovered)
+    WorktreeDiscovery {
+        worktrees: normalize_worktrees(project_dir, discovered),
+        warning,
+    }
+}
+
+fn format_worktree_diagnostic(
+    context: &str,
+    status: std::process::ExitStatus,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> String {
+    let status = status
+        .code()
+        .map_or_else(|| String::from("signal"), |code| code.to_string());
+    let stdout = String::from_utf8_lossy(stdout).trim().to_owned();
+    let stderr = String::from_utf8_lossy(stderr).trim().to_owned();
+
+    format!("{context}; status={status}; stdout={stdout:?}; stderr={stderr:?}")
 }
 
 fn normalize_worktrees(project_dir: &Path, candidates: Vec<PathBuf>) -> Vec<PathBuf> {

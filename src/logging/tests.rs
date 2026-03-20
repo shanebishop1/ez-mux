@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 use super::Clock;
 use super::LogOpener;
 use super::LoggingError;
+use super::ProcessLogOpener;
 use super::RunIdSource;
 use super::fallback_log_root;
 use super::initialize_launch_log;
@@ -87,6 +88,20 @@ fn linux_empty_xdg_state_home_falls_back_to_home_state() {
 }
 
 #[test]
+fn linux_whitespace_xdg_state_home_falls_back_to_home_state() {
+    let mut env = HashMap::new();
+    env.insert(String::from("XDG_STATE_HOME"), String::from("   \t"));
+    env.insert(String::from("HOME"), String::from("/tmp/home"));
+
+    let resolved =
+        resolve_primary_log_root(&env, OperatingSystem::Linux).expect("path should resolve");
+    assert_eq!(
+        resolved,
+        std::path::PathBuf::from("/tmp/home/.local/state/ez-mux/logs")
+    );
+}
+
+#[test]
 fn linux_log_root_falls_back_to_home_state() {
     let mut env = HashMap::new();
     env.insert(String::from("HOME"), String::from("/tmp/home"));
@@ -120,6 +135,15 @@ fn macos_log_root_uses_library_logs() {
         resolved,
         std::path::PathBuf::from("/Users/tester/Library/Logs/ez-mux")
     );
+}
+
+#[test]
+fn unsupported_platform_is_rejected_for_log_roots() {
+    let env = HashMap::<String, String>::new();
+
+    let error =
+        resolve_primary_log_root(&env, OperatingSystem::Unsupported).expect_err("must fail");
+    assert!(matches!(error, LoggingError::UnsupportedPlatform { .. }));
 }
 
 #[test]
@@ -216,6 +240,32 @@ fn selects_and_opens_latest_log() {
 }
 
 #[test]
+fn latest_log_prefers_parsed_timestamp_over_filename_lexical_order() {
+    let root = tempdir().expect("root");
+    fs::write(
+        root.path().join("zzzzzzzz-999999-not-a-timestamp.log"),
+        "junk",
+    )
+    .expect("write junk");
+    fs::write(root.path().join("20260319-101700-run-2.log"), "new").expect("write canonical");
+
+    let latest = latest_log_file(root.path()).expect("latest log path");
+    assert_eq!(latest, root.path().join("20260319-101700-run-2.log"));
+}
+
+#[test]
+fn latest_log_falls_back_to_file_mtime_when_name_timestamp_is_unparseable() {
+    let root = tempdir().expect("root");
+    let older = root.path().join("invalid-a.log");
+    let newer = root.path().join("invalid-b.log");
+    fs::write(&older, "old").expect("write old");
+    fs::write(&newer, "new").expect("write new");
+
+    let latest = latest_log_file(root.path()).expect("latest log path");
+    assert_eq!(latest, newer);
+}
+
+#[test]
 fn returns_error_when_no_logs_exist() {
     let root = tempdir().expect("root");
 
@@ -232,4 +282,16 @@ fn returns_error_when_open_command_fails() {
         .expect_err("open should fail");
 
     assert!(matches!(error, LoggingError::OpenLogFailed { .. }));
+}
+
+#[test]
+fn process_log_opener_rejects_unsupported_platform() {
+    let root = tempdir().expect("root");
+    let path = root.path().join("20260319-101700-run-2.log");
+    fs::write(&path, "new").expect("write new");
+
+    let error = ProcessLogOpener
+        .open(OperatingSystem::Unsupported, &path)
+        .expect_err("unsupported platform should fail");
+    assert_eq!(error.kind(), io::ErrorKind::Unsupported);
 }

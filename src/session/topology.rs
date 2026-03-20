@@ -2,6 +2,9 @@ pub const DEFAULT_CENTER_WIDTH_PCT: u8 = 38;
 pub const CENTER_WIDTH_TOLERANCE_PCT: u8 = 3;
 
 #[must_use]
+/// # Panics
+/// Panics if intermediate width math exceeds `u16` bounds, which should be unreachable
+/// because all inputs and clamping derive from `window_width: u16`.
 pub fn canonical_five_pane_column_widths(
     window_width: u16,
     center_width_pct: u8,
@@ -18,9 +21,9 @@ pub fn canonical_five_pane_column_widths(
     let right = side_total - left;
 
     (
-        u16::try_from(left).unwrap_or(1),
-        u16::try_from(center).unwrap_or(1),
-        u16::try_from(right).unwrap_or(1),
+        u16::try_from(left).expect("left width must fit u16 after bounded arithmetic"),
+        u16::try_from(center).expect("center width must fit u16 after bounded arithmetic"),
+        u16::try_from(right).expect("right width must fit u16 after bounded arithmetic"),
     )
 }
 

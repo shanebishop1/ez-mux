@@ -80,10 +80,64 @@ fn project_slug(project_dir: &Path) -> String {
 
 fn stable_project_key(project_dir: &Path) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in project_dir.to_string_lossy().as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
+    hash_path_bytes(&mut hash, project_dir);
 
     format!("{hash:016x}")
+}
+
+#[cfg(unix)]
+fn hash_path_bytes(hash: &mut u64, project_dir: &Path) {
+    use std::os::unix::ffi::OsStrExt;
+
+    for byte in project_dir.as_os_str().as_bytes() {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
+#[cfg(windows)]
+fn hash_path_bytes(hash: &mut u64, project_dir: &Path) {
+    use std::os::windows::ffi::OsStrExt;
+
+    for word in project_dir.as_os_str().encode_wide() {
+        for byte in word.to_le_bytes() {
+            *hash ^= u64::from(byte);
+            *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn hash_path_bytes(hash: &mut u64, project_dir: &Path) {
+    for byte in project_dir.to_string_lossy().as_bytes() {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stable_project_key;
+    use std::path::Path;
+
+    #[test]
+    fn stable_project_key_is_deterministic() {
+        let key_a = stable_project_key(Path::new("/tmp/project"));
+        let key_b = stable_project_key(Path::new("/tmp/project"));
+        assert_eq!(key_a, key_b);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stable_project_key_uses_raw_unix_path_bytes() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let raw_bytes = vec![0x2f, 0x74, 0x6d, 0x70, 0x2f, 0x66, 0x6f, 0x80, 0x6f];
+        let os = OsString::from_vec(raw_bytes);
+        let path = std::path::PathBuf::from(os);
+
+        let key = stable_project_key(&path);
+        assert_eq!(key.len(), 16);
+    }
 }

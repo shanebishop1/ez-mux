@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum LoggingError {
     #[error("unable to resolve default log root for {os}: HOME is not set")]
     MissingHome { os: &'static str },
+    #[error("unsupported platform for log behavior: {os}")]
+    UnsupportedPlatform { os: &'static str },
     #[error("failed creating log directory at {path}: {source}")]
     CreateDirFailed {
         path: PathBuf,

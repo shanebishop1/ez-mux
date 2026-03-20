@@ -1,12 +1,33 @@
+use std::sync::OnceLock;
+
 use super::CANONICAL_SLOT_IDS;
 use super::PaneWidthSample;
 use super::SessionError;
+use super::ZoomFlagSupport;
 use super::command::{tmux_output_value, tmux_run};
 use super::options::{
     canonical_slot_mismatch_error, required_pane_option, required_session_option,
 };
 use super::pick_center_pane;
-use super::supports_zoom_flag_fallback;
+use super::tmux_diagnostics_exit_status;
+use super::zoom_flag_support_for_command;
+
+#[derive(Debug, Clone, Copy)]
+struct ZoomFlagCapabilities {
+    swap_pane: ZoomFlagSupport,
+    select_pane: ZoomFlagSupport,
+}
+
+impl Default for ZoomFlagCapabilities {
+    fn default() -> Self {
+        Self {
+            swap_pane: ZoomFlagSupport::Unknown,
+            select_pane: ZoomFlagSupport::Unknown,
+        }
+    }
+}
+
+static ZOOM_FLAG_CAPABILITIES: OnceLock<ZoomFlagCapabilities> = OnceLock::new();
 
 pub(super) fn swap_slot_with_center(session_name: &str, slot_id: u8) -> Result<(), SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -118,32 +139,100 @@ fn swap_panes_preserve_zoom(
     source_pane_id: &str,
     target_pane_id: &str,
 ) -> Result<(), SessionError> {
-    match tmux_run(&[
+    let capabilities = zoom_flag_capabilities();
+    let with_zoom_args = [
         "swap-pane",
         "-Z",
         "-s",
         source_pane_id,
         "-t",
         target_pane_id,
-    ]) {
+    ];
+    let without_zoom_args = ["swap-pane", "-s", source_pane_id, "-t", target_pane_id];
+
+    run_with_zoom_fallback(
+        "swap-pane",
+        capabilities.swap_pane,
+        &with_zoom_args,
+        &without_zoom_args,
+    )
+}
+
+fn zoom_flag_capabilities() -> ZoomFlagCapabilities {
+    *ZOOM_FLAG_CAPABILITIES.get_or_init(|| match tmux_output_value(&["list-commands"]) {
+        Ok(command_listing) => ZoomFlagCapabilities {
+            swap_pane: zoom_flag_support_for_command(&command_listing, "swap-pane"),
+            select_pane: zoom_flag_support_for_command(&command_listing, "select-pane"),
+        },
+        Err(_) => ZoomFlagCapabilities::default(),
+    })
+}
+
+fn run_with_zoom_fallback(
+    command_name: &str,
+    zoom_support: ZoomFlagSupport,
+    with_zoom_args: &[&str],
+    without_zoom_args: &[&str],
+) -> Result<(), SessionError> {
+    if zoom_support == ZoomFlagSupport::Unsupported {
+        return tmux_run(without_zoom_args);
+    }
+
+    match tmux_run(with_zoom_args) {
         Ok(()) => Ok(()),
-        Err(SessionError::TmuxCommandFailed { command: _, stderr })
-            if supports_zoom_flag_fallback(&stderr) =>
+        Err(SessionError::TmuxCommandFailed { command, stderr })
+            if should_retry_without_zoom(command_name, &command, &stderr) =>
         {
-            tmux_run(&["swap-pane", "-s", source_pane_id, "-t", target_pane_id])
+            tmux_run(without_zoom_args)
         }
         Err(error) => Err(error),
     }
 }
 
 fn select_pane_preserve_zoom(pane_id: &str) -> Result<(), SessionError> {
-    match tmux_run(&["select-pane", "-Z", "-t", pane_id]) {
-        Ok(()) => Ok(()),
-        Err(SessionError::TmuxCommandFailed { command: _, stderr })
-            if supports_zoom_flag_fallback(&stderr) =>
-        {
-            tmux_run(&["select-pane", "-t", pane_id])
-        }
-        Err(error) => Err(error),
+    let capabilities = zoom_flag_capabilities();
+    let with_zoom_args = ["select-pane", "-Z", "-t", pane_id];
+    let without_zoom_args = ["select-pane", "-t", pane_id];
+
+    run_with_zoom_fallback(
+        "select-pane",
+        capabilities.select_pane,
+        &with_zoom_args,
+        &without_zoom_args,
+    )
+}
+
+fn should_retry_without_zoom(command_name: &str, command: &str, stderr: &str) -> bool {
+    command_starts_with_zoom_flag(command_name, command)
+        && tmux_diagnostics_exit_status(stderr) == Some(1)
+}
+
+fn command_starts_with_zoom_flag(command_name: &str, command: &str) -> bool {
+    let mut parts = command.split_ascii_whitespace();
+    matches!(parts.next(), Some(name) if name == command_name)
+        && matches!(parts.next(), Some(flag) if flag == "-Z")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_retry_without_zoom;
+
+    #[test]
+    fn retries_only_for_zoom_attempts_with_status_one() {
+        assert!(should_retry_without_zoom(
+            "swap-pane",
+            "swap-pane -Z -s %1 -t %2",
+            "status=1; stdout=\"\"; stderr=\"unknown option -- Z\""
+        ));
+        assert!(!should_retry_without_zoom(
+            "swap-pane",
+            "swap-pane -s %1 -t %2",
+            "status=1; stdout=\"\"; stderr=\"pane not found\""
+        ));
+        assert!(!should_retry_without_zoom(
+            "swap-pane",
+            "swap-pane -Z -s %1 -t %2",
+            "status=127; stdout=\"\"; stderr=\"pane not found\""
+        ));
     }
 }

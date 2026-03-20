@@ -14,6 +14,7 @@ pub const OPERATOR_ENV: &str = "OPERATOR";
 pub enum OperatingSystem {
     Linux,
     MacOs,
+    Unsupported,
 }
 
 impl OperatingSystem {
@@ -21,8 +22,10 @@ impl OperatingSystem {
     pub fn current() -> Self {
         if cfg!(target_os = "macos") {
             Self::MacOs
-        } else {
+        } else if cfg!(target_os = "linux") {
             Self::Linux
+        } else {
+            Self::Unsupported
         }
     }
 
@@ -31,6 +34,7 @@ impl OperatingSystem {
         match self {
             Self::Linux => "Linux",
             Self::MacOs => "macOS",
+            Self::Unsupported => "unsupported platform",
         }
     }
 }
@@ -57,6 +61,8 @@ impl<S: BuildHasher> EnvProvider for HashMap<String, String, S> {
 pub enum ConfigError {
     #[error("unable to resolve default config path for {os}: HOME is not set")]
     MissingHome { os: &'static str },
+    #[error("unsupported platform for config path resolution: {os}")]
+    UnsupportedPlatform { os: &'static str },
     #[error("failed reading config file at {path}: {source}")]
     ReadFailed {
         path: PathBuf,
@@ -117,18 +123,20 @@ pub fn resolve_config_path(
     env: &impl EnvProvider,
     os: OperatingSystem,
 ) -> Result<PathBuf, ConfigError> {
-    if let Some(explicit_path) = env.get_var(EZM_CONFIG_ENV) {
+    if let Some(explicit_path) = env_var_non_empty(env, EZM_CONFIG_ENV) {
         return Ok(PathBuf::from(explicit_path));
     }
 
     match os {
         OperatingSystem::Linux => {
-            if let Some(xdg_home) = env.get_var("XDG_CONFIG_HOME") {
+            if let Some(xdg_home) = env_var_non_empty(env, "XDG_CONFIG_HOME") {
                 return Ok(PathBuf::from(xdg_home).join("ez-mux").join("config.toml"));
             }
 
             let home = env
                 .get_var("HOME")
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
                 .ok_or(ConfigError::MissingHome { os: os.label() })?;
 
             Ok(PathBuf::from(home)
@@ -139,6 +147,8 @@ pub fn resolve_config_path(
         OperatingSystem::MacOs => {
             let home = env
                 .get_var("HOME")
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
                 .ok_or(ConfigError::MissingHome { os: os.label() })?;
 
             Ok(PathBuf::from(home)
@@ -147,7 +157,14 @@ pub fn resolve_config_path(
                 .join("ez-mux")
                 .join("config.toml"))
         }
+        OperatingSystem::Unsupported => Err(ConfigError::UnsupportedPlatform { os: os.label() }),
     }
+}
+
+fn env_var_non_empty(env: &impl EnvProvider, key: &str) -> Option<String> {
+    env.get_var(key)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 /// Loads and parses config from the resolved v1 config path.
@@ -275,6 +292,28 @@ mod tests {
 
         let path = resolve_config_path(&env, OperatingSystem::Linux).expect("path should resolve");
         assert_eq!(path, std::path::PathBuf::from("/custom/path.toml"));
+    }
+
+    #[test]
+    fn whitespace_only_env_values_are_treated_as_unset() {
+        let mut env = HashMap::new();
+        env.insert(String::from(EZM_CONFIG_ENV), String::from("   \t"));
+        env.insert(String::from("XDG_CONFIG_HOME"), String::from("   "));
+        env.insert(String::from("HOME"), String::from("/tmp/home"));
+
+        let path = resolve_config_path(&env, OperatingSystem::Linux).expect("path should resolve");
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/tmp/home/.config/ez-mux/config.toml")
+        );
+    }
+
+    #[test]
+    fn unsupported_platform_returns_typed_error() {
+        let env = HashMap::<String, String>::new();
+
+        let error = resolve_config_path(&env, OperatingSystem::Unsupported).expect_err("must fail");
+        assert!(matches!(error, ConfigError::UnsupportedPlatform { .. }));
     }
 
     #[test]
