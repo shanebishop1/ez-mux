@@ -11,16 +11,19 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let first = harness
         .run_ezm(&[], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-01 first launch failed: {error}"));
+    let first_session = extract_stdout_field(&first.stdout, "session").unwrap_or_default();
+    let second_probe = harness
+        .run_ezm_with_pty_attach_probe(harness.project_root(), &[], &[], 0, &first_session)
+        .unwrap_or_else(|error| panic!("E2E-01 second launch failed: {error}"));
     let second = harness
         .run_ezm(&[], &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-01 second launch failed: {error}"));
+        .unwrap_or_else(|error| panic!("E2E-01 third launch failed: {error}"));
 
     samples.push(sample(&[], &first));
     samples.push(sample(&[], &second));
 
     let first_action = extract_stdout_field(&first.stdout, "session_action").unwrap_or_default();
     let second_action = extract_stdout_field(&second.stdout, "session_action").unwrap_or_default();
-    let first_session = extract_stdout_field(&first.stdout, "session").unwrap_or_default();
     let second_session = extract_stdout_field(&second.stdout, "session").unwrap_or_default();
 
     assertions.push(format!("first action = {first_action}"));
@@ -31,6 +34,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "session names match = {}",
         first_session == second_session
     ));
+    assertions.push(format!(
+        "interactive attach observed tmux client = {}",
+        second_probe.observed_attached_client
+    ));
+    assertions.push(format!("pty probe exit code = {}", second_probe.exit_code));
 
     let settle = settle_snapshot(harness, "E2E-01");
     let sessions: Vec<&str> = settle
@@ -51,11 +59,13 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     ));
 
     let pass = first.exit_code == 0
+        && second_probe.exit_code == 0
         && second.exit_code == 0
         && first_action == "create"
         && second_action == "attach"
         && !first_session.is_empty()
         && first_session == second_session
+        && second_probe.observed_attached_client
         && session_exists
         && settle.stable;
 
