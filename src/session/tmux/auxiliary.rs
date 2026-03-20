@@ -44,7 +44,18 @@ pub(super) fn auxiliary_viewer(
         .trim()
         .to_owned();
 
-        tmux_run(&["set-option", "-w", "-t", &window_id, "remain-on-exit", "on"])?;
+        if let Err(error) =
+            tmux_run(&["set-option", "-w", "-t", &window_id, "remain-on-exit", "on"])
+        {
+            let no_such_window_race = matches!(
+                &error,
+                SessionError::TmuxCommandFailed { stderr, .. }
+                    if stderr.contains("no such window")
+            );
+            if !no_such_window_race {
+                return Err(error);
+            }
+        }
 
         return Ok(AuxiliaryViewerOutcome {
             session_name: session_name.to_owned(),

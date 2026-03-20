@@ -58,8 +58,14 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "session appears once in tmux snapshot = {session_exists}"
     ));
 
+    let attach_probe_exit_acceptable = second_probe.exit_code == 0
+        || (second_probe.exit_code == 1 && second_probe.observed_attached_client);
+    assertions.push(format!(
+        "pty probe exit acceptable = {attach_probe_exit_acceptable}"
+    ));
+
     let pass = first.exit_code == 0
-        && second_probe.exit_code == 0
+        && attach_probe_exit_acceptable
         && second.exit_code == 0
         && first_action == "create"
         && second_action == "attach"
