@@ -98,11 +98,16 @@ pub fn assign_worktrees_to_slots(
         return Err(SlotRegistryError::MissingWorktrees);
     }
 
+    let fallback = worktrees[0].clone();
+
     Ok(CANONICAL_SLOT_IDS
         .iter()
         .enumerate()
         .map(|(index, slot_id)| {
-            let worktree = worktrees[index % worktrees.len()].clone();
+            let worktree = worktrees
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| fallback.clone());
             (*slot_id, worktree)
         })
         .collect())
@@ -164,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_assignment_uses_bounded_round_robin_for_fewer_worktrees() {
+    fn deterministic_assignment_uses_root_fallback_for_underfilled_candidates() {
         let worktrees = vec!["/wt/a", "/wt/b"]
             .into_iter()
             .map(std::path::PathBuf::from)
@@ -175,7 +180,7 @@ mod tests {
         assert_eq!(assigned[0], (1, std::path::PathBuf::from("/wt/a")));
         assert_eq!(assigned[1], (2, std::path::PathBuf::from("/wt/b")));
         assert_eq!(assigned[2], (3, std::path::PathBuf::from("/wt/a")));
-        assert_eq!(assigned[3], (4, std::path::PathBuf::from("/wt/b")));
+        assert_eq!(assigned[3], (4, std::path::PathBuf::from("/wt/a")));
         assert_eq!(assigned[4], (5, std::path::PathBuf::from("/wt/a")));
     }
 

@@ -40,6 +40,15 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     ));
     assertions.push(format!("pty probe exit code = {}", second_probe.exit_code));
 
+    let create_keybind_present = keybind_matrix_present(harness);
+    let attach_keybind_present = keybind_matrix_present(harness);
+    assertions.push(format!(
+        "keybind matrix present after create path = {create_keybind_present}"
+    ));
+    assertions.push(format!(
+        "keybind matrix present after attach path = {attach_keybind_present}"
+    ));
+
     let settle = settle_snapshot(harness, "E2E-01");
     let sessions: Vec<&str> = settle
         .sessions
@@ -72,6 +81,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && !first_session.is_empty()
         && first_session == second_session
         && second_probe.observed_attached_client
+        && create_keybind_present
+        && attach_keybind_present
         && session_exists
         && settle.stable;
 
@@ -91,4 +102,25 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         remote_path: None,
         helper_state: None,
     }
+}
+
+fn keybind_matrix_present(harness: &FoundationHarness) -> bool {
+    let key_checks = [
+        ("prefix", "g", "ezm-swap"),
+        ("prefix", "u", "__internal mode"),
+        ("prefix", "a", "--mode agent"),
+        ("prefix", "S", "--mode shell"),
+        ("prefix", "N", "--mode neovim"),
+        ("prefix", "G", "--mode lazygit"),
+        ("prefix", "P", "__internal popup"),
+        ("prefix", "M-3", "__internal preset"),
+        ("ezm-swap", "1", "__internal swap"),
+    ];
+
+    key_checks.iter().all(|(table, key, marker)| {
+        harness
+            .tmux_capture(&["list-keys", "-T", table, key])
+            .unwrap_or_default()
+            .contains(marker)
+    })
 }
