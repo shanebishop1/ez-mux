@@ -8,7 +8,9 @@ use serde::Serialize;
 
 use crate::support::foundation_harness::{CmdOutput, FoundationHarness, TmuxSettleEvidence};
 
-pub(super) const CORE_IDS: [&str; 6] = ["E2E-01", "E2E-02", "E2E-03", "E2E-04", "E2E-05", "E2E-06"];
+pub(super) const CORE_IDS: [&str; 8] = [
+    "E2E-01", "E2E-02", "E2E-03", "E2E-04", "E2E-05", "E2E-06", "E2E-07", "E2E-08",
+];
 const CENTER_WIDTH_TARGET_PCT: i32 = 38;
 const CENTER_WIDTH_TOLERANCE_PCT: i32 = 3;
 pub(super) const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(50);

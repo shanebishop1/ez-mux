@@ -59,6 +59,26 @@ pub enum InternalCommand {
         #[arg(long)]
         mode: SlotMode,
     },
+    #[command(name = "popup")]
+    Popup {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        slot: u8,
+    },
+    #[command(name = "auxiliary")]
+    Auxiliary {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        action: AuxiliaryAction,
+    },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
+pub enum AuxiliaryAction {
+    Open,
+    Close,
 }
 
 #[cfg(test)]
@@ -67,7 +87,7 @@ mod tests {
 
     use crate::session::SlotMode;
 
-    use super::{Cli, Command, InternalCommand, LogsCommand};
+    use super::{AuxiliaryAction, Cli, Command, InternalCommand, LogsCommand};
 
     #[test]
     fn parses_default_invocation() {
@@ -132,6 +152,52 @@ mod tests {
                     session: String::from("ezm-test-session"),
                     slot: 4,
                     mode: SlotMode::Neovim,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_internal_popup_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "popup",
+            "--session",
+            "ezm-test-session",
+            "--slot",
+            "4",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Popup {
+                    session: String::from("ezm-test-session"),
+                    slot: 4,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_internal_auxiliary_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "auxiliary",
+            "--session",
+            "ezm-test-session",
+            "--action",
+            "open",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Auxiliary {
+                    session: String::from("ezm-test-session"),
+                    action: AuxiliaryAction::Open,
                 },
             })
         );

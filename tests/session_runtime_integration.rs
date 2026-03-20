@@ -5,10 +5,12 @@ use std::path::{Path, PathBuf};
 use ez_mux::session::SessionAction;
 use ez_mux::session::SlotMode;
 use ez_mux::session::TmuxClient;
+use ez_mux::session::auxiliary_viewer;
 use ez_mux::session::ensure_project_session;
 use ez_mux::session::mode_launch_contract;
 use ez_mux::session::resolve_session_identity;
 use ez_mux::session::switch_slot_mode;
+use ez_mux::session::toggle_popup_shell;
 
 #[derive(Default)]
 struct FakeTmux {
@@ -17,6 +19,12 @@ struct FakeTmux {
     attached: RefCell<Vec<String>>,
     mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
     mode_switch_error: RefCell<Option<String>>,
+    popup_toggles: RefCell<Vec<(String, u8)>>,
+    popup_toggle_error: RefCell<Option<String>>,
+    popup_toggle_open: RefCell<bool>,
+    auxiliary_calls: RefCell<Vec<(String, bool)>>,
+    auxiliary_error: RefCell<Option<String>>,
+    auxiliary_exists: RefCell<bool>,
     skipped_non_interactive_attach: RefCell<u32>,
     interactive_attach: bool,
 }
@@ -88,6 +96,76 @@ impl TmuxClient for FakeTmux {
         _slot_id: u8,
     ) -> Result<(), ez_mux::session::SessionError> {
         Ok(())
+    }
+
+    fn toggle_popup_shell(
+        &self,
+        session_name: &str,
+        slot_id: u8,
+    ) -> Result<ez_mux::session::PopupShellOutcome, ez_mux::session::SessionError> {
+        self.popup_toggles
+            .borrow_mut()
+            .push((session_name.to_string(), slot_id));
+
+        if let Some(stderr) = self.popup_toggle_error.borrow().as_ref() {
+            return Err(ez_mux::session::SessionError::TmuxCommandFailed {
+                command: String::from("__internal popup"),
+                stderr: stderr.clone(),
+            });
+        }
+
+        let was_open = *self.popup_toggle_open.borrow();
+        *self.popup_toggle_open.borrow_mut() = !was_open;
+
+        Ok(ez_mux::session::PopupShellOutcome {
+            session_name: session_name.to_owned(),
+            slot_id,
+            action: if was_open {
+                ez_mux::session::PopupShellAction::Closed
+            } else {
+                ez_mux::session::PopupShellAction::Opened
+            },
+            cwd: String::from("/tmp/popup-cwd"),
+            width_pct: 70,
+            height_pct: 70,
+        })
+    }
+
+    fn auxiliary_viewer(
+        &self,
+        session_name: &str,
+        open: bool,
+    ) -> Result<ez_mux::session::AuxiliaryViewerOutcome, ez_mux::session::SessionError> {
+        self.auxiliary_calls
+            .borrow_mut()
+            .push((session_name.to_string(), open));
+
+        if let Some(stderr) = self.auxiliary_error.borrow().as_ref() {
+            return Err(ez_mux::session::SessionError::TmuxCommandFailed {
+                command: String::from("__internal auxiliary"),
+                stderr: stderr.clone(),
+            });
+        }
+
+        let action = if open {
+            let existed = *self.auxiliary_exists.borrow();
+            *self.auxiliary_exists.borrow_mut() = true;
+            if existed {
+                ez_mux::session::AuxiliaryViewerAction::Reused
+            } else {
+                ez_mux::session::AuxiliaryViewerAction::Created
+            }
+        } else {
+            *self.auxiliary_exists.borrow_mut() = false;
+            ez_mux::session::AuxiliaryViewerAction::Closed
+        };
+
+        Ok(ez_mux::session::AuxiliaryViewerOutcome {
+            session_name: session_name.to_owned(),
+            action,
+            window_name: String::from("beads-viewer"),
+            window_id: Some(String::from("@9")),
+        })
     }
 }
 
@@ -237,4 +315,87 @@ fn per_mode_launch_contracts_define_runtime_command_and_hooks() {
     assert_eq!(agent.teardown_hooks.len(), 1);
     assert_eq!(neovim.teardown_hooks.len(), 1);
     assert_eq!(lazygit.teardown_hooks.len(), 1);
+}
+
+#[test]
+fn popup_toggle_routes_to_tmux_client_and_toggles_open_then_close() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let first = toggle_popup_shell("ezm-session-88", 2, &tmux).expect("first toggle");
+    let second = toggle_popup_shell("ezm-session-88", 2, &tmux).expect("second toggle");
+
+    assert_eq!(first.action, ez_mux::session::PopupShellAction::Opened);
+    assert_eq!(second.action, ez_mux::session::PopupShellAction::Closed);
+    assert_eq!(first.width_pct, 70);
+    assert_eq!(first.height_pct, 70);
+    assert_eq!(
+        tmux.popup_toggles.borrow().as_slice(),
+        &[
+            (String::from("ezm-session-88"), 2),
+            (String::from("ezm-session-88"), 2)
+        ]
+    );
+}
+
+#[test]
+fn popup_toggle_surfaces_tmux_failures() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        popup_toggle_error: RefCell::new(Some(String::from("display-popup failed"))),
+        ..FakeTmux::default()
+    };
+
+    let error = toggle_popup_shell("ezm-session-88", 2, &tmux).expect_err("popup should fail");
+
+    assert!(error.to_string().contains("display-popup failed"));
+    assert_eq!(tmux.popup_toggles.borrow().len(), 1);
+}
+
+#[test]
+fn auxiliary_viewer_create_reuse_close_is_deterministic() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let created = auxiliary_viewer("ezm-session-91", true, &tmux).expect("create");
+    let reused = auxiliary_viewer("ezm-session-91", true, &tmux).expect("reuse");
+    let closed = auxiliary_viewer("ezm-session-91", false, &tmux).expect("close");
+
+    assert_eq!(
+        created.action,
+        ez_mux::session::AuxiliaryViewerAction::Created
+    );
+    assert_eq!(
+        reused.action,
+        ez_mux::session::AuxiliaryViewerAction::Reused
+    );
+    assert_eq!(
+        closed.action,
+        ez_mux::session::AuxiliaryViewerAction::Closed
+    );
+    assert_eq!(
+        tmux.auxiliary_calls.borrow().as_slice(),
+        &[
+            (String::from("ezm-session-91"), true),
+            (String::from("ezm-session-91"), true),
+            (String::from("ezm-session-91"), false)
+        ]
+    );
+}
+
+#[test]
+fn auxiliary_viewer_surfaces_tmux_failures() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        auxiliary_error: RefCell::new(Some(String::from("new-window failed"))),
+        ..FakeTmux::default()
+    };
+
+    let error = auxiliary_viewer("ezm-session-91", true, &tmux).expect_err("aux should fail");
+    assert!(error.to_string().contains("new-window failed"));
+    assert_eq!(tmux.auxiliary_calls.borrow().len(), 1);
 }
