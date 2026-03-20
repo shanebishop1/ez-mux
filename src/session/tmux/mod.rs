@@ -9,6 +9,7 @@ use super::PopupShellOutcome;
 use super::SessionError;
 use super::SlotMode;
 use super::SlotRegistry;
+use super::TeardownOutcome;
 use super::ZoomFlagSupport;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
@@ -24,6 +25,7 @@ mod mode_runtime;
 mod options;
 mod popup;
 mod slot_swap;
+mod teardown;
 mod worktree;
 
 pub trait TmuxClient {
@@ -107,6 +109,12 @@ pub trait TmuxClient {
         session_name: &str,
         open: bool,
     ) -> Result<AuxiliaryViewerOutcome, SessionError>;
+
+    /// Removes helper sessions/processes and the project session.
+    ///
+    /// # Errors
+    /// Returns an error when teardown reconciliation fails.
+    fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError>;
 }
 
 pub struct ProcessTmuxClient;
@@ -199,5 +207,9 @@ impl TmuxClient for ProcessTmuxClient {
         open: bool,
     ) -> Result<AuxiliaryViewerOutcome, SessionError> {
         auxiliary::auxiliary_viewer(session_name, open)
+    }
+
+    fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError> {
+        teardown::teardown_session(session_name)
     }
 }

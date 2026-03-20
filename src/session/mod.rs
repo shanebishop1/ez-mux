@@ -10,6 +10,7 @@ mod resolver;
 mod runtime;
 mod slot_registry;
 mod swap;
+mod teardown;
 mod tmux;
 mod topology;
 
@@ -48,6 +49,8 @@ pub use swap::ZoomFlagSupport;
 pub use swap::pick_center_pane;
 pub use swap::tmux_diagnostics_exit_status;
 pub use swap::zoom_flag_support_for_command;
+pub use teardown::TeardownOutcome;
+pub use teardown::teardown_session;
 pub use tmux::{ProcessTmuxClient, TmuxClient};
 pub use topology::CENTER_WIDTH_TOLERANCE_PCT;
 pub use topology::DEFAULT_CENTER_WIDTH_PCT;

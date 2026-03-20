@@ -128,6 +128,19 @@ pub(crate) fn execute_with_opener(
                 outcome.window_id.unwrap_or_else(|| String::from("none"))
             )
         }
+        Some(Command::Internal {
+            command: InternalCommand::Teardown { session },
+        }) => {
+            let tmux = session::ProcessTmuxClient;
+            let outcome = session::teardown_session(&session, &tmux)?;
+            format!(
+                "internal teardown complete: session={}; project_session_removed={}; helper_sessions_removed={}; helper_processes_removed={}",
+                outcome.session_name,
+                outcome.project_session_removed,
+                outcome.helper_sessions_removed,
+                outcome.helper_processes_removed
+            )
+        }
     };
 
     Ok(message)

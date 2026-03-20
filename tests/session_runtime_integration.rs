@@ -11,6 +11,7 @@ use ez_mux::session::ensure_project_session_with_remote_prefix;
 use ez_mux::session::mode_launch_contract;
 use ez_mux::session::resolve_session_identity;
 use ez_mux::session::switch_slot_mode;
+use ez_mux::session::teardown_session;
 use ez_mux::session::toggle_popup_shell;
 
 #[derive(Default)]
@@ -27,6 +28,8 @@ struct FakeTmux {
     auxiliary_calls: RefCell<Vec<(String, bool)>>,
     auxiliary_error: RefCell<Option<String>>,
     auxiliary_exists: RefCell<bool>,
+    teardown_calls: RefCell<Vec<String>>,
+    teardown_project_removed: RefCell<bool>,
     skipped_non_interactive_attach: RefCell<u32>,
     interactive_attach: bool,
 }
@@ -172,6 +175,25 @@ impl TmuxClient for FakeTmux {
             action,
             window_name: String::from("beads-viewer"),
             window_id: Some(String::from("@9")),
+        })
+    }
+
+    fn teardown_session(
+        &self,
+        session_name: &str,
+    ) -> Result<ez_mux::session::TeardownOutcome, ez_mux::session::SessionError> {
+        self.teardown_calls
+            .borrow_mut()
+            .push(session_name.to_string());
+
+        let was_present = *self.teardown_project_removed.borrow();
+        *self.teardown_project_removed.borrow_mut() = true;
+
+        Ok(ez_mux::session::TeardownOutcome {
+            session_name: session_name.to_owned(),
+            helper_sessions_removed: if was_present { 0 } else { 2 },
+            helper_processes_removed: if was_present { 0 } else { 3 },
+            project_session_removed: !was_present,
         })
     }
 }
@@ -460,4 +482,33 @@ fn auxiliary_viewer_surfaces_tmux_failures() {
     let error = auxiliary_viewer("ezm-session-91", true, &tmux).expect_err("aux should fail");
     assert!(error.to_string().contains("new-window failed"));
     assert_eq!(tmux.auxiliary_calls.borrow().len(), 1);
+}
+
+#[test]
+fn teardown_pipeline_is_idempotent_when_helpers_are_absent() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let first = teardown_session("ezm-session-91", &tmux).expect("first teardown");
+    let second = teardown_session("ezm-session-91", &tmux).expect("second teardown");
+
+    assert_eq!(first.session_name, "ezm-session-91");
+    assert!(first.project_session_removed);
+    assert_eq!(first.helper_sessions_removed, 2);
+    assert_eq!(first.helper_processes_removed, 3);
+
+    assert_eq!(second.session_name, "ezm-session-91");
+    assert!(!second.project_session_removed);
+    assert_eq!(second.helper_sessions_removed, 0);
+    assert_eq!(second.helper_processes_removed, 0);
+
+    assert_eq!(
+        tmux.teardown_calls.borrow().as_slice(),
+        &[
+            String::from("ezm-session-91"),
+            String::from("ezm-session-91")
+        ]
+    );
 }
