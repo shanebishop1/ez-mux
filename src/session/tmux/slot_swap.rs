@@ -13,6 +13,7 @@ use super::options::{
     show_session_option,
 };
 use super::pick_center_pane;
+use super::style::refresh_active_border_for_slot;
 use super::tmux_diagnostics_exit_status;
 use super::zoom_flag_support_for_command;
 
@@ -57,6 +58,7 @@ pub(super) fn swap_slot_with_center(session_name: &str, slot_id: u8) -> Result<(
         swap_panes_preserve_zoom(&slot_pane_id, &center_pane_id)?;
     }
 
+    refresh_active_border_for_slot(session_name, slot_id)?;
     select_pane_preserve_zoom(&slot_pane_id)?;
     validate_canonical_slot_registry(session_name)?;
 

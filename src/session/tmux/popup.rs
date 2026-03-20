@@ -2,6 +2,7 @@ use super::SessionError;
 use super::command::{tmux_output, tmux_output_value, tmux_run};
 use super::options::{required_session_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
+use super::style::refresh_active_border_for_slot;
 use crate::session::{PopupShellAction, PopupShellOutcome};
 
 const POPUP_WIDTH_PCT: u8 = 70;
@@ -20,6 +21,7 @@ pub(super) fn toggle_popup_shell(
 
     if session_exists(&popup_session)? {
         tmux_run(&["kill-session", "-t", &popup_session])?;
+        let _ = refresh_active_border_for_slot(session_name, slot_id);
         let _ = tmux_run(&["select-pane", "-t", &origin_slot_pane]);
         persist_popup_defaults(session_name)?;
         return Ok(PopupShellOutcome {

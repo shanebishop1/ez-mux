@@ -17,6 +17,7 @@ use super::options::{
 };
 use super::repair::reconcile_session_damage;
 use super::slot_swap::validate_canonical_slot_registry;
+use super::style::apply_runtime_style_defaults;
 use super::worktree::discover_worktrees_for_slots;
 
 pub(super) const LAYOUT_MODE_KEY: &str = "@ezm_layout_mode";
@@ -89,6 +90,7 @@ pub(super) fn bootstrap_default_layout(
         set_session_option(session_name, &slot_suspended_key(5), "0")?;
         set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_FIVE_PANE)?;
         install_runtime_keybinds()?;
+        apply_runtime_style_defaults(session_name)?;
 
         validate_canonical_slot_registry(session_name)?;
         tmux_run(&["select-pane", "-t", &canonical_pane_ids[1]])
@@ -185,6 +187,7 @@ fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
 
     set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_THREE_PANE)?;
     validate_canonical_slot_registry(session_name)?;
+    apply_runtime_style_defaults(session_name)?;
 
     Ok(())
 }
@@ -240,6 +243,7 @@ fn restore_five_pane_layout(session_name: &str) -> Result<(), SessionError> {
     clear_slot_suspension_metadata(session_name, 5)?;
     set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_FIVE_PANE)?;
     validate_canonical_slot_registry(session_name)?;
+    apply_runtime_style_defaults(session_name)?;
 
     Ok(())
 }

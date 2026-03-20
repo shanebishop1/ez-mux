@@ -7,6 +7,7 @@ use super::options::{
     show_session_option,
 };
 use super::slot_swap::validate_canonical_slot_registry;
+use super::style::refresh_active_border_for_slot;
 use crate::session::{
     TeardownHook, mode_launch_contract, resolve_operator_identity_for_remote_prefix,
     resolve_remote_path,
@@ -115,6 +116,7 @@ pub(super) fn switch_slot_mode(
     }
 
     validate_canonical_slot_registry(session_name)?;
+    refresh_active_border_for_slot(session_name, slot_id)?;
     Ok(())
 }
 
