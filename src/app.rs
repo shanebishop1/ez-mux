@@ -61,50 +61,68 @@ pub(crate) fn execute_with_opener(
             )
         }
         Some(Command::Repair) => {
-            String::from("repair contract entrypoint accepted (implementation pending).")
+            let outcome = session::repair_current_project_session(&session::ProcessTmuxClient)?;
+            format_repair_message(&outcome)
         }
         Some(Command::Logs(LogsCommand::OpenLatest)) => {
-            let opened_log_path = logging::open_latest_log(active_log_root, os, opener)?;
-            format!("opened latest log: {}", opened_log_path.display())
+            execute_open_latest(active_log_root, os, opener)?
         }
-        Some(Command::Internal {
-            command: InternalCommand::Swap { session, slot },
-        }) => {
+        Some(Command::Internal { command }) => {
+            execute_internal(command, env, resolved_operator.value.as_deref())?
+        }
+    };
+
+    Ok(message)
+}
+
+fn execute_open_latest(
+    active_log_root: &std::path::Path,
+    os: OperatingSystem,
+    opener: &impl LogOpener,
+) -> Result<String, AppError> {
+    let opened_log_path = logging::open_latest_log(active_log_root, os, opener)?;
+    Ok(format!("opened latest log: {}", opened_log_path.display()))
+}
+
+fn execute_internal(
+    command: InternalCommand,
+    env: &impl config::EnvProvider,
+    operator: Option<&str>,
+) -> Result<String, AppError> {
+    match command {
+        InternalCommand::Swap { session, slot } => {
             let tmux = session::ProcessTmuxClient;
             session::TmuxClient::swap_slot_with_center(&tmux, &session, slot)?;
-            format!("internal swap complete: session={session}; slot={slot}")
+            Ok(format!(
+                "internal swap complete: session={session}; slot={slot}"
+            ))
         }
-        Some(Command::Internal {
-            command:
-                InternalCommand::Mode {
-                    session,
-                    slot,
-                    mode,
-                },
-        }) => {
+        InternalCommand::Mode {
+            session,
+            slot,
+            mode,
+        } => {
             let tmux = session::ProcessTmuxClient;
             let remote_prefix = env.get_var(session::OPENCODE_REMOTE_DIR_PREFIX_ENV);
             let outcome = session::switch_slot_mode(
                 &session,
                 slot,
                 mode,
-                resolved_operator.value.as_deref(),
+                operator,
                 remote_prefix.as_deref(),
                 &tmux,
             )?;
-            format!(
+            Ok(format!(
                 "internal mode complete: session={}; slot={}; mode={}",
                 outcome.session_name,
                 outcome.slot_id,
                 outcome.mode.label()
-            )
+            ))
         }
-        Some(Command::Internal {
-            command: InternalCommand::Popup { session, slot },
-        }) => {
+        InternalCommand::Popup { session, slot } => {
             let tmux = session::ProcessTmuxClient;
             let outcome = session::toggle_popup_shell(&session, slot, &tmux)?;
-            format!(
+            Ok(format!(
                 "internal popup complete: session={}; slot={}; action={}; cwd={}; width_pct={}; height_pct={}",
                 outcome.session_name,
                 outcome.slot_id,
@@ -112,42 +130,60 @@ pub(crate) fn execute_with_opener(
                 outcome.cwd,
                 outcome.width_pct,
                 outcome.height_pct
-            )
+            ))
         }
-        Some(Command::Internal {
-            command: InternalCommand::Auxiliary { session, action },
-        }) => {
+        InternalCommand::Auxiliary { session, action } => {
             let tmux = session::ProcessTmuxClient;
             let open = matches!(action, AuxiliaryAction::Open);
             let outcome = session::auxiliary_viewer(&session, open, &tmux)?;
-            format!(
+            Ok(format!(
                 "internal auxiliary complete: session={}; action={}; window_name={}; window_id={}",
                 outcome.session_name,
                 outcome.action.label(),
                 outcome.window_name,
                 outcome.window_id.unwrap_or_else(|| String::from("none"))
-            )
+            ))
         }
-        Some(Command::Internal {
-            command: InternalCommand::Teardown { session },
-        }) => {
+        InternalCommand::Teardown { session } => {
             let tmux = session::ProcessTmuxClient;
             let outcome = session::teardown_session(&session, &tmux)?;
-            format!(
+            Ok(format!(
                 "internal teardown complete: session={}; project_session_removed={}; helper_sessions_removed={}; helper_processes_removed={}",
                 outcome.session_name,
                 outcome.project_session_removed,
                 outcome.helper_sessions_removed,
                 outcome.helper_processes_removed
-            )
+            ))
         }
-    };
-
-    Ok(message)
+    }
 }
 
 fn source_label(source: ValueSource) -> &'static str {
     source.label()
+}
+
+fn format_repair_message(outcome: &session::SessionRepairExecution) -> String {
+    format!(
+        "repair complete: session={}; action={}; healthy_slots={}; missing_visible_slots={}; missing_backing_slots={}; recreate_order={}; recreated_slots={}",
+        outcome.session_name,
+        outcome.action_label(),
+        format_slot_ids(&outcome.healthy_slots),
+        format_slot_ids(&outcome.missing_visible_slots),
+        format_slot_ids(&outcome.missing_backing_slots),
+        format_slot_ids(&outcome.recreate_order),
+        format_slot_ids(&outcome.recreated_slots)
+    )
+}
+
+fn format_slot_ids(slot_ids: &[u8]) -> String {
+    if slot_ids.is_empty() {
+        return String::from("none");
+    }
+    slot_ids
+        .iter()
+        .map(u8::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(test)]
@@ -161,6 +197,7 @@ mod tests {
 
     use super::AppError;
     use super::execute_with_opener;
+    use super::format_repair_message;
     use crate::cli::{Cli, Command, LogsCommand};
     use crate::config::OperatingSystem;
     use crate::logging::LogOpener;
@@ -272,5 +309,24 @@ mod tests {
 
         let rendered = error.to_string();
         assert!(rendered.contains("failed opening log file"));
+    }
+
+    #[test]
+    fn repair_message_reports_action_and_slot_lists() {
+        let rendered = format_repair_message(&crate::session::SessionRepairExecution {
+            session_name: String::from("ezm-project-session"),
+            healthy_slots: vec![1, 2, 3, 5],
+            missing_visible_slots: vec![4],
+            missing_backing_slots: Vec::new(),
+            recreate_order: vec![4],
+            recreated_slots: vec![4],
+        });
+
+        assert!(rendered.contains("repair complete: session=ezm-project-session"));
+        assert!(rendered.contains("action=reconcile"));
+        assert!(rendered.contains("healthy_slots=1,2,3,5"));
+        assert!(rendered.contains("missing_visible_slots=4"));
+        assert!(rendered.contains("missing_backing_slots=none"));
+        assert!(rendered.contains("recreated_slots=4"));
     }
 }
