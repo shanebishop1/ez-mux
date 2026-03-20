@@ -24,6 +24,7 @@ mod layout;
 mod mode_runtime;
 mod options;
 mod popup;
+mod repair;
 mod slot_swap;
 mod teardown;
 mod worktree;
@@ -115,6 +116,24 @@ pub trait TmuxClient {
     /// # Errors
     /// Returns an error when teardown reconciliation fails.
     fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError>;
+
+    /// Reports missing visible panes and required backing panes.
+    ///
+    /// # Errors
+    /// Returns an error when slot metadata cannot be inspected.
+    fn analyze_session_damage(
+        &self,
+        session_name: &str,
+    ) -> Result<super::SessionDamageAnalysis, SessionError>;
+
+    /// Recreates only missing panes required to restore canonical slots.
+    ///
+    /// # Errors
+    /// Returns an error when selective reconcile cannot proceed safely.
+    fn reconcile_session_damage(
+        &self,
+        session_name: &str,
+    ) -> Result<super::SessionRepairOutcome, SessionError>;
 }
 
 pub struct ProcessTmuxClient;
@@ -211,5 +230,19 @@ impl TmuxClient for ProcessTmuxClient {
 
     fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError> {
         teardown::teardown_session(session_name)
+    }
+
+    fn analyze_session_damage(
+        &self,
+        session_name: &str,
+    ) -> Result<super::SessionDamageAnalysis, SessionError> {
+        repair::analyze_session_damage(session_name)
+    }
+
+    fn reconcile_session_damage(
+        &self,
+        session_name: &str,
+    ) -> Result<super::SessionRepairOutcome, SessionError> {
+        repair::reconcile_session_damage(session_name)
     }
 }

@@ -3,18 +3,21 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use ez_mux::session::SessionAction;
+use ez_mux::session::SessionDamageAnalysis;
+use ez_mux::session::SessionRepairOutcome;
 use ez_mux::session::SlotMode;
 use ez_mux::session::TmuxClient;
+use ez_mux::session::analyze_session_damage;
 use ez_mux::session::auxiliary_viewer;
 use ez_mux::session::ensure_project_session;
 use ez_mux::session::ensure_project_session_with_remote_prefix;
 use ez_mux::session::mode_launch_contract;
+use ez_mux::session::reconcile_session_damage;
 use ez_mux::session::resolve_session_identity;
 use ez_mux::session::switch_slot_mode;
 use ez_mux::session::teardown_session;
 use ez_mux::session::toggle_popup_shell;
 
-#[derive(Default)]
 struct FakeTmux {
     sessions: RefCell<HashSet<String>>,
     created: RefCell<Vec<(String, PathBuf)>>,
@@ -30,6 +33,10 @@ struct FakeTmux {
     auxiliary_exists: RefCell<bool>,
     teardown_calls: RefCell<Vec<String>>,
     teardown_project_removed: RefCell<bool>,
+    damage_analysis_calls: RefCell<Vec<String>>,
+    repair_calls: RefCell<Vec<String>>,
+    damage_analysis: RefCell<SessionDamageAnalysis>,
+    repair_outcome: RefCell<SessionRepairOutcome>,
     skipped_non_interactive_attach: RefCell<u32>,
     interactive_attach: bool,
 }
@@ -195,6 +202,62 @@ impl TmuxClient for FakeTmux {
             helper_processes_removed: if was_present { 0 } else { 3 },
             project_session_removed: !was_present,
         })
+    }
+
+    fn analyze_session_damage(
+        &self,
+        session_name: &str,
+    ) -> Result<SessionDamageAnalysis, ez_mux::session::SessionError> {
+        self.damage_analysis_calls
+            .borrow_mut()
+            .push(session_name.to_string());
+        Ok(self.damage_analysis.borrow().clone())
+    }
+
+    fn reconcile_session_damage(
+        &self,
+        session_name: &str,
+    ) -> Result<SessionRepairOutcome, ez_mux::session::SessionError> {
+        self.repair_calls
+            .borrow_mut()
+            .push(session_name.to_string());
+        Ok(self.repair_outcome.borrow().clone())
+    }
+}
+
+impl Default for FakeTmux {
+    fn default() -> Self {
+        Self {
+            sessions: RefCell::new(HashSet::new()),
+            created: RefCell::new(Vec::new()),
+            bootstrapped: RefCell::new(Vec::new()),
+            attached: RefCell::new(Vec::new()),
+            mode_switches: RefCell::new(Vec::new()),
+            mode_switch_error: RefCell::new(None),
+            popup_toggles: RefCell::new(Vec::new()),
+            popup_toggle_error: RefCell::new(None),
+            popup_toggle_open: RefCell::new(false),
+            auxiliary_calls: RefCell::new(Vec::new()),
+            auxiliary_error: RefCell::new(None),
+            auxiliary_exists: RefCell::new(false),
+            teardown_calls: RefCell::new(Vec::new()),
+            teardown_project_removed: RefCell::new(false),
+            damage_analysis_calls: RefCell::new(Vec::new()),
+            repair_calls: RefCell::new(Vec::new()),
+            damage_analysis: RefCell::new(SessionDamageAnalysis {
+                healthy_slots: vec![1, 2, 3, 4, 5],
+                missing_visible_slots: Vec::new(),
+                missing_backing_slots: Vec::new(),
+                recreate_order: Vec::new(),
+            }),
+            repair_outcome: RefCell::new(SessionRepairOutcome {
+                session_name: String::from("ezm-session-default"),
+                healthy_slots: vec![1, 2, 3, 4, 5],
+                recreated_slots: Vec::new(),
+            }),
+            skipped_non_interactive_attach: RefCell::new(0),
+            interactive_attach: false,
+        }
     }
 }
 
@@ -510,5 +573,50 @@ fn teardown_pipeline_is_idempotent_when_helpers_are_absent() {
             String::from("ezm-session-91"),
             String::from("ezm-session-91")
         ]
+    );
+}
+
+#[test]
+fn session_damage_analysis_routes_to_tmux_client() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        damage_analysis: RefCell::new(SessionDamageAnalysis {
+            healthy_slots: vec![1, 2, 4],
+            missing_visible_slots: vec![3, 5],
+            missing_backing_slots: Vec::new(),
+            recreate_order: vec![3, 5],
+        }),
+        ..FakeTmux::default()
+    };
+
+    let analysis = analyze_session_damage("ezm-session-92", &tmux).expect("analysis");
+
+    assert_eq!(analysis.healthy_slots, vec![1, 2, 4]);
+    assert_eq!(analysis.recreate_order, vec![3, 5]);
+    assert_eq!(
+        tmux.damage_analysis_calls.borrow().as_slice(),
+        &[String::from("ezm-session-92")]
+    );
+}
+
+#[test]
+fn selective_reconcile_routes_to_tmux_client() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        repair_outcome: RefCell::new(SessionRepairOutcome {
+            session_name: String::from("ezm-session-93"),
+            healthy_slots: vec![1, 2, 4],
+            recreated_slots: vec![3, 5],
+        }),
+        ..FakeTmux::default()
+    };
+
+    let outcome = reconcile_session_damage("ezm-session-93", &tmux).expect("repair");
+
+    assert_eq!(outcome.session_name, "ezm-session-93");
+    assert_eq!(outcome.recreated_slots, vec![3, 5]);
+    assert_eq!(
+        tmux.repair_calls.borrow().as_slice(),
+        &[String::from("ezm-session-93")]
     );
 }
