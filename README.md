@@ -1,4 +1,5 @@
 # ez-mux
+<img width="704" height="384" alt="stylized_ez_mux_image" src="https://github.com/user-attachments/assets/18385b30-042a-4996-b14e-18053f4b2ba6" />
 
 `ez-mux` is a standalone Rust CLI project for deterministic tmux workspace orchestration.
 
