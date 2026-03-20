@@ -28,6 +28,7 @@ mod options;
 mod popup;
 mod repair;
 mod slot_swap;
+mod style;
 mod teardown;
 mod worktree;
 
@@ -199,7 +200,8 @@ impl TmuxClient for ProcessTmuxClient {
 
     fn validate_session_invariants(&self, session_name: &str) -> Result<(), SessionError> {
         slot_swap::validate_canonical_slot_registry(session_name)?;
-        keybinds::install_runtime_keybinds()
+        keybinds::install_runtime_keybinds()?;
+        style::apply_runtime_style_defaults(session_name)
     }
 
     fn bootstrap_default_layout(
