@@ -1,0 +1,74 @@
+use clap::{Parser, Subcommand};
+
+#[derive(Debug, Parser, PartialEq, Eq)]
+#[command(
+    name = "ezm",
+    bin_name = "ezm",
+    version,
+    about = "Deterministic tmux workspace orchestrator",
+    long_about = None
+)]
+pub struct Cli {
+    #[arg(long, global = true, value_name = "OPERATOR")]
+    pub operator: Option<String>,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum Command {
+    /// Repair the current project session.
+    Repair,
+
+    /// Log utilities.
+    #[command(subcommand)]
+    Logs(LogsCommand),
+}
+
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum LogsCommand {
+    /// Open the latest log file.
+    #[command(name = "open-latest")]
+    OpenLatest,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, Command, LogsCommand};
+
+    #[test]
+    fn parses_default_invocation() {
+        let parsed = Cli::try_parse_from(["ezm"]).expect("parse should succeed");
+        assert_eq!(parsed.command, None);
+    }
+
+    #[test]
+    fn parses_repair_subcommand() {
+        let parsed = Cli::try_parse_from(["ezm", "repair"]).expect("parse should succeed");
+        assert_eq!(parsed.command, Some(Command::Repair));
+    }
+
+    #[test]
+    fn parses_logs_open_latest_subcommand() {
+        let parsed =
+            Cli::try_parse_from(["ezm", "logs", "open-latest"]).expect("parse should succeed");
+        assert_eq!(parsed.command, Some(Command::Logs(LogsCommand::OpenLatest)));
+    }
+
+    #[test]
+    fn supports_help_flag() {
+        let err =
+            Cli::try_parse_from(["ezm", "--help"]).expect_err("help exits through clap error");
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
+    }
+
+    #[test]
+    fn supports_version_flag() {
+        let err = Cli::try_parse_from(["ezm", "--version"])
+            .expect_err("version exits through clap error");
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+    }
+}

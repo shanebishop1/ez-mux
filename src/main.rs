@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 fn main() {
-    println!("ezm: not implemented yet");
+    std::process::exit(ez_mux::run());
 }
