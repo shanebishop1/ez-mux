@@ -4,6 +4,7 @@ use std::process::Command;
 use super::AuxiliaryViewerOutcome;
 use super::CANONICAL_SLOT_IDS;
 use super::DEFAULT_CENTER_WIDTH_PCT;
+use super::LayoutPreset;
 use super::PaneWidthSample;
 use super::PopupShellOutcome;
 use super::SessionError;
@@ -67,6 +68,16 @@ pub trait TmuxClient {
         &self,
         session_name: &str,
         project_dir: &Path,
+    ) -> Result<(), SessionError>;
+
+    /// Applies one supported layout preset to an existing session.
+    ///
+    /// # Errors
+    /// Returns an error when tmux cannot apply the preset deterministically.
+    fn apply_layout_preset(
+        &self,
+        session_name: &str,
+        preset: LayoutPreset,
     ) -> Result<(), SessionError>;
 
     /// Swaps a target slot with the center pane while preserving zoom state.
@@ -199,6 +210,14 @@ impl TmuxClient for ProcessTmuxClient {
 
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError> {
         slot_swap::swap_slot_with_center(session_name, slot_id)
+    }
+
+    fn apply_layout_preset(
+        &self,
+        session_name: &str,
+        preset: LayoutPreset,
+    ) -> Result<(), SessionError> {
+        layout::apply_layout_preset(session_name, preset)
     }
 
     fn switch_slot_mode(

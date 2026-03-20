@@ -222,7 +222,8 @@ mod tests {
     use std::path::Path;
 
     use crate::session::{
-        AuxiliaryViewerOutcome, PopupShellOutcome, SlotMode, TeardownOutcome, TmuxClient,
+        AuxiliaryViewerOutcome, LayoutPreset, PopupShellOutcome, SlotMode, TeardownOutcome,
+        TmuxClient,
     };
 
     use super::{analyze_slot_damage, repair_project_session};
@@ -266,6 +267,14 @@ mod tests {
             &self,
             _: &str,
             _: u8,
+        ) -> Result<(), crate::session::SessionError> {
+            Ok(())
+        }
+
+        fn apply_layout_preset(
+            &self,
+            _: &str,
+            _: LayoutPreset,
         ) -> Result<(), crate::session::SessionError> {
             Ok(())
         }
