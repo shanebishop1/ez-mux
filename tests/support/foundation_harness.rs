@@ -5,10 +5,18 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+
 pub struct CmdOutput {
     pub exit_code: i32,
     pub stdout: String,
     pub stderr: String,
+}
+
+#[allow(dead_code)]
+pub struct PtyAttachProbe {
+    pub exit_code: i32,
+    pub observed_attached_client: bool,
 }
 
 pub struct TmuxSettleEvidence {
@@ -185,6 +193,109 @@ impl FoundationHarness {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn run_ezm_with_pty_attach_probe(
+        &self,
+        project_dir: &Path,
+        args: &[&str],
+        env_overrides: &[(&str, &str)],
+        opener_exit_code: i32,
+        session_name: &str,
+    ) -> Result<PtyAttachProbe, String> {
+        let state_root = self.work_dir.join("state");
+        let config_root = self.work_dir.join("config");
+        let home_root = self.work_dir.join("home");
+
+        fs::create_dir_all(&state_root)
+            .map_err(|error| format!("failed creating state root: {error}"))?;
+        fs::create_dir_all(&config_root)
+            .map_err(|error| format!("failed creating config root: {error}"))?;
+        fs::create_dir_all(&home_root)
+            .map_err(|error| format!("failed creating home root: {error}"))?;
+
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let merged_path = format!("{}:{}", self.fake_bin_dir.display(), current_path);
+        let mut command = CommandBuilder::new(
+            self.ezm_bin
+                .to_str()
+                .ok_or_else(|| String::from("ezm binary path is not valid UTF-8"))?,
+        );
+        for arg in args {
+            command.arg(arg);
+        }
+        command.cwd(project_dir);
+        command.env("TMUX", "");
+        command.env("TERM", "xterm-256color");
+        command.env("HOME", home_root);
+        command.env("XDG_STATE_HOME", state_root);
+        command.env("XDG_CONFIG_HOME", config_root);
+        command.env("TMUX_TMPDIR", &self.tmux_tmpdir);
+        command.env("E2E_TMUX_SOCKET", &self.tmux_socket_name);
+        command.env("E2E_OPEN_CAPTURE", &self.open_capture_path);
+        command.env("E2E_OPEN_EXIT", opener_exit_code.to_string());
+        command.env("PATH", merged_path);
+
+        for (key, value) in env_overrides {
+            command.env(key, value);
+        }
+
+        let pty = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| format!("failed creating PTY pair: {error}"))?;
+
+        let mut child = pty
+            .slave
+            .spawn_command(command)
+            .map_err(|error| format!("failed spawning PTY child for ezm {args:?}: {error}"))?;
+
+        let mut observed_attached_client = false;
+        let start = Instant::now();
+        let timeout = Duration::from_secs(5);
+        let poll_interval = Duration::from_millis(30);
+
+        loop {
+            if !observed_attached_client
+                && self
+                    .tmux_capture(&["list-clients", "-t", session_name, "-F", "#{client_tty}"])
+                    .ok()
+                    .is_some_and(|clients| clients.lines().any(|line| !line.trim().is_empty()))
+            {
+                observed_attached_client = true;
+                let _ = self.tmux_capture(&["detach-client", "-s", session_name]);
+            }
+
+            if child
+                .try_wait()
+                .map_err(|error| format!("failed waiting for PTY child status: {error}"))?
+                .is_some()
+            {
+                break;
+            }
+
+            if start.elapsed() >= timeout {
+                let _ = child.kill();
+                break;
+            }
+
+            thread::sleep(poll_interval);
+        }
+
+        let exit_status = child
+            .wait()
+            .map_err(|error| format!("failed waiting for PTY child completion: {error}"))?;
+        drop(pty.master);
+
+        Ok(PtyAttachProbe {
+            exit_code: i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX),
+            observed_attached_client,
         })
     }
 

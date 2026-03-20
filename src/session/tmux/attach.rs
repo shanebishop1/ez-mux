@@ -1,7 +1,7 @@
 use std::io::IsTerminal;
+use std::process::Command;
 
 use super::SessionError;
-use super::command::tmux_output;
 
 pub(super) fn attach_session(session_name: &str) -> Result<(), SessionError> {
     if !should_attempt_interactive_attach(
@@ -12,22 +12,25 @@ pub(super) fn attach_session(session_name: &str) -> Result<(), SessionError> {
     }
 
     let command = format!("attach-session -t {session_name}");
-    let output =
-        tmux_output(&["attach-session", "-t", session_name]).map_err(|error| match error {
-            SessionError::TmuxSpawnFailed { source, .. } => SessionError::TmuxSpawnFailed {
-                command: command.clone(),
-                source,
-            },
-            other => other,
+    let status = Command::new("tmux")
+        .args(["attach-session", "-t", session_name])
+        .status()
+        .map_err(|source| SessionError::TmuxSpawnFailed {
+            command: command.clone(),
+            source,
         })?;
 
-    if output.status.success() {
+    if status.success() {
         return Ok(());
     }
 
+    let status_code = status
+        .code()
+        .map_or_else(|| String::from("signal"), |code| code.to_string());
+
     Err(SessionError::TmuxCommandFailed {
         command,
-        stderr: super::command::format_output_diagnostics(&output),
+        stderr: format!("status={status_code}; stdout=\"\"; stderr=\"\""),
     })
 }
 
