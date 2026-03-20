@@ -36,6 +36,20 @@ pub(super) fn tmux_output_value(args: &[&str]) -> Result<String, SessionError> {
     })
 }
 
+pub(super) fn tmux_primary_window_target(session_name: &str) -> Result<String, SessionError> {
+    let command = format!("list-windows -t {session_name} -F #{{window_id}}");
+    let output = tmux_output_value(&["list-windows", "-t", session_name, "-F", "#{window_id}"])?;
+    output
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| SessionError::TmuxCommandFailed {
+            command,
+            stderr: String::from("tmux returned no window id for session"),
+        })
+}
+
 pub(super) fn format_output_diagnostics(output: &Output) -> String {
     let status = output
         .status

@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use super::CANONICAL_SLOT_IDS;
 use super::SessionError;
-use super::command::tmux_output_value;
+use super::command::{tmux_output_value, tmux_primary_window_target};
 use super::options::{required_session_option, set_pane_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
 use crate::session::SessionDamageAnalysis;
@@ -114,7 +114,7 @@ fn load_slot_metadata(session_name: &str) -> Result<HashMap<u8, SlotMetadata>, S
 }
 
 fn list_live_window_panes(session_name: &str) -> Result<BTreeSet<String>, SessionError> {
-    let target = format!("{session_name}:0");
+    let target = tmux_primary_window_target(session_name)?;
     let output = tmux_output_value(&["list-panes", "-t", &target, "-F", "#{pane_id}"])?;
     Ok(output
         .lines()

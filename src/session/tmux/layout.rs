@@ -9,7 +9,7 @@ use super::SessionError;
 use super::SlotRegistry;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
-use super::command::{tmux_output, tmux_output_value, tmux_run};
+use super::command::{tmux_output, tmux_output_value, tmux_primary_window_target, tmux_run};
 use super::options::{
     required_pane_option, required_session_option, set_or_verify_pane_option,
     set_or_verify_session_option, set_session_option, show_session_option,
@@ -39,7 +39,7 @@ pub(super) fn bootstrap_default_layout(
     session_name: &str,
     project_dir: &Path,
 ) -> Result<(), SessionError> {
-    let target = format!("{session_name}:0");
+    let target = tmux_primary_window_target(session_name)?;
     let initial_pane = tmux_output_value(&["list-panes", "-t", &target, "-F", "#{pane_id}"])?
         .lines()
         .find(|line| !line.trim().is_empty())
@@ -155,7 +155,7 @@ fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
         kill_pane_if_present(&pane_id)?;
     }
 
-    let target = format!("{session_name}:0");
+    let target = tmux_primary_window_target(session_name)?;
 
     let window_width =
         tmux_output_value(&["display-message", "-p", "-t", &target, "#{window_width}"])?
@@ -209,7 +209,7 @@ fn restore_five_pane_layout(session_name: &str) -> Result<(), SessionError> {
     verify_restored_slot_continuity(session_name, 4, &slot_four_restore)?;
     verify_restored_slot_continuity(session_name, 5, &slot_five_restore)?;
 
-    let target = format!("{session_name}:0");
+    let target = tmux_primary_window_target(session_name)?;
     let left_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
     let center_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
     let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;

@@ -94,7 +94,7 @@ fn resolve_auxiliary_cwd(session_name: &str) -> Result<String, SessionError> {
         "display-message",
         "-p",
         "-t",
-        &format!("{session_name}:0.0"),
+        session_name,
         "#{pane_current_path}",
     ])
     .map(|path| path.trim().to_owned())
