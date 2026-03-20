@@ -22,3 +22,7 @@ target
 
 # bv (beads viewer) local config and caches
 .bv/
+
+# Python bytecode caches
+__pycache__/
+*.pyc
