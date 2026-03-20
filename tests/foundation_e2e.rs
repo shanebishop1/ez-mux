@@ -196,7 +196,7 @@ fn case_e2e_15(harness: &FoundationHarness) -> CaseEvidence {
         .and_then(std::ffi::OsStr::to_str)
         .unwrap_or_default();
 
-    let expected_root = harness.work_dir().join("state").join("ez-mux").join("logs");
+    let expected_root = expected_safe_log_root(harness);
     assertions.push(format!(
         "logs are in OS-safe root {}: {}",
         expected_root.display(),
@@ -489,6 +489,19 @@ fn extract_active_log_path(stderr: &str) -> Option<String> {
         .lines()
         .find_map(|line| line.strip_prefix("active log file: "))
         .map(str::to_owned)
+}
+
+fn expected_safe_log_root(harness: &FoundationHarness) -> PathBuf {
+    match std::env::consts::OS {
+        "linux" => harness.work_dir().join("state").join("ez-mux").join("logs"),
+        "macos" => harness
+            .work_dir()
+            .join("home")
+            .join("Library")
+            .join("Logs")
+            .join("ez-mux"),
+        os => panic!("E2E-15 unsupported host OS for log root assertion: {os}"),
+    }
 }
 
 fn has_expected_log_name_shape(name: &str) -> bool {
