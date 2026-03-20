@@ -53,10 +53,11 @@ pub(crate) fn execute_with_opener(
         None => {
             let outcome = session::ensure_current_project_session(&session::ProcessTmuxClient)?;
             format!(
-                "ezm v1 contract locked; operator source={}. session={}; session_action={}.",
+                "ezm v1 contract locked; operator source={}. session={}; session_action={}; remote_project_dir={}",
                 source_label(resolved_operator.source),
                 outcome.identity.session_name,
-                outcome.action.label()
+                outcome.action.label(),
+                outcome.remote_project_dir.display()
             )
         }
         Some(Command::Repair) => {

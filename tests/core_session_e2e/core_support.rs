@@ -8,8 +8,8 @@ use serde::Serialize;
 
 use crate::support::foundation_harness::{CmdOutput, FoundationHarness, TmuxSettleEvidence};
 
-pub(super) const CORE_IDS: [&str; 8] = [
-    "E2E-01", "E2E-02", "E2E-03", "E2E-04", "E2E-05", "E2E-06", "E2E-07", "E2E-08",
+pub(super) const CORE_IDS: [&str; 9] = [
+    "E2E-01", "E2E-02", "E2E-03", "E2E-04", "E2E-05", "E2E-06", "E2E-07", "E2E-08", "E2E-09",
 ];
 const CENTER_WIDTH_TARGET_PCT: i32 = 38;
 const CENTER_WIDTH_TOLERANCE_PCT: i32 = 3;
@@ -89,6 +89,21 @@ pub(super) struct WorktreeFixture {
     pub(super) extra_worktrees: Vec<PathBuf>,
 }
 
+pub(super) struct RemoteRemapFixture {
+    pub(super) project_dir: PathBuf,
+    pub(super) remote_prefix: PathBuf,
+    pub(super) expected_mapped_path: PathBuf,
+}
+
+#[derive(Serialize)]
+pub(super) struct RemotePathEvidence {
+    pub(super) local_project_dir: String,
+    pub(super) remote_prefix: String,
+    pub(super) expected_mapped_path: String,
+    pub(super) effective_mapped_path: String,
+    pub(super) remap_applied: bool,
+}
+
 #[derive(Serialize)]
 pub(super) struct CaseEvidence {
     pub(super) id: String,
@@ -99,6 +114,7 @@ pub(super) struct CaseEvidence {
     pub(super) snapshot: SessionSnapshot,
     pub(super) layout: Option<LayoutSnapshot>,
     pub(super) slots: Option<Vec<SlotSnapshot>>,
+    pub(super) remote_path: Option<RemotePathEvidence>,
 }
 
 #[derive(Serialize)]
@@ -361,6 +377,68 @@ pub(super) fn create_worktree_fixture(
             wt_b.canonicalize()
                 .map_err(|error| format!("failed canonicalizing fixture wt-b: {error}"))?,
         ],
+    })
+}
+
+pub(super) fn create_remote_remap_fixture(
+    harness: &FoundationHarness,
+) -> Result<RemoteRemapFixture, String> {
+    let fixture_root = harness.work_dir().join("e2e09-remote-remap-fixture");
+    let repo_root = fixture_root.join("alpha");
+    let project_dir = repo_root.join("worktrees").join("feature-x");
+    let remote_prefix =
+        std::env::temp_dir().join(format!("ezm-e2e-remote-remap-{}", harness.run_id));
+    let expected_mapped_path = remote_prefix
+        .join("alpha")
+        .join("worktrees")
+        .join("feature-x");
+
+    if fixture_root.exists() {
+        fs::remove_dir_all(&fixture_root).map_err(|error| {
+            format!(
+                "failed resetting remote remap fixture root {}: {error}",
+                fixture_root.display()
+            )
+        })?;
+    }
+    if remote_prefix.exists() {
+        fs::remove_dir_all(&remote_prefix).map_err(|error| {
+            format!(
+                "failed resetting remote remap prefix {}: {error}",
+                remote_prefix.display()
+            )
+        })?;
+    }
+
+    fs::create_dir_all(repo_root.join(".git")).map_err(|error| {
+        format!(
+            "failed creating fixture git root {}: {error}",
+            repo_root.display()
+        )
+    })?;
+    fs::create_dir_all(&project_dir).map_err(|error| {
+        format!(
+            "failed creating fixture project dir {}: {error}",
+            project_dir.display()
+        )
+    })?;
+    fs::create_dir_all(&expected_mapped_path).map_err(|error| {
+        format!(
+            "failed creating expected mapped path {}: {error}",
+            expected_mapped_path.display()
+        )
+    })?;
+
+    Ok(RemoteRemapFixture {
+        project_dir: project_dir
+            .canonicalize()
+            .map_err(|error| format!("failed canonicalizing remote fixture project: {error}"))?,
+        remote_prefix: remote_prefix
+            .canonicalize()
+            .map_err(|error| format!("failed canonicalizing remote fixture prefix: {error}"))?,
+        expected_mapped_path: expected_mapped_path.canonicalize().map_err(|error| {
+            format!("failed canonicalizing expected mapped path fixture: {error}")
+        })?,
     })
 }
 

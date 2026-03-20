@@ -82,5 +82,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         },
         layout: None,
         slots: None,
+        remote_path: None,
     }
 }

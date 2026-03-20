@@ -7,6 +7,7 @@ use ez_mux::session::SlotMode;
 use ez_mux::session::TmuxClient;
 use ez_mux::session::auxiliary_viewer;
 use ez_mux::session::ensure_project_session;
+use ez_mux::session::ensure_project_session_with_remote_prefix;
 use ez_mux::session::mode_launch_contract;
 use ez_mux::session::resolve_session_identity;
 use ez_mux::session::switch_slot_mode;
@@ -16,6 +17,7 @@ use ez_mux::session::toggle_popup_shell;
 struct FakeTmux {
     sessions: RefCell<HashSet<String>>,
     created: RefCell<Vec<(String, PathBuf)>>,
+    bootstrapped: RefCell<Vec<(String, PathBuf)>>,
     attached: RefCell<Vec<String>>,
     mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
     mode_switch_error: RefCell<Option<String>>,
@@ -84,9 +86,12 @@ impl TmuxClient for FakeTmux {
 
     fn bootstrap_default_layout(
         &self,
-        _session_name: &str,
-        _project_dir: &Path,
+        session_name: &str,
+        project_dir: &Path,
     ) -> Result<(), ez_mux::session::SessionError> {
+        self.bootstrapped
+            .borrow_mut()
+            .push((session_name.to_string(), project_dir.to_path_buf()));
         Ok(())
     }
 
@@ -214,7 +219,11 @@ fn runtime_creates_first_then_attaches_second_without_duplicate_create() {
     assert_eq!(first.action, SessionAction::Create);
     assert_eq!(second.action, SessionAction::Attach);
     assert_eq!(first.identity.session_name, second.identity.session_name);
+    assert_eq!(first.remote_project_dir, first.identity.project_dir);
+    assert_eq!(second.remote_project_dir, second.identity.project_dir);
     assert_eq!(tmux.created.borrow().len(), 1);
+    assert_eq!(tmux.bootstrapped.borrow().len(), 1);
+    assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
     assert_eq!(tmux.attached.borrow().len(), 1);
     assert_eq!(tmux.attached.borrow()[0], second.identity.session_name);
     assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 0);
@@ -234,9 +243,60 @@ fn runtime_attach_path_is_non_interactive_safe() {
 
     assert_eq!(first.action, SessionAction::Create);
     assert_eq!(second.action, SessionAction::Attach);
+    assert_eq!(first.remote_project_dir, first.identity.project_dir);
+    assert_eq!(second.remote_project_dir, second.identity.project_dir);
     assert_eq!(tmux.created.borrow().len(), 1);
+    assert_eq!(tmux.bootstrapped.borrow().len(), 1);
+    assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
     assert_eq!(tmux.attached.borrow().len(), 1);
     assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 1);
+}
+
+#[test]
+fn runtime_create_and_bootstrap_use_remapped_project_dir_when_remote_prefix_active() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo_root = temp.path().join("alpha");
+    let project_dir = repo_root.join("worktrees").join("feature-x");
+    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+    std::fs::create_dir_all(&project_dir).expect("create project dir");
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let first = ensure_project_session_with_remote_prefix(
+        project_dir.as_path(),
+        Some("/srv/remotes"),
+        &tmux,
+    )
+    .expect("first run");
+    let second = ensure_project_session_with_remote_prefix(
+        project_dir.as_path(),
+        Some("/srv/remotes"),
+        &tmux,
+    )
+    .expect("second run");
+
+    assert_eq!(first.action, SessionAction::Create);
+    assert_eq!(second.action, SessionAction::Attach);
+    assert_eq!(
+        first.remote_project_dir,
+        PathBuf::from("/srv/remotes/alpha/worktrees/feature-x")
+    );
+    assert_eq!(
+        second.remote_project_dir,
+        PathBuf::from("/srv/remotes/alpha/worktrees/feature-x")
+    );
+    assert_eq!(tmux.created.borrow().len(), 1);
+    assert_eq!(
+        tmux.created.borrow()[0].1,
+        PathBuf::from("/srv/remotes/alpha/worktrees/feature-x")
+    );
+    assert_eq!(tmux.bootstrapped.borrow().len(), 1);
+    assert_eq!(
+        tmux.bootstrapped.borrow()[0].1,
+        PathBuf::from("/srv/remotes/alpha/worktrees/feature-x")
+    );
 }
 
 #[test]

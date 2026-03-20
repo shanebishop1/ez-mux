@@ -7,7 +7,9 @@ use super::options::{
     show_session_option,
 };
 use super::slot_swap::validate_canonical_slot_registry;
-use crate::session::{TeardownHook, mode_launch_contract};
+use crate::session::{
+    OPENCODE_REMOTE_DIR_PREFIX_ENV, TeardownHook, mode_launch_contract, resolve_remote_path,
+};
 
 pub(super) fn switch_slot_mode(
     session_name: &str,
@@ -46,8 +48,9 @@ pub(super) fn switch_slot_mode(
     }
 
     let contract = mode_launch_contract(mode);
+    let launch_command = launch_command_with_remote_dir(&contract.launch_command, &current_cwd)?;
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
-    respawn_slot_mode(&pane_id, &current_cwd, &contract.launch_command)?;
+    respawn_slot_mode(&pane_id, &current_cwd, &launch_command)?;
 
     let previous = ModeMetadataState {
         session_cwd: required_session_option(session_name, &slot_cwd_key)?,
@@ -103,6 +106,68 @@ pub(super) fn switch_slot_mode(
 
     validate_canonical_slot_registry(session_name)?;
     Ok(())
+}
+
+fn launch_command_with_remote_dir(launch_command: &str, cwd: &str) -> Result<String, SessionError> {
+    launch_command_with_remote_dir_from_mapping(
+        launch_command,
+        cwd,
+        std::env::var(OPENCODE_REMOTE_DIR_PREFIX_ENV)
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn launch_command_with_remote_dir_from_mapping(
+    launch_command: &str,
+    cwd: &str,
+    remote_prefix: Option<&str>,
+) -> Result<String, SessionError> {
+    let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_prefix)?;
+
+    if !resolved.remapped {
+        return Ok(launch_command.to_owned());
+    }
+
+    Ok(format!(
+        "export EZM_REMOTE_DIR='{}'; {launch_command}",
+        escape_single_quotes(&resolved.effective_path.display().to_string())
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_command_with_remote_dir_from_mapping;
+
+    #[test]
+    fn remote_prefix_injects_ezm_remote_dir_export() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("alpha");
+        let nested = repo_root.join("worktrees").join("feature-x");
+        std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+        std::fs::create_dir_all(&nested).expect("create nested");
+
+        let command = launch_command_with_remote_dir_from_mapping(
+            "exec \"${SHELL:-/bin/sh}\" -l",
+            &nested.display().to_string(),
+            Some("/srv/remotes"),
+        )
+        .expect("command should resolve");
+
+        assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
+    }
+
+    #[test]
+    fn missing_remote_mapping_keeps_original_launch_command() {
+        let command = launch_command_with_remote_dir_from_mapping(
+            "exec \"${SHELL:-/bin/sh}\" -l",
+            "/tmp/local-only",
+            None,
+        )
+        .expect("command should resolve");
+
+        assert_eq!(command, "exec \"${SHELL:-/bin/sh}\" -l");
+    }
 }
 
 fn capture_slot_cwd(
