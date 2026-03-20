@@ -26,6 +26,8 @@ mod scenario_e2e_10;
 mod scenario_e2e_11;
 #[path = "core_session_e2e/scenario_e2e_12.rs"]
 mod scenario_e2e_12;
+#[path = "core_session_e2e/scenario_e2e_13.rs"]
+mod scenario_e2e_13;
 #[path = "core_session_e2e/scenario_e2e_16.rs"]
 mod scenario_e2e_16;
 #[path = "core_session_e2e/scenario_e2e_19.rs"]
@@ -54,6 +56,7 @@ fn core_session_e2e_suite() {
         scenario_e2e_10::run(&harness),
         scenario_e2e_11::run(&harness),
         scenario_e2e_12::run(&harness),
+        scenario_e2e_13::run(&harness),
         scenario_e2e_16::run(&harness),
         scenario_e2e_19::run(&harness),
     ];
