@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::session::SlotMode;
+use crate::session::{LayoutPreset, SlotMode};
 
 #[derive(Debug, Parser, PartialEq, Eq)]
 #[command(
@@ -26,6 +26,12 @@ pub enum Command {
     /// Log utilities.
     #[command(subcommand)]
     Logs(LogsCommand),
+
+    /// Apply a layout preset to the current project session.
+    Preset {
+        #[arg(long)]
+        preset: LayoutPreset,
+    },
 
     #[command(name = "__internal", hide = true)]
     Internal {
@@ -78,6 +84,13 @@ pub enum InternalCommand {
         #[arg(long)]
         session: String,
     },
+    #[command(name = "preset")]
+    Preset {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        preset: LayoutPreset,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
@@ -90,7 +103,7 @@ pub enum AuxiliaryAction {
 mod tests {
     use clap::Parser;
 
-    use crate::session::SlotMode;
+    use crate::session::{LayoutPreset, SlotMode};
 
     use super::{AuxiliaryAction, Cli, Command, InternalCommand, LogsCommand};
 
@@ -111,6 +124,18 @@ mod tests {
         let parsed =
             Cli::try_parse_from(["ezm", "logs", "open-latest"]).expect("parse should succeed");
         assert_eq!(parsed.command, Some(Command::Logs(LogsCommand::OpenLatest)));
+    }
+
+    #[test]
+    fn parses_preset_subcommand() {
+        let parsed = Cli::try_parse_from(["ezm", "preset", "--preset", "three-pane"])
+            .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Preset {
+                preset: LayoutPreset::ThreePane,
+            })
+        );
     }
 
     #[test]
@@ -223,6 +248,29 @@ mod tests {
             Some(Command::Internal {
                 command: InternalCommand::Teardown {
                     session: String::from("ezm-test-session"),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_internal_preset_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "preset",
+            "--session",
+            "ezm-test-session",
+            "--preset",
+            "three-pane",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Preset {
+                    session: String::from("ezm-test-session"),
+                    preset: LayoutPreset::ThreePane,
                 },
             })
         );

@@ -1,14 +1,38 @@
 use std::path::Path;
 
+use crate::session::three_pane_target_widths;
+use crate::session::three_pane_widths_within_tolerance;
+
 use super::DEFAULT_CENTER_WIDTH_PCT;
+use super::LayoutPreset;
 use super::SessionError;
 use super::SlotRegistry;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
-use super::command::{tmux_output_value, tmux_run};
-use super::options::{set_or_verify_pane_option, set_or_verify_session_option};
+use super::command::{tmux_output, tmux_output_value, tmux_run};
+use super::options::{
+    required_pane_option, required_session_option, set_or_verify_pane_option,
+    set_or_verify_session_option, set_session_option, show_session_option,
+};
+use super::repair::reconcile_session_damage;
 use super::slot_swap::validate_canonical_slot_registry;
 use super::worktree::discover_worktrees_for_slots;
+
+const THREE_PANE_PRESET_KEY: &str = "M-3";
+const THREE_PANE_PRESET_RUN_SHELL: &str =
+    "${EZM_BIN:-ezm} __internal preset --session #{session_name} --preset three-pane";
+pub(super) const LAYOUT_MODE_KEY: &str = "@ezm_layout_mode";
+pub(super) const LAYOUT_MODE_FIVE_PANE: &str = "five-pane";
+pub(super) const LAYOUT_MODE_THREE_PANE: &str = "three-pane";
+pub(super) const SLOT_SUSPENDED_KEY_PREFIX: &str = "@ezm_slot_";
+
+#[derive(Debug, Clone)]
+struct SlotRestoreMetadata {
+    pane_id: String,
+    worktree: String,
+    cwd: String,
+    mode: String,
+}
 
 pub(super) fn bootstrap_default_layout(
     session_name: &str,
@@ -61,6 +85,10 @@ pub(super) fn bootstrap_default_layout(
         let registry =
             build_registry_for_canonical_panes(&canonical_pane_ids, &discovery.worktrees)?;
         persist_registry(session_name, &registry)?;
+        set_session_option(session_name, &slot_suspended_key(4), "0")?;
+        set_session_option(session_name, &slot_suspended_key(5), "0")?;
+        set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_FIVE_PANE)?;
+        wire_preset_keybinds()?;
         validate_canonical_slot_registry(session_name)?;
         tmux_run(&["select-pane", "-t", &canonical_pane_ids[1]])
     })();
@@ -79,6 +107,286 @@ pub(super) fn bootstrap_default_layout(
     }
 
     Ok(())
+}
+
+fn wire_preset_keybinds() -> Result<(), SessionError> {
+    tmux_run(&[
+        "bind-key",
+        "-T",
+        "prefix",
+        THREE_PANE_PRESET_KEY,
+        "run-shell",
+        THREE_PANE_PRESET_RUN_SHELL,
+    ])
+}
+
+pub(super) fn apply_layout_preset(
+    session_name: &str,
+    preset: LayoutPreset,
+) -> Result<(), SessionError> {
+    match preset {
+        LayoutPreset::ThreePane => apply_or_restore_three_pane_preset(session_name),
+    }
+}
+
+fn apply_or_restore_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
+    let layout_mode = show_session_option(session_name, LAYOUT_MODE_KEY)?
+        .unwrap_or_else(|| LAYOUT_MODE_FIVE_PANE.to_owned());
+
+    if is_three_pane_mode(layout_mode.as_str()) {
+        return restore_five_pane_layout(session_name);
+    }
+
+    apply_three_pane_preset(session_name)
+}
+
+fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
+    for slot_id in [4_u8, 5] {
+        let pane_key = format!("@ezm_slot_{slot_id}_pane");
+        let pane_id = required_session_option(session_name, &pane_key)?;
+        persist_slot_suspension_metadata(session_name, slot_id, &pane_id)?;
+        kill_pane_if_present(&pane_id)?;
+    }
+
+    let target = format!("{session_name}:0");
+    let left_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
+    let center_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
+    let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;
+
+    let window_width =
+        tmux_output_value(&["display-message", "-p", "-t", &target, "#{window_width}"])?
+            .trim()
+            .parse::<u16>()
+            .map_err(|error| SessionError::TmuxCommandFailed {
+                command: format!("display-message -p -t {target} #{{window_width}}"),
+                stderr: format!("failed parsing window width: {error}"),
+            })?;
+    let (left_target, center_target, _right_target) = three_pane_target_widths(window_width);
+
+    tmux_run(&[
+        "resize-pane",
+        "-t",
+        &left_pane,
+        "-x",
+        &left_target.to_string(),
+    ])?;
+    tmux_run(&[
+        "resize-pane",
+        "-t",
+        &center_pane,
+        "-x",
+        &center_target.to_string(),
+    ])?;
+
+    let left_width = pane_width(&left_pane)?;
+    let center_width = pane_width(&center_pane)?;
+    let right_width = pane_width(&right_pane)?;
+    if !three_pane_widths_within_tolerance(left_width, center_width, right_width, window_width) {
+        return Err(SessionError::TmuxCommandFailed {
+            command: format!("apply-three-pane-preset -t {target}"),
+            stderr: format!(
+                "width tolerance violated: left={left_width}; center={center_width}; right={right_width}; window={window_width}"
+            ),
+        });
+    }
+
+    set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_THREE_PANE)?;
+    validate_canonical_slot_registry(session_name)?;
+
+    Ok(())
+}
+
+fn restore_five_pane_layout(session_name: &str) -> Result<(), SessionError> {
+    let slot_four_restore = load_slot_restore_metadata(session_name, 4)?;
+    let slot_five_restore = load_slot_restore_metadata(session_name, 5)?;
+
+    let _ = reconcile_session_damage(session_name)?;
+
+    verify_restored_slot_continuity(session_name, 4, &slot_four_restore)?;
+    verify_restored_slot_continuity(session_name, 5, &slot_five_restore)?;
+
+    let target = format!("{session_name}:0");
+    let left_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
+    let center_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
+    let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;
+
+    let window_width =
+        tmux_output_value(&["display-message", "-p", "-t", &target, "#{window_width}"])?
+            .trim()
+            .parse::<u16>()
+            .map_err(|error| SessionError::TmuxCommandFailed {
+                command: format!("display-message -p -t {target} #{{window_width}}"),
+                stderr: format!("failed parsing window width: {error}"),
+            })?;
+    let (left_target, center_target, right_target) =
+        canonical_five_pane_column_widths(window_width, DEFAULT_CENTER_WIDTH_PCT);
+
+    tmux_run(&[
+        "resize-pane",
+        "-t",
+        &left_pane,
+        "-x",
+        &left_target.to_string(),
+    ])?;
+    tmux_run(&[
+        "resize-pane",
+        "-t",
+        &center_pane,
+        "-x",
+        &center_target.to_string(),
+    ])?;
+    tmux_run(&[
+        "resize-pane",
+        "-t",
+        &right_pane,
+        "-x",
+        &right_target.to_string(),
+    ])?;
+
+    clear_slot_suspension_metadata(session_name, 4)?;
+    clear_slot_suspension_metadata(session_name, 5)?;
+    set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_FIVE_PANE)?;
+    validate_canonical_slot_registry(session_name)?;
+
+    Ok(())
+}
+
+fn persist_slot_suspension_metadata(
+    session_name: &str,
+    slot_id: u8,
+    pane_id: &str,
+) -> Result<(), SessionError> {
+    let worktree = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_worktree"))?;
+    let cwd = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_cwd"))?;
+    let mode = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_mode"))?;
+    set_session_option(session_name, &slot_suspended_key(slot_id), "1")?;
+    set_session_option(session_name, &slot_restore_pane_key(slot_id), pane_id)?;
+    set_session_option(session_name, &slot_restore_worktree_key(slot_id), &worktree)?;
+    set_session_option(session_name, &slot_restore_cwd_key(slot_id), &cwd)?;
+    set_session_option(session_name, &slot_restore_mode_key(slot_id), &mode)
+}
+
+fn clear_slot_suspension_metadata(session_name: &str, slot_id: u8) -> Result<(), SessionError> {
+    set_session_option(session_name, &slot_suspended_key(slot_id), "0")
+}
+
+fn load_slot_restore_metadata(
+    session_name: &str,
+    slot_id: u8,
+) -> Result<SlotRestoreMetadata, SessionError> {
+    let suspended = required_session_option(session_name, &slot_suspended_key(slot_id))?;
+    if suspended != "1" {
+        return Err(SessionError::TmuxCommandFailed {
+            command: format!("restore-five-pane-layout -t {session_name}"),
+            stderr: format!("slot {slot_id} is not marked suspended"),
+        });
+    }
+
+    Ok(SlotRestoreMetadata {
+        pane_id: required_session_option(session_name, &slot_restore_pane_key(slot_id))?,
+        worktree: required_session_option(session_name, &slot_restore_worktree_key(slot_id))?,
+        cwd: required_session_option(session_name, &slot_restore_cwd_key(slot_id))?,
+        mode: required_session_option(session_name, &slot_restore_mode_key(slot_id))?,
+    })
+}
+
+fn verify_restored_slot_continuity(
+    session_name: &str,
+    slot_id: u8,
+    metadata: &SlotRestoreMetadata,
+) -> Result<(), SessionError> {
+    let pane_id = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_pane"))?;
+    let pane_slot_id = required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_id")?;
+    let pane_worktree =
+        required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_worktree")?;
+    let pane_cwd = required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_cwd")?;
+    let pane_mode = required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_mode")?;
+
+    validate_restored_slot_continuity(
+        slot_id,
+        &pane_slot_id,
+        &pane_worktree,
+        &pane_cwd,
+        &pane_mode,
+        metadata,
+    )
+    .map_err(|reason| SessionError::TmuxCommandFailed {
+        command: format!("restore-five-pane-layout -t {session_name}"),
+        stderr: reason,
+    })
+}
+
+fn validate_restored_slot_continuity(
+    slot_id: u8,
+    pane_slot_id: &str,
+    pane_worktree: &str,
+    pane_cwd: &str,
+    pane_mode: &str,
+    metadata: &SlotRestoreMetadata,
+) -> Result<(), String> {
+    if pane_slot_id != slot_id.to_string() {
+        return Err(format!(
+            "slot {slot_id} restored pane reports @ezm_slot_id={pane_slot_id}"
+        ));
+    }
+
+    if pane_worktree != metadata.worktree {
+        return Err(format!(
+            "slot {slot_id} restored pane worktree mismatch suspended_pane={} restore={} pane={pane_worktree}",
+            metadata.pane_id, metadata.worktree
+        ));
+    }
+
+    if pane_cwd != metadata.cwd {
+        return Err(format!(
+            "slot {slot_id} restored pane cwd mismatch suspended_pane={} restore={} pane={pane_cwd}",
+            metadata.pane_id, metadata.cwd
+        ));
+    }
+
+    if pane_mode != metadata.mode {
+        return Err(format!(
+            "slot {slot_id} restored pane mode mismatch suspended_pane={} restore={} pane={pane_mode}",
+            metadata.pane_id, metadata.mode
+        ));
+    }
+
+    Ok(())
+}
+
+fn slot_suspended_key(slot_id: u8) -> String {
+    format!("{SLOT_SUSPENDED_KEY_PREFIX}{slot_id}_suspended")
+}
+
+fn slot_restore_pane_key(slot_id: u8) -> String {
+    format!("@ezm_slot_{slot_id}_restore_pane")
+}
+
+fn slot_restore_worktree_key(slot_id: u8) -> String {
+    format!("@ezm_slot_{slot_id}_restore_worktree")
+}
+
+fn slot_restore_cwd_key(slot_id: u8) -> String {
+    format!("@ezm_slot_{slot_id}_restore_cwd")
+}
+
+fn slot_restore_mode_key(slot_id: u8) -> String {
+    format!("@ezm_slot_{slot_id}_restore_mode")
+}
+
+fn is_three_pane_mode(layout_mode: &str) -> bool {
+    layout_mode == LAYOUT_MODE_THREE_PANE
+}
+
+fn pane_width(pane_id: &str) -> Result<u16, SessionError> {
+    let value = tmux_output_value(&["display-message", "-p", "-t", pane_id, "#{pane_width}"])?;
+    value
+        .trim()
+        .parse::<u16>()
+        .map_err(|error| SessionError::TmuxCommandFailed {
+            command: format!("display-message -p -t {pane_id} #{{pane_width}}"),
+            stderr: format!("failed parsing pane width: {error}"),
+        })
 }
 
 fn split_pane_horizontal(target_pane: &str, new_width: u16) -> Result<String, SessionError> {
@@ -143,4 +451,94 @@ fn kill_created_panes(created_panes: &[String]) -> Result<(), SessionError> {
     }
 
     Ok(())
+}
+
+fn kill_pane_if_present(pane_id: &str) -> Result<(), SessionError> {
+    let output = tmux_output(&["kill-pane", "-t", pane_id])?;
+    if output.status.success() || missing_pane_diagnostic(&output) {
+        return Ok(());
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: format!("kill-pane -t {pane_id}"),
+        stderr: super::command::format_output_diagnostics(&output),
+    })
+}
+
+fn missing_pane_diagnostic(output: &std::process::Output) -> bool {
+    output.status.code() == Some(1)
+        && String::from_utf8_lossy(&output.stderr)
+            .to_ascii_lowercase()
+            .contains("can't find pane")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        SlotRestoreMetadata, is_three_pane_mode, slot_restore_cwd_key, slot_restore_mode_key,
+        slot_restore_pane_key, slot_restore_worktree_key, slot_suspended_key,
+        validate_restored_slot_continuity,
+    };
+
+    #[test]
+    fn slot_restore_metadata_keys_are_stable() {
+        assert_eq!(slot_suspended_key(4), "@ezm_slot_4_suspended");
+        assert_eq!(slot_restore_pane_key(4), "@ezm_slot_4_restore_pane");
+        assert_eq!(slot_restore_worktree_key(4), "@ezm_slot_4_restore_worktree");
+        assert_eq!(slot_restore_cwd_key(4), "@ezm_slot_4_restore_cwd");
+        assert_eq!(slot_restore_mode_key(4), "@ezm_slot_4_restore_mode");
+    }
+
+    #[test]
+    fn three_pane_mode_detection_is_explicit() {
+        assert!(is_three_pane_mode("three-pane"));
+        assert!(!is_three_pane_mode("five-pane"));
+        assert!(!is_three_pane_mode(""));
+    }
+
+    #[test]
+    fn restored_slot_continuity_requires_original_slot_identity_and_metadata() {
+        let metadata = SlotRestoreMetadata {
+            pane_id: String::from("%4"),
+            worktree: String::from("wt-4"),
+            cwd: String::from("/repo/slot-4"),
+            mode: String::from("lazygit"),
+        };
+
+        assert!(
+            validate_restored_slot_continuity(4, "4", "wt-4", "/repo/slot-4", "lazygit", &metadata)
+                .is_ok()
+        );
+
+        assert!(
+            validate_restored_slot_continuity(4, "9", "wt-4", "/repo/slot-4", "lazygit", &metadata)
+                .expect_err("restore path must preserve canonical slot id")
+                .contains("@ezm_slot_id")
+        );
+
+        assert!(
+            validate_restored_slot_continuity(
+                4,
+                "4",
+                "wt-remapped",
+                "/repo/slot-4",
+                "lazygit",
+                &metadata
+            )
+            .expect_err("restore path must reapply captured worktree")
+            .contains("worktree mismatch")
+        );
+
+        assert!(
+            validate_restored_slot_continuity(4, "4", "wt-4", "/repo/other", "lazygit", &metadata)
+                .expect_err("restore path must reapply captured cwd")
+                .contains("cwd mismatch")
+        );
+
+        assert!(
+            validate_restored_slot_continuity(4, "4", "wt-4", "/repo/slot-4", "shell", &metadata)
+                .expect_err("restore path must reapply captured mode")
+                .contains("mode mismatch")
+        );
+    }
 }

@@ -67,6 +67,17 @@ pub(crate) fn execute_with_opener(
         Some(Command::Logs(LogsCommand::OpenLatest)) => {
             execute_open_latest(active_log_root, os, opener)?
         }
+        Some(Command::Preset { preset }) => {
+            let tmux = session::ProcessTmuxClient;
+            let outcome = execute_default_session_flow(&tmux)?;
+            let preset_outcome =
+                session::apply_layout_preset(&outcome.identity.session_name, preset, &tmux)?;
+            format!(
+                "preset apply complete: session={}; preset={}",
+                preset_outcome.session_name,
+                preset_outcome.preset.label()
+            )
+        }
         Some(Command::Internal { command }) => {
             execute_internal(command, env, resolved_operator.value.as_deref())?
         }
@@ -178,6 +189,15 @@ fn execute_internal(
                 outcome.helper_processes_removed
             ))
         }
+        InternalCommand::Preset { session, preset } => {
+            let tmux = session::ProcessTmuxClient;
+            let outcome = session::apply_layout_preset(&session, preset, &tmux)?;
+            Ok(format!(
+                "internal preset complete: session={}; preset={}",
+                outcome.session_name,
+                outcome.preset.label()
+            ))
+        }
     }
 }
 
@@ -226,8 +246,8 @@ mod tests {
     use crate::config::OperatingSystem;
     use crate::logging::LogOpener;
     use crate::session::{
-        AuxiliaryViewerOutcome, PopupShellOutcome, SessionError, SlotMode, TeardownOutcome,
-        TmuxClient,
+        AuxiliaryViewerOutcome, LayoutPreset, PopupShellOutcome, SessionError, SlotMode,
+        TeardownOutcome, TmuxClient,
     };
 
     struct OkOpener;
@@ -396,6 +416,10 @@ mod tests {
         }
 
         fn swap_slot_with_center(&self, _: &str, _: u8) -> Result<(), SessionError> {
+            Ok(())
+        }
+
+        fn apply_layout_preset(&self, _: &str, _: LayoutPreset) -> Result<(), SessionError> {
             Ok(())
         }
 

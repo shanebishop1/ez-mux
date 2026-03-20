@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use ez_mux::session::LayoutPreset;
 use ez_mux::session::SessionAction;
 use ez_mux::session::SessionDamageAnalysis;
 use ez_mux::session::SessionRepairOutcome;
@@ -111,6 +112,14 @@ impl TmuxClient for FakeTmux {
         &self,
         _session_name: &str,
         _slot_id: u8,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        Ok(())
+    }
+
+    fn apply_layout_preset(
+        &self,
+        _session_name: &str,
+        _preset: LayoutPreset,
     ) -> Result<(), ez_mux::session::SessionError> {
         Ok(())
     }
