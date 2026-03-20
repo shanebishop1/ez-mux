@@ -70,5 +70,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         layout: Some(layout_snapshot),
         slots: None,
         remote_path: None,
+        helper_state: None,
     }
 }

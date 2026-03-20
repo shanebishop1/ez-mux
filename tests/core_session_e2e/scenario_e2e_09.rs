@@ -78,5 +78,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             effective_mapped_path,
             remap_applied,
         }),
+        helper_state: None,
     }
 }
