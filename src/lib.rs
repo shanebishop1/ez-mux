@@ -358,6 +358,45 @@ mod tests {
         assert!(stderr.contains("invalid TOML"));
     }
 
+    #[test]
+    fn remote_prefix_without_operator_writes_clear_stderr_and_non_zero_exit() {
+        let (mut env, state) = TestEnv::with_temp_state();
+        env.vars.insert(
+            String::from(crate::session::OPENCODE_REMOTE_DIR_PREFIX_ENV),
+            String::from("/srv/remotes"),
+        );
+        env.vars.insert(
+            String::from(crate::config::EZM_CONFIG_ENV),
+            state.path().join("empty-config.toml").display().to_string(),
+        );
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = run_with_io(
+            [
+                "ezm",
+                "__internal",
+                "mode",
+                "--session",
+                "ezm-test-session",
+                "--slot",
+                "4",
+                "--mode",
+                "shell",
+            ],
+            &env,
+            OperatingSystem::Linux,
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::RuntimeFailure.as_i32());
+        assert_eq!(String::from_utf8(stdout).expect("utf8"), "");
+        let stderr = String::from_utf8(stderr).expect("utf8");
+        assert!(stderr.contains("active log file:"));
+        assert!(stderr.contains("remote-prefix routing requires OPERATOR to be set"));
+    }
+
     struct BrokenPipeWriter;
 
     impl std::io::Write for BrokenPipeWriter {

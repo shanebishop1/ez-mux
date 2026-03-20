@@ -8,19 +8,24 @@ use super::options::{
 };
 use super::slot_swap::validate_canonical_slot_registry;
 use crate::session::{
-    OPENCODE_REMOTE_DIR_PREFIX_ENV, TeardownHook, mode_launch_contract, resolve_remote_path,
+    TeardownHook, mode_launch_contract, resolve_operator_identity_for_remote_prefix,
+    resolve_remote_path,
 };
 
 pub(super) fn switch_slot_mode(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
+    operator: Option<&str>,
+    remote_prefix: Option<&str>,
 ) -> Result<(), SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
         return Err(SessionError::SlotRegistry(
             super::super::SlotRegistryError::InvalidSlotId { slot_id },
         ));
     }
+
+    resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
 
     validate_canonical_slot_registry(session_name)?;
     let slot_pane_key = format!("@ezm_slot_{slot_id}_pane");
@@ -48,7 +53,12 @@ pub(super) fn switch_slot_mode(
     }
 
     let contract = mode_launch_contract(mode);
-    let launch_command = launch_command_with_remote_dir(&contract.launch_command, &current_cwd)?;
+    let launch_command = launch_command_with_remote_dir(
+        &contract.launch_command,
+        &current_cwd,
+        remote_prefix,
+        operator,
+    )?;
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
     respawn_slot_mode(&pane_id, &current_cwd, &launch_command)?;
 
@@ -108,20 +118,20 @@ pub(super) fn switch_slot_mode(
     Ok(())
 }
 
-fn launch_command_with_remote_dir(launch_command: &str, cwd: &str) -> Result<String, SessionError> {
-    launch_command_with_remote_dir_from_mapping(
-        launch_command,
-        cwd,
-        std::env::var(OPENCODE_REMOTE_DIR_PREFIX_ENV)
-            .ok()
-            .as_deref(),
-    )
+fn launch_command_with_remote_dir(
+    launch_command: &str,
+    cwd: &str,
+    remote_prefix: Option<&str>,
+    operator: Option<&str>,
+) -> Result<String, SessionError> {
+    launch_command_with_remote_dir_from_mapping(launch_command, cwd, remote_prefix, operator)
 }
 
 fn launch_command_with_remote_dir_from_mapping(
     launch_command: &str,
     cwd: &str,
     remote_prefix: Option<&str>,
+    operator: Option<&str>,
 ) -> Result<String, SessionError> {
     let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_prefix)?;
 
@@ -129,9 +139,14 @@ fn launch_command_with_remote_dir_from_mapping(
         return Ok(launch_command.to_owned());
     }
 
+    let resolved_operator = resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
+    let resolved_operator =
+        resolved_operator.ok_or(SessionError::MissingOperatorForRemotePrefix)?;
+
     Ok(format!(
-        "export EZM_REMOTE_DIR='{}'; {launch_command}",
-        escape_single_quotes(&resolved.effective_path.display().to_string())
+        "export EZM_REMOTE_DIR='{}'; export OPERATOR='{}'; {launch_command}",
+        escape_single_quotes(&resolved.effective_path.display().to_string()),
+        escape_single_quotes(&resolved_operator)
     ))
 }
 
@@ -151,10 +166,12 @@ mod tests {
             "exec \"${SHELL:-/bin/sh}\" -l",
             &nested.display().to_string(),
             Some("/srv/remotes"),
+            Some("alice"),
         )
         .expect("command should resolve");
 
         assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
+        assert!(command.contains("OPERATOR='alice'"));
     }
 
     #[test]
@@ -163,10 +180,32 @@ mod tests {
             "exec \"${SHELL:-/bin/sh}\" -l",
             "/tmp/local-only",
             None,
+            None,
         )
         .expect("command should resolve");
 
         assert_eq!(command, "exec \"${SHELL:-/bin/sh}\" -l");
+    }
+
+    #[test]
+    fn remote_prefix_without_operator_fails_fast() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("alpha");
+        std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+
+        let error = launch_command_with_remote_dir_from_mapping(
+            "exec \"${SHELL:-/bin/sh}\" -l",
+            &repo_root.display().to_string(),
+            Some("/srv/remotes"),
+            None,
+        )
+        .expect_err("missing operator should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("remote-prefix routing requires OPERATOR")
+        );
     }
 }
 

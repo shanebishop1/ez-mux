@@ -83,6 +83,8 @@ pub trait TmuxClient {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
+        operator: Option<&str>,
+        remote_prefix: Option<&str>,
     ) -> Result<(), SessionError>;
 
     /// Toggles popup shell helper session for one canonical slot.
@@ -177,8 +179,10 @@ impl TmuxClient for ProcessTmuxClient {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
+        operator: Option<&str>,
+        remote_prefix: Option<&str>,
     ) -> Result<(), SessionError> {
-        mode_runtime::switch_slot_mode(session_name, slot_id, mode)
+        mode_runtime::switch_slot_mode(session_name, slot_id, mode, operator, remote_prefix)
     }
 
     fn toggle_popup_shell(

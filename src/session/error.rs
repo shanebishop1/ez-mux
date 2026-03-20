@@ -17,6 +17,8 @@ pub enum SessionError {
     },
     #[error("invalid remote path mapping prefix `{prefix}`: expected absolute path")]
     InvalidRemotePathMappingPrefix { prefix: String },
+    #[error("remote-prefix routing requires OPERATOR to be set")]
+    MissingOperatorForRemotePrefix,
     #[error("tmux command `{command}` failed: {stderr}")]
     TmuxCommandFailed { command: String, stderr: String },
     #[error("failed spawning tmux command `{command}`: {source}")]

@@ -18,6 +18,8 @@ pub fn switch_slot_mode(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
+    operator: Option<&str>,
+    remote_prefix: Option<&str>,
     tmux: &impl TmuxClient,
 ) -> Result<SlotModeSwitchOutcome, SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -26,7 +28,7 @@ pub fn switch_slot_mode(
         ));
     }
 
-    tmux.switch_slot_mode(session_name, slot_id, mode)?;
+    tmux.switch_slot_mode(session_name, slot_id, mode, operator, remote_prefix)?;
 
     Ok(SlotModeSwitchOutcome {
         session_name: session_name.to_owned(),
