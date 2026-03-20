@@ -73,6 +73,11 @@ pub enum InternalCommand {
         #[arg(long)]
         action: AuxiliaryAction,
     },
+    #[command(name = "teardown")]
+    Teardown {
+        #[arg(long)]
+        session: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum, PartialEq, Eq)]
@@ -198,6 +203,26 @@ mod tests {
                 command: InternalCommand::Auxiliary {
                     session: String::from("ezm-test-session"),
                     action: AuxiliaryAction::Open,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_internal_teardown_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "teardown",
+            "--session",
+            "ezm-test-session",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Teardown {
+                    session: String::from("ezm-test-session"),
                 },
             })
         );
