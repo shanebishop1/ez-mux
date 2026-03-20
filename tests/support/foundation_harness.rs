@@ -19,6 +19,13 @@ pub struct PtyAttachProbe {
     pub observed_attached_client: bool,
 }
 
+#[allow(dead_code)]
+pub struct PtyInterruptProbe {
+    pub exit_code: i32,
+    pub observed_attached_client: bool,
+    pub signal_sent: bool,
+}
+
 pub struct TmuxSettleEvidence {
     pub attempts: u32,
     pub poll_interval_ms: u64,
@@ -296,6 +303,121 @@ impl FoundationHarness {
         Ok(PtyAttachProbe {
             exit_code: i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX),
             observed_attached_client,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn run_ezm_with_pty_interrupt(
+        &self,
+        project_dir: &Path,
+        args: &[&str],
+        env_overrides: &[(&str, &str)],
+        opener_exit_code: i32,
+        session_name: &str,
+    ) -> Result<PtyInterruptProbe, String> {
+        let state_root = self.work_dir.join("state");
+        let config_root = self.work_dir.join("config");
+        let home_root = self.work_dir.join("home");
+
+        fs::create_dir_all(&state_root)
+            .map_err(|error| format!("failed creating state root: {error}"))?;
+        fs::create_dir_all(&config_root)
+            .map_err(|error| format!("failed creating config root: {error}"))?;
+        fs::create_dir_all(&home_root)
+            .map_err(|error| format!("failed creating home root: {error}"))?;
+
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let merged_path = format!("{}:{}", self.fake_bin_dir.display(), current_path);
+        let mut command = CommandBuilder::new(
+            self.ezm_bin
+                .to_str()
+                .ok_or_else(|| String::from("ezm binary path is not valid UTF-8"))?,
+        );
+        for arg in args {
+            command.arg(arg);
+        }
+        command.cwd(project_dir);
+        command.env("TMUX", "");
+        command.env("TERM", "xterm-256color");
+        command.env("HOME", home_root);
+        command.env("XDG_STATE_HOME", state_root);
+        command.env("XDG_CONFIG_HOME", config_root);
+        command.env("TMUX_TMPDIR", &self.tmux_tmpdir);
+        command.env("E2E_TMUX_SOCKET", &self.tmux_socket_name);
+        command.env("E2E_OPEN_CAPTURE", &self.open_capture_path);
+        command.env("E2E_OPEN_EXIT", opener_exit_code.to_string());
+        command.env("PATH", merged_path);
+
+        for (key, value) in env_overrides {
+            command.env(key, value);
+        }
+
+        let pty = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| format!("failed creating PTY pair: {error}"))?;
+
+        let mut child = pty
+            .slave
+            .spawn_command(command)
+            .map_err(|error| format!("failed spawning PTY child for ezm {args:?}: {error}"))?;
+
+        let mut observed_attached_client = false;
+        let mut signal_sent = false;
+        let start = Instant::now();
+        let timeout = Duration::from_secs(5);
+        let poll_interval = Duration::from_millis(30);
+
+        loop {
+            if !observed_attached_client
+                && self
+                    .tmux_capture(&["list-clients", "-t", session_name, "-F", "#{client_tty}"])
+                    .ok()
+                    .is_some_and(|clients| clients.lines().any(|line| !line.trim().is_empty()))
+            {
+                observed_attached_client = true;
+            }
+
+            if observed_attached_client && !signal_sent {
+                if let Some(pid) = child.process_id() {
+                    signal_sent = Command::new("kill")
+                        .arg("-INT")
+                        .arg(pid.to_string())
+                        .status()
+                        .map(|status| status.success())
+                        .unwrap_or(false);
+                }
+            }
+
+            if child
+                .try_wait()
+                .map_err(|error| format!("failed waiting for PTY child status: {error}"))?
+                .is_some()
+            {
+                break;
+            }
+
+            if start.elapsed() >= timeout {
+                let _ = child.kill();
+                break;
+            }
+
+            thread::sleep(poll_interval);
+        }
+
+        let exit_status = child
+            .wait()
+            .map_err(|error| format!("failed waiting for PTY child completion: {error}"))?;
+        drop(pty.master);
+
+        Ok(PtyInterruptProbe {
+            exit_code: i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX),
+            observed_attached_client,
+            signal_sent,
         })
     }
 
