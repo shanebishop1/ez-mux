@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use time::OffsetDateTime;
-use time::macros::format_description;
-
 use crate::config::{EnvProvider, OperatingSystem};
 
-use super::{LOG_FILE_EXTENSION, LoggingError, fallback_log_root, resolve_primary_log_root};
+use super::LOG_FILE_EXTENSION;
+use super::LoggingError;
+use super::fallback_log_root;
+use super::resolve_primary_log_root;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchLog {
@@ -20,14 +20,14 @@ pub struct LaunchLog {
 }
 
 pub trait Clock {
-    fn now_utc(&self) -> OffsetDateTime;
+    fn now_utc(&self) -> time::OffsetDateTime;
 }
 
 pub struct SystemClock;
 
 impl Clock for SystemClock {
-    fn now_utc(&self) -> OffsetDateTime {
-        OffsetDateTime::now_utc()
+    fn now_utc(&self) -> time::OffsetDateTime {
+        time::OffsetDateTime::now_utc()
     }
 }
 
@@ -174,7 +174,7 @@ fn log_filename(
 ) -> Result<String, LoggingError> {
     let timestamp = clock
         .now_utc()
-        .format(&format_description!(
+        .format(&time::macros::format_description!(
             "[year][month][day]-[hour][minute][second]"
         ))
         .map_err(LoggingError::TimestampFormat)?;

@@ -5,11 +5,11 @@ pub mod cli;
 pub mod config;
 pub mod exit_code;
 pub mod logging;
+pub mod session;
 
 use std::io::Write;
 
 use clap::Parser;
-use clap::error::ErrorKind;
 use config::{OperatingSystem, ProcessEnv};
 use exit_code::ExitCode;
 
@@ -65,7 +65,7 @@ where
             }
         },
         Err(parse_error) => match parse_error.kind() {
-            ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+            clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
                 let _ = write!(stdout, "{parse_error}");
                 ExitCode::Success.as_i32()
             }
@@ -81,7 +81,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::config::{EZM_CONFIG_ENV, OperatingSystem};
+    use crate::config::OperatingSystem;
 
     #[derive(Default)]
     struct TestEnv {
@@ -114,7 +114,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let code = run_with_io(
-            ["ezm"],
+            ["ezm", "repair"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -122,11 +122,8 @@ mod tests {
         );
 
         assert_eq!(code, ExitCode::Success.as_i32());
-        assert!(
-            String::from_utf8(stdout)
-                .expect("utf8")
-                .contains("contract locked")
-        );
+        let stdout = String::from_utf8(stdout).expect("utf8");
+        assert!(stdout.contains("repair contract entrypoint accepted"));
         let stderr = String::from_utf8(stderr).expect("utf8");
         assert!(stderr.contains("active log file:"));
     }
@@ -180,7 +177,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let first_code = run_with_io(
-            ["ezm"],
+            ["ezm", "repair"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -191,7 +188,7 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let second_code = run_with_io(
-            ["ezm"],
+            ["ezm", "repair"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -231,7 +228,7 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let code = run_with_io(
-            ["ezm"],
+            ["ezm", "repair"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -280,7 +277,7 @@ mod tests {
             temp.path().display().to_string(),
         );
         vars.insert(
-            String::from(EZM_CONFIG_ENV),
+            String::from(crate::config::EZM_CONFIG_ENV),
             invalid_config.display().to_string(),
         );
         let env = TestEnv { vars };

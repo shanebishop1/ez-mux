@@ -34,13 +34,18 @@ pub struct FoundationHarness {
     project_root: PathBuf,
 }
 
+#[allow(dead_code)]
 impl FoundationHarness {
     pub fn new() -> Result<Self, String> {
+        Self::new_for_suite("foundation")
+    }
+
+    pub fn new_for_suite(suite_name: &str) -> Result<Self, String> {
         let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let target_dir = project_root
             .join("target")
             .join("e2e-evidence")
-            .join("foundation");
+            .join(suite_name);
         fs::create_dir_all(&target_dir)
             .map_err(|error| format!("failed creating evidence base directory: {error}"))?;
 
@@ -128,6 +133,16 @@ impl FoundationHarness {
         env_overrides: &[(&str, &str)],
         opener_exit_code: i32,
     ) -> Result<CmdOutput, String> {
+        self.run_ezm_in_dir(self.project_root(), args, env_overrides, opener_exit_code)
+    }
+
+    pub fn run_ezm_in_dir(
+        &self,
+        project_dir: &Path,
+        args: &[&str],
+        env_overrides: &[(&str, &str)],
+        opener_exit_code: i32,
+    ) -> Result<CmdOutput, String> {
         let state_root = self.work_dir.join("state");
         let config_root = self.work_dir.join("config");
         let home_root = self.work_dir.join("home");
@@ -144,7 +159,7 @@ impl FoundationHarness {
 
         let mut command = Command::new(&self.ezm_bin);
         command.args(args);
-        command.current_dir(self.project_root());
+        command.current_dir(project_dir);
         command.env_remove("TMUX");
         command.env("HOME", &home_root);
         command.env("XDG_STATE_HOME", &state_root);
@@ -231,6 +246,10 @@ impl FoundationHarness {
 
             thread::sleep(poll_interval);
         }
+    }
+
+    pub fn tmux_capture(&self, args: &[&str]) -> Result<String, String> {
+        self.tmux_raw(args)
     }
 
     fn start_tmux_server(&self) -> Result<(), String> {
@@ -342,6 +361,7 @@ fn write_executable(path: &Path, content: &str) -> Result<(), String> {
 
 fn resolve_tool_path(tool: &str) -> Result<PathBuf, String> {
     let output = Command::new("which")
+        .arg("-a")
         .arg(tool)
         .output()
         .map_err(|error| format!("failed resolving `{tool}`: {error}"))?;
@@ -353,8 +373,27 @@ fn resolve_tool_path(tool: &str) -> Result<PathBuf, String> {
         ));
     }
 
-    Ok(PathBuf::from(
-        String::from_utf8_lossy(&output.stdout).trim(),
+    let candidates = String::from_utf8_lossy(&output.stdout);
+    for candidate in candidates
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if candidate.contains("/shims/") {
+            continue;
+        }
+
+        let probe = Command::new(candidate)
+            .arg("-V")
+            .output()
+            .map_err(|error| format!("failed probing `{tool}` candidate {candidate}: {error}"))?;
+        if probe.status.success() {
+            return Ok(PathBuf::from(candidate));
+        }
+    }
+
+    Err(format!(
+        "required tool `{tool}` is available in PATH but no candidate responded to -V"
     ))
 }
 
