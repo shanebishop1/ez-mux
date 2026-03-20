@@ -25,6 +25,7 @@ pub(super) const LAYOUT_MODE_KEY: &str = "@ezm_layout_mode";
 pub(super) const LAYOUT_MODE_FIVE_PANE: &str = "five-pane";
 pub(super) const LAYOUT_MODE_THREE_PANE: &str = "three-pane";
 pub(super) const SLOT_SUSPENDED_KEY_PREFIX: &str = "@ezm_slot_";
+const RESTORE_WIDTH_KEY_PREFIX: &str = "@ezm_restore_width_slot_";
 
 #[derive(Debug, Clone)]
 struct SlotRestoreMetadata {
@@ -141,6 +142,12 @@ fn apply_or_restore_three_pane_preset(session_name: &str) -> Result<(), SessionE
 }
 
 fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
+    let left_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
+    let center_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
+    let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;
+
+    persist_restore_width_targets(session_name, &left_pane, &center_pane, &right_pane)?;
+
     for slot_id in [4_u8, 5] {
         let pane_key = format!("@ezm_slot_{slot_id}_pane");
         let pane_id = required_session_option(session_name, &pane_key)?;
@@ -149,9 +156,6 @@ fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
     }
 
     let target = format!("{session_name}:0");
-    let left_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
-    let center_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
-    let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;
 
     let window_width =
         tmux_output_value(&["display-message", "-p", "-t", &target, "#{window_width}"])?
@@ -219,7 +223,7 @@ fn restore_five_pane_layout(session_name: &str) -> Result<(), SessionError> {
                 stderr: format!("failed parsing window width: {error}"),
             })?;
     let (left_target, center_target, right_target) =
-        canonical_five_pane_column_widths(window_width, DEFAULT_CENTER_WIDTH_PCT);
+        load_restore_width_targets(session_name, window_width)?;
 
     tmux_run(&[
         "resize-pane",
@@ -264,6 +268,63 @@ fn persist_slot_suspension_metadata(
     set_session_option(session_name, &slot_restore_worktree_key(slot_id), &worktree)?;
     set_session_option(session_name, &slot_restore_cwd_key(slot_id), &cwd)?;
     set_session_option(session_name, &slot_restore_mode_key(slot_id), &mode)
+}
+
+fn persist_restore_width_targets(
+    session_name: &str,
+    left_pane: &str,
+    center_pane: &str,
+    right_pane: &str,
+) -> Result<(), SessionError> {
+    let left_width = pane_width(left_pane)?;
+    let center_width = pane_width(center_pane)?;
+    let right_width = pane_width(right_pane)?;
+
+    set_session_option(session_name, &restore_width_key(1), &left_width.to_string())?;
+    set_session_option(
+        session_name,
+        &restore_width_key(2),
+        &center_width.to_string(),
+    )?;
+    set_session_option(
+        session_name,
+        &restore_width_key(3),
+        &right_width.to_string(),
+    )
+}
+
+fn load_restore_width_targets(
+    session_name: &str,
+    window_width: u16,
+) -> Result<(u16, u16, u16), SessionError> {
+    let fallback = canonical_five_pane_column_widths(window_width, DEFAULT_CENTER_WIDTH_PCT);
+
+    let left = parse_restore_width_option(session_name, 1)?;
+    let center = parse_restore_width_option(session_name, 2)?;
+    let right = parse_restore_width_option(session_name, 3)?;
+
+    match (left, center, right) {
+        (Some(left), Some(center), Some(right)) => Ok((left, center, right)),
+        _ => Ok(fallback),
+    }
+}
+
+fn parse_restore_width_option(
+    session_name: &str,
+    slot_id: u8,
+) -> Result<Option<u16>, SessionError> {
+    let key = restore_width_key(slot_id);
+    let Some(raw) = show_session_option(session_name, &key)? else {
+        return Ok(None);
+    };
+
+    raw.trim()
+        .parse::<u16>()
+        .map(Some)
+        .map_err(|error| SessionError::TmuxCommandFailed {
+            command: format!("restore-five-pane-layout -t {session_name}"),
+            stderr: format!("failed parsing {key} as width: {error}"),
+        })
 }
 
 fn clear_slot_suspension_metadata(session_name: &str, slot_id: u8) -> Result<(), SessionError> {
@@ -374,6 +435,10 @@ fn slot_restore_mode_key(slot_id: u8) -> String {
     format!("@ezm_slot_{slot_id}_restore_mode")
 }
 
+fn restore_width_key(slot_id: u8) -> String {
+    format!("{RESTORE_WIDTH_KEY_PREFIX}{slot_id}")
+}
+
 fn is_three_pane_mode(layout_mode: &str) -> bool {
     layout_mode == LAYOUT_MODE_THREE_PANE
 }
@@ -475,9 +540,9 @@ fn missing_pane_diagnostic(output: &std::process::Output) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        SlotRestoreMetadata, is_three_pane_mode, slot_restore_cwd_key, slot_restore_mode_key,
-        slot_restore_pane_key, slot_restore_worktree_key, slot_suspended_key,
-        validate_restored_slot_continuity,
+        SlotRestoreMetadata, is_three_pane_mode, restore_width_key, slot_restore_cwd_key,
+        slot_restore_mode_key, slot_restore_pane_key, slot_restore_worktree_key,
+        slot_suspended_key, validate_restored_slot_continuity,
     };
 
     #[test]
@@ -487,6 +552,9 @@ mod tests {
         assert_eq!(slot_restore_worktree_key(4), "@ezm_slot_4_restore_worktree");
         assert_eq!(slot_restore_cwd_key(4), "@ezm_slot_4_restore_cwd");
         assert_eq!(slot_restore_mode_key(4), "@ezm_slot_4_restore_mode");
+        assert_eq!(restore_width_key(1), "@ezm_restore_width_slot_1");
+        assert_eq!(restore_width_key(2), "@ezm_restore_width_slot_2");
+        assert_eq!(restore_width_key(3), "@ezm_restore_width_slot_3");
     }
 
     #[test]

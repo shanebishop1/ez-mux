@@ -24,7 +24,6 @@ struct ZoomFlagCapabilities {
 
 #[derive(Debug, Clone, Copy)]
 struct SlotContinuitySnapshot<'a> {
-    pane_id: &'a str,
     worktree: &'a str,
     cwd: &'a str,
     mode: &'a str,
@@ -94,7 +93,7 @@ pub(super) fn validate_canonical_slot_registry(session_name: &str) -> Result<(),
         }
 
         if suspended {
-            let restore_pane =
+            let _restore_pane =
                 required_session_option(session_name, &slot_restore_pane_key(slot_id))?;
             let restore_worktree =
                 required_session_option(session_name, &slot_restore_worktree_key(slot_id))?;
@@ -103,13 +102,11 @@ pub(super) fn validate_canonical_slot_registry(session_name: &str) -> Result<(),
             let restore_mode =
                 required_session_option(session_name, &slot_restore_mode_key(slot_id))?;
             let current = SlotContinuitySnapshot {
-                pane_id: &pane_id,
                 worktree: &worktree,
                 cwd: &cwd,
                 mode: &mode,
             };
             let restore = SlotContinuitySnapshot {
-                pane_id: &restore_pane,
                 worktree: &restore_worktree,
                 cwd: &restore_cwd,
                 mode: &restore_mode,
@@ -289,13 +286,6 @@ fn validate_suspended_slot_restore_metadata(
     current: SlotContinuitySnapshot<'_>,
     restore: SlotContinuitySnapshot<'_>,
 ) -> Result<(), String> {
-    if restore.pane_id != current.pane_id {
-        return Err(format!(
-            "slot {slot_id} suspended pane mismatch session={} restore={}",
-            current.pane_id, restore.pane_id
-        ));
-    }
-
     if restore.worktree != current.worktree {
         return Err(format!(
             "slot {slot_id} suspended worktree mismatch session={} restore={}",
@@ -386,13 +376,11 @@ mod tests {
             validate_suspended_slot_restore_metadata(
                 4,
                 SlotContinuitySnapshot {
-                    pane_id: "%4",
                     worktree: "wt-4",
                     cwd: "/repo/slot-4",
                     mode: "lazygit",
                 },
                 SlotContinuitySnapshot {
-                    pane_id: "%4",
                     worktree: "wt-4",
                     cwd: "/repo/slot-4",
                     mode: "lazygit",
@@ -405,33 +393,28 @@ mod tests {
             validate_suspended_slot_restore_metadata(
                 4,
                 SlotContinuitySnapshot {
-                    pane_id: "%4",
                     worktree: "wt-4",
                     cwd: "/repo/slot-4",
                     mode: "lazygit",
                 },
                 SlotContinuitySnapshot {
-                    pane_id: "%9",
                     worktree: "wt-4",
                     cwd: "/repo/slot-4",
                     mode: "lazygit",
                 }
             )
-            .expect_err("suspended metadata must keep slot pane identity")
-            .contains("pane mismatch")
+            .is_ok()
         );
 
         assert!(
             validate_suspended_slot_restore_metadata(
                 5,
                 SlotContinuitySnapshot {
-                    pane_id: "%5",
                     worktree: "wt-5",
                     cwd: "/repo/slot-5",
                     mode: "shell",
                 },
                 SlotContinuitySnapshot {
-                    pane_id: "%5",
                     worktree: "wt-override",
                     cwd: "/repo/slot-5",
                     mode: "shell",
@@ -445,13 +428,11 @@ mod tests {
             validate_suspended_slot_restore_metadata(
                 5,
                 SlotContinuitySnapshot {
-                    pane_id: "%5",
                     worktree: "wt-5",
                     cwd: "/repo/slot-5",
                     mode: "shell",
                 },
                 SlotContinuitySnapshot {
-                    pane_id: "%5",
                     worktree: "wt-5",
                     cwd: "/repo/other",
                     mode: "shell",
@@ -465,13 +446,11 @@ mod tests {
             validate_suspended_slot_restore_metadata(
                 5,
                 SlotContinuitySnapshot {
-                    pane_id: "%5",
                     worktree: "wt-5",
                     cwd: "/repo/slot-5",
                     mode: "shell",
                 },
                 SlotContinuitySnapshot {
-                    pane_id: "%5",
                     worktree: "wt-5",
                     cwd: "/repo/slot-5",
                     mode: "agent",
