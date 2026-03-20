@@ -9,9 +9,9 @@ use serde::Serialize;
 
 use crate::support::foundation_harness::{CmdOutput, FoundationHarness, TmuxSettleEvidence};
 
-pub(super) const CORE_IDS: [&str; 12] = [
+pub(super) const CORE_IDS: [&str; 13] = [
     "E2E-01", "E2E-02", "E2E-03", "E2E-04", "E2E-05", "E2E-06", "E2E-07", "E2E-08", "E2E-09",
-    "E2E-10", "E2E-11", "E2E-16",
+    "E2E-10", "E2E-11", "E2E-16", "E2E-19",
 ];
 const CENTER_WIDTH_TARGET_PCT: i32 = 38;
 const CENTER_WIDTH_TOLERANCE_PCT: i32 = 3;
