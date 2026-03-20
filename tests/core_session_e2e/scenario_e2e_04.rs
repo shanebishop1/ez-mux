@@ -124,5 +124,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         },
         layout: None,
         slots: Some(after_slots),
+        remote_path: None,
     }
 }

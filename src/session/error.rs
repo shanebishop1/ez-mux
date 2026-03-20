@@ -15,6 +15,8 @@ pub enum SessionError {
         #[source]
         source: io::Error,
     },
+    #[error("invalid remote path mapping prefix `{prefix}`: expected absolute path")]
+    InvalidRemotePathMappingPrefix { prefix: String },
     #[error("tmux command `{command}` failed: {stderr}")]
     TmuxCommandFailed { command: String, stderr: String },
     #[error("failed spawning tmux command `{command}`: {source}")]
