@@ -1,6 +1,7 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use ez_mux::session::resolve_session_identity;
@@ -8,9 +9,9 @@ use serde::Serialize;
 
 use crate::support::foundation_harness::{CmdOutput, FoundationHarness, TmuxSettleEvidence};
 
-pub(super) const CORE_IDS: [&str; 10] = [
+pub(super) const CORE_IDS: [&str; 11] = [
     "E2E-01", "E2E-02", "E2E-03", "E2E-04", "E2E-05", "E2E-06", "E2E-07", "E2E-08", "E2E-09",
-    "E2E-10",
+    "E2E-10", "E2E-11",
 ];
 const CENTER_WIDTH_TARGET_PCT: i32 = 38;
 const CENTER_WIDTH_TOLERANCE_PCT: i32 = 3;
@@ -106,6 +107,19 @@ pub(super) struct RemotePathEvidence {
 }
 
 #[derive(Serialize)]
+pub(super) struct HelperStateSnapshot {
+    pub(super) helper_sessions: Vec<String>,
+    pub(super) helper_pane_pids: Vec<u32>,
+}
+
+#[derive(Serialize)]
+pub(super) struct HelperLifecycleEvidence {
+    pub(super) before: HelperStateSnapshot,
+    pub(super) after: HelperStateSnapshot,
+    pub(super) pre_helper_pids_alive_after_teardown: Vec<u32>,
+}
+
+#[derive(Serialize)]
 pub(super) struct CaseEvidence {
     pub(super) id: String,
     pub(super) pass: bool,
@@ -116,6 +130,7 @@ pub(super) struct CaseEvidence {
     pub(super) layout: Option<LayoutSnapshot>,
     pub(super) slots: Option<Vec<SlotSnapshot>>,
     pub(super) remote_path: Option<RemotePathEvidence>,
+    pub(super) helper_state: Option<HelperLifecycleEvidence>,
 }
 
 #[derive(Serialize)]
@@ -573,6 +588,74 @@ pub(super) fn prepare_fresh_create_path(
             identity.session_name
         ))
     }
+}
+
+pub(super) fn popup_helper_session_name(session_name: &str, slot_id: u8) -> String {
+    format!("{session_name}__popup_slot_{slot_id}")
+}
+
+pub(super) fn read_helper_state_snapshot(
+    harness: &FoundationHarness,
+    session_name: &str,
+) -> HelperStateSnapshot {
+    let helper_prefix = format!("{session_name}__");
+    let sessions = harness
+        .tmux_capture(&["list-sessions", "-F", "#{session_name}"])
+        .unwrap_or_default();
+    let mut helper_sessions = sessions
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && name.starts_with(&helper_prefix))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    helper_sessions.sort();
+
+    let mut pids = BTreeSet::new();
+    for helper_session in &helper_sessions {
+        let pane_dump = harness
+            .tmux_capture(&["list-panes", "-t", helper_session, "-F", "#{pane_pid}"])
+            .unwrap_or_default();
+        for pid in pane_dump
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .filter_map(|line| line.parse::<u32>().ok())
+        {
+            pids.insert(pid);
+        }
+    }
+
+    HelperStateSnapshot {
+        helper_sessions,
+        helper_pane_pids: pids.into_iter().collect(),
+    }
+}
+
+pub(super) fn helper_pids_alive(pids: &[u32]) -> Vec<u32> {
+    pids.iter()
+        .copied()
+        .filter(|pid| {
+            Command::new("kill")
+                .arg("-0")
+                .arg(pid.to_string())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+pub(super) fn wait_for_helper_pids_to_exit(
+    pids: &[u32],
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<Vec<u32>, String> {
+    let _all_gone = poll_until(timeout, poll_interval, || {
+        Ok(helper_pids_alive(pids).is_empty())
+    })?;
+    Ok(helper_pids_alive(pids))
 }
 
 pub(super) fn read_commit_sha(project_root: &Path) -> String {

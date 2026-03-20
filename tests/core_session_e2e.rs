@@ -22,6 +22,8 @@ mod scenario_e2e_08;
 mod scenario_e2e_09;
 #[path = "core_session_e2e/scenario_e2e_10.rs"]
 mod scenario_e2e_10;
+#[path = "core_session_e2e/scenario_e2e_11.rs"]
+mod scenario_e2e_11;
 
 use core_support::{
     CORE_IDS, RunMetadata, SuiteEvidence, read_commit_sha, write_case_artifacts, write_json,
@@ -44,6 +46,7 @@ fn core_session_e2e_suite() {
         scenario_e2e_08::run(&harness),
         scenario_e2e_09::run(&harness),
         scenario_e2e_10::run(&harness),
+        scenario_e2e_11::run(&harness),
     ];
 
     write_case_artifacts(&harness.artifact_dir.join("cases"), &cases)
