@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use portable_pty::{Child as PtyChild, CommandBuilder, PtySize, native_pty_system};
 
 pub struct CmdOutput {
     pub exit_code: i32,
@@ -269,14 +269,22 @@ impl FoundationHarness {
         let poll_interval = Duration::from_millis(30);
 
         loop {
-            if !observed_attached_client
-                && self
+            if !observed_attached_client {
+                let attached_client_tty = self
                     .tmux_capture(&["list-clients", "-t", session_name, "-F", "#{client_tty}"])
                     .ok()
-                    .is_some_and(|clients| clients.lines().any(|line| !line.trim().is_empty()))
-            {
-                observed_attached_client = true;
-                let _ = self.tmux_capture(&["detach-client", "-s", session_name]);
+                    .and_then(|clients| {
+                        clients
+                            .lines()
+                            .map(str::trim)
+                            .find(|line| !line.is_empty())
+                            .map(str::to_owned)
+                    });
+                if let Some(client_tty) = attached_client_tty {
+                    observed_attached_client = true;
+                    let _ = self.tmux_capture(&["detach-client", "-t", &client_tty]);
+                    let _ = self.tmux_capture(&["detach-client", "-a", "-s", session_name]);
+                }
             }
 
             if child
@@ -288,6 +296,12 @@ impl FoundationHarness {
             }
 
             if start.elapsed() >= timeout {
+                if let Some(pid) = child.process_id() {
+                    let _ = Command::new("kill")
+                        .arg("-TERM")
+                        .arg(pid.to_string())
+                        .status();
+                }
                 let _ = child.kill();
                 break;
             }
@@ -295,13 +309,17 @@ impl FoundationHarness {
             thread::sleep(poll_interval);
         }
 
-        let exit_status = child
-            .wait()
-            .map_err(|error| format!("failed waiting for PTY child completion: {error}"))?;
         drop(pty.master);
 
+        let exit_code = wait_for_pty_child_exit(
+            &mut *child,
+            Duration::from_secs(5),
+            poll_interval,
+            "attach probe",
+        )?;
+
         Ok(PtyAttachProbe {
-            exit_code: i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX),
+            exit_code,
             observed_attached_client,
         })
     }
@@ -402,6 +420,12 @@ impl FoundationHarness {
             }
 
             if start.elapsed() >= timeout {
+                if let Some(pid) = child.process_id() {
+                    let _ = Command::new("kill")
+                        .arg("-TERM")
+                        .arg(pid.to_string())
+                        .status();
+                }
                 let _ = child.kill();
                 break;
             }
@@ -409,13 +433,17 @@ impl FoundationHarness {
             thread::sleep(poll_interval);
         }
 
-        let exit_status = child
-            .wait()
-            .map_err(|error| format!("failed waiting for PTY child completion: {error}"))?;
         drop(pty.master);
 
+        let exit_code = wait_for_pty_child_exit(
+            &mut *child,
+            Duration::from_secs(5),
+            poll_interval,
+            "interrupt probe",
+        )?;
+
         Ok(PtyInterruptProbe {
-            exit_code: i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX),
+            exit_code,
             observed_attached_client,
             signal_sent,
         })
@@ -565,6 +593,33 @@ fn short_socket_token() -> String {
         std::process::id() & 0xffff,
         seq & 0xfff
     )
+}
+
+fn wait_for_pty_child_exit(
+    child: &mut dyn PtyChild,
+    timeout: Duration,
+    poll_interval: Duration,
+    context: &str,
+) -> Result<i32, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(exit_status) = child
+            .try_wait()
+            .map_err(|error| format!("failed checking PTY child status ({context}): {error}"))?
+        {
+            return Ok(i32::try_from(exit_status.exit_code()).unwrap_or(i32::MAX));
+        }
+
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            return Err(format!(
+                "timed out waiting for PTY child to exit ({context}) after {} ms",
+                timeout.as_millis()
+            ));
+        }
+
+        thread::sleep(poll_interval);
+    }
 }
 
 fn next_unique_sequence() -> u64 {
