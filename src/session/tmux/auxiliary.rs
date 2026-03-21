@@ -6,6 +6,8 @@ use crate::session::{AuxiliaryViewerAction, AuxiliaryViewerOutcome};
 use std::path::{Path, PathBuf};
 
 const AUXILIARY_WINDOW_NAME: &str = "beads-viewer";
+const BEADS_DIR_ENV: &str = "BEADS_DIR";
+const BEADS_DB_ENV: &str = "BEADS_DB";
 
 pub(super) fn auxiliary_viewer(
     session_name: &str,
@@ -40,7 +42,13 @@ pub(super) fn auxiliary_viewer(
             })?;
 
         let cwd = resolve_auxiliary_cwd(session_name)?;
-        let command = build_auxiliary_launch_command(&bv_executable);
+        let beads_dir = std::env::var(BEADS_DIR_ENV).ok();
+        let beads_db = std::env::var(BEADS_DB_ENV).ok();
+        let command = build_auxiliary_launch_command(
+            &bv_executable,
+            beads_dir.as_deref(),
+            beads_db.as_deref(),
+        );
         let window_id = tmux_output_value(&[
             "new-window",
             "-d",
@@ -144,9 +152,28 @@ fn find_window_id_by_name(
     Ok(None)
 }
 
-fn build_auxiliary_launch_command(executable_path: &Path) -> String {
+fn build_auxiliary_launch_command(
+    executable_path: &Path,
+    beads_dir: Option<&str>,
+    beads_db: Option<&str>,
+) -> String {
     let escaped_path = shell_escape_double_quoted(&executable_path.to_string_lossy());
-    format!("sh -lc \"exec \\\"{escaped_path}\\\"\"")
+    let env_prefix = render_auxiliary_env_prefix(beads_dir, beads_db);
+    format!("sh -lc \"{env_prefix}exec \\\"{escaped_path}\\\"\"")
+}
+
+fn render_auxiliary_env_prefix(beads_dir: Option<&str>, beads_db: Option<&str>) -> String {
+    let mut rendered = String::new();
+    for (key, value) in [(BEADS_DIR_ENV, beads_dir), (BEADS_DB_ENV, beads_db)] {
+        let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        rendered.push_str(key);
+        rendered.push_str("=\\\"");
+        rendered.push_str(&shell_escape_double_quoted(value));
+        rendered.push_str("\\\" ");
+    }
+    rendered
 }
 
 fn shell_escape_double_quoted(value: &str) -> String {
@@ -217,18 +244,21 @@ mod tests {
 
     #[test]
     fn auxiliary_launch_command_uses_resolved_bv_path() {
-        let command = build_auxiliary_launch_command(std::path::Path::new("/tmp/tools/bv"));
+        let command =
+            build_auxiliary_launch_command(std::path::Path::new("/tmp/tools/bv"), None, None);
         assert_eq!(command, "sh -lc \"exec \\\"/tmp/tools/bv\\\"\"");
     }
 
     #[test]
     fn auxiliary_launch_command_escapes_double_quote_sensitive_characters() {
-        let command = build_auxiliary_launch_command(std::path::Path::new(
-            "/tmp/tools/space and \"quote\"/$HOME/`cmd`/bv",
-        ));
+        let command = build_auxiliary_launch_command(
+            std::path::Path::new("/tmp/tools/space and \"quote\"/$HOME/`cmd`/bv"),
+            Some("  /tmp/beads dir/$HOME  "),
+            Some("/tmp/beads-db/`cmd`.jsonl"),
+        );
         assert_eq!(
             command,
-            "sh -lc \"exec \\\"/tmp/tools/space and \\\"quote\\\"/\\$HOME/\\`cmd\\`/bv\\\"\""
+            "sh -lc \"BEADS_DIR=\\\"/tmp/beads dir/\\$HOME\\\" BEADS_DB=\\\"/tmp/beads-db/\\`cmd\\`.jsonl\\\" exec \\\"/tmp/tools/space and \\\"quote\\\"/\\$HOME/\\`cmd\\`/bv\\\"\""
         );
     }
 
