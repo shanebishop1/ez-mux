@@ -8,6 +8,7 @@ const SLOT_GLYPH_PRESET_KEY: &str = "@ezm_slot_glyph_preset";
 const BORDER_LABEL_OPTION_KEY: &str = "@ezm_border_label";
 const BORDER_FORMAT: &str = "#[align=left]#{?@ezm_border_label,#{@ezm_border_label},#{pane_title}}";
 const DEFAULT_SLOT_GLYPH_PRESET: &str = "circled";
+const CONNECTED_BORDER_RULE: &str = "────────────────────────────────────────────────────";
 
 const SLOT_COLORS: [&str; 5] = ["#5ac8e0", "#eb6f92", "#7fd77a", "#b58df2", "#f2cd72"];
 
@@ -79,10 +80,7 @@ pub(super) fn apply_runtime_style(
         }
         let pane_id = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_pane"))?;
         let color = slot_color(slot_id);
-        let title = format!(
-            "#[fg={color},bold]-- {} ------------------------------------------------#[default]",
-            preset.slot_label(slot_id)
-        );
+        let title = slot_border_label(preset, slot_id, color);
         tmux_run(&["select-pane", "-t", &pane_id, "-T", &title])?;
         tmux_run(&[
             "set-option",
@@ -92,6 +90,7 @@ pub(super) fn apply_runtime_style(
             BORDER_LABEL_OPTION_KEY,
             &title,
         ])?;
+        apply_slot_text_style(&pane_id, color)?;
     }
 
     let target = tmux_primary_window_target(session_name)?;
@@ -178,7 +177,7 @@ fn parse_configured_preset(configured: &str) -> Result<SlotGlyphPreset, SessionE
 }
 
 fn resolve_center_slot(session_name: &str) -> Result<u8, SessionError> {
-    let mut winner = (2_u8, 0_u16);
+    let mut winner = (1_u8, 0_u16);
     for slot_id in 1_u8..=5 {
         if slot_is_suspended(session_name, slot_id)? {
             continue;
@@ -253,9 +252,29 @@ fn slot_color(slot_id: u8) -> &'static str {
         .unwrap_or("#5ac8e0")
 }
 
+fn slot_border_label(preset: SlotGlyphPreset, slot_id: u8, color: &str) -> String {
+    format!(
+        "#[fg={color},bold]─·{} ·{CONNECTED_BORDER_RULE}#[default]",
+        preset.slot_label(slot_id)
+    )
+}
+
+fn apply_slot_text_style(pane_id: &str, color: &str) -> Result<(), SessionError> {
+    let style = format!("fg={color}");
+    tmux_run(&["set-option", "-p", "-t", pane_id, "window-style", &style])?;
+    tmux_run(&[
+        "set-option",
+        "-p",
+        "-t",
+        pane_id,
+        "window-active-style",
+        &style,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
-    use super::SlotGlyphPreset;
+    use super::{SlotGlyphPreset, slot_border_label, slot_color};
 
     #[test]
     fn glyph_presets_parse_and_render_slot_labels() {
@@ -267,5 +286,24 @@ mod tests {
         assert_eq!(fullwidth.slot_label(2), "\u{ff12}");
         assert_eq!(plain.slot_label(3), "3");
         assert!(SlotGlyphPreset::parse("unknown").is_none());
+    }
+
+    #[test]
+    fn slot_border_label_matches_focus5_connected_line_prefix() {
+        let preset = SlotGlyphPreset::parse("circled").expect("circled");
+        let label = slot_border_label(preset, 2, "#eb6f92");
+
+        assert!(label.starts_with("#[fg=#eb6f92,bold]─·② ·─"));
+        assert!(label.contains("────────────────"));
+        assert!(!label.contains("-- "));
+    }
+
+    #[test]
+    fn slot_palette_keeps_center_slot_blue_mapping() {
+        assert_eq!(slot_color(1), "#5ac8e0");
+        assert_eq!(slot_color(2), "#eb6f92");
+        assert_eq!(slot_color(3), "#7fd77a");
+        assert_eq!(slot_color(4), "#b58df2");
+        assert_eq!(slot_color(5), "#f2cd72");
     }
 }

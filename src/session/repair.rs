@@ -271,6 +271,10 @@ mod tests {
             Ok(())
         }
 
+        fn focus_slot(&self, _: &str, _: u8) -> Result<(), crate::session::SessionError> {
+            Ok(())
+        }
+
         fn apply_layout_preset(
             &self,
             _: &str,

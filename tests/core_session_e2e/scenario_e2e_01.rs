@@ -107,6 +107,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 fn keybind_matrix_present(harness: &FoundationHarness) -> bool {
     let key_checks = [
         ("prefix", "g", "ezm-swap"),
+        ("prefix", "f", "ezm-focus"),
         ("prefix", "u", "__internal mode"),
         ("prefix", "a", "--mode agent"),
         ("prefix", "S", "--mode shell"),
@@ -115,6 +116,7 @@ fn keybind_matrix_present(harness: &FoundationHarness) -> bool {
         ("prefix", "P", "__internal popup"),
         ("prefix", "M-3", "__internal preset"),
         ("ezm-swap", "1", "__internal swap"),
+        ("ezm-focus", "1", "__internal focus"),
     ];
 
     key_checks.iter().all(|(table, key, marker)| {

@@ -56,6 +56,13 @@ pub enum InternalCommand {
         #[arg(long)]
         slot: u8,
     },
+    #[command(name = "focus")]
+    Focus {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        slot: u8,
+    },
     #[command(name = "mode")]
     Mode {
         #[arg(long)]
@@ -182,6 +189,29 @@ mod tests {
                     session: String::from("ezm-test-session"),
                     slot: 4,
                     mode: SlotMode::Neovim,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_internal_focus_subcommand() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "focus",
+            "--session",
+            "ezm-test-session",
+            "--slot",
+            "2",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Focus {
+                    session: String::from("ezm-test-session"),
+                    slot: 2,
                 },
             })
         );

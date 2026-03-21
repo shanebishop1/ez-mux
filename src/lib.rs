@@ -86,6 +86,7 @@ where
                 ExitCode::Success.as_i32()
             }
             Err(error) => {
+                append_launch_failure_event(&launch_log.file_path, &error.to_string());
                 if let Err(code) = checked_write(writeln!(stderr, "error: {error}"), stderr) {
                     return code;
                 }
@@ -100,6 +101,7 @@ where
                 ExitCode::Success.as_i32()
             }
             _ => {
+                append_launch_failure_event(&launch_log.file_path, &parse_error.to_string());
                 if let Err(code) = checked_write(write!(stderr, "{parse_error}"), stderr) {
                     return code;
                 }
@@ -107,6 +109,10 @@ where
             }
         },
     }
+}
+
+fn append_launch_failure_event(log_path: &std::path::Path, detail: &str) {
+    let _ = logging::append_launch_log_event(log_path, "launch-failure", detail);
 }
 
 fn checked_write(result: std::io::Result<()>, stderr: &mut impl Write) -> Result<(), i32> {
@@ -395,6 +401,11 @@ mod tests {
         let stderr = String::from_utf8(stderr).expect("utf8");
         assert!(stderr.contains("active log file:"));
         assert!(stderr.contains("remote-prefix routing requires OPERATOR to be set"));
+
+        let active_log = extract_active_log_path(&stderr).expect("active log path");
+        let content = std::fs::read_to_string(active_log).expect("read launch log");
+        assert!(content.contains("event=launch-failure"));
+        assert!(content.contains("remote-prefix routing requires OPERATOR to be set"));
     }
 
     #[test]
@@ -488,5 +499,12 @@ mod tests {
         assert_eq!(code, ExitCode::RuntimeFailure.as_i32());
         let stderr = String::from_utf8(stderr).expect("utf8");
         assert!(stderr.contains("failed writing output"));
+    }
+
+    fn extract_active_log_path(stderr: &str) -> Option<String> {
+        stderr
+            .lines()
+            .find_map(|line| line.strip_prefix("active log file: "))
+            .map(str::to_owned)
     }
 }

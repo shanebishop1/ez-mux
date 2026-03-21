@@ -21,6 +21,12 @@ pub enum LoggingError {
         #[source]
         source: io::Error,
     },
+    #[error("failed writing launch log file at {path}: {source}")]
+    WriteLogFileFailed {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("failed formatting launch timestamp: {0}")]
     TimestampFormat(time::error::Format),
     #[error("failed reading log root at {path}: {source}")]

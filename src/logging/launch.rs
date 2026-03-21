@@ -129,6 +129,33 @@ pub fn initialize_launch_log_with_defaults(
     initialize_launch_log(env, os, &SystemClock, &SystemRunIdSource, &fallback_base)
 }
 
+/// Appends one launch lifecycle event to an active launch log file.
+///
+/// # Errors
+///
+/// Returns [`LoggingError`] when the log file cannot be opened for append or
+/// when writing the event line fails.
+pub fn append_launch_log_event(
+    file_path: &Path,
+    event: &str,
+    detail: &str,
+) -> Result<(), LoggingError> {
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(file_path)
+        .map_err(|source| LoggingError::OpenLogFailed {
+            path: file_path.to_path_buf(),
+            source,
+        })?;
+
+    writeln!(file, "event={event}; detail={}", escape_log_detail(detail)).map_err(|source| {
+        LoggingError::WriteLogFileFailed {
+            path: file_path.to_path_buf(),
+            source,
+        }
+    })
+}
+
 fn default_fallback_base() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         let trimmed = home.to_string_lossy().trim().to_owned();
@@ -189,4 +216,8 @@ fn log_filename(
         run_id_source.next_run_id(),
         LOG_FILE_EXTENSION
     ))
+}
+
+fn escape_log_detail(detail: &str) -> String {
+    detail.replace('\n', "\\n")
 }

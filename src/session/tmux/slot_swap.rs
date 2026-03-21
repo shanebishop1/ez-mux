@@ -239,7 +239,7 @@ fn run_with_zoom_fallback(
     }
 }
 
-fn select_pane_preserve_zoom(pane_id: &str) -> Result<(), SessionError> {
+pub(super) fn select_pane_preserve_zoom(pane_id: &str) -> Result<(), SessionError> {
     let capabilities = zoom_flag_capabilities();
     let with_zoom_args = ["select-pane", "-Z", "-t", pane_id];
     let without_zoom_args = ["select-pane", "-t", pane_id];

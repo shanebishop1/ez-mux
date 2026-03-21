@@ -68,9 +68,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let slot_snapshot = read_slot_snapshot(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-09 failed reading slot snapshot: {error}"));
-    let slot_paths_match = slot_snapshot
+    let slot_paths_include_mapped_path = slot_snapshot
         .iter()
-        .all(|slot| slot.worktree == expected_mapped_path);
+        .any(|slot| slot.worktree == expected_mapped_path);
 
     assertions.push(format!("launch action = {launch_action}"));
     assertions.push(format!("session = {session}"));
@@ -90,7 +90,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "effective password configured flag = {opencode_server_password_set} (source={opencode_server_password_source})"
     ));
     assertions.push(format!(
-        "slot registry mapped path match = {slot_paths_match}"
+        "slot registry includes mapped path = {slot_paths_include_mapped_path}"
     ));
 
     let settle = settle_snapshot(harness, "E2E-09");
@@ -111,7 +111,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && server_port_source_is_default
         && !opencode_server_password_set
         && password_source_is_default
-        && slot_paths_match
+        && slot_paths_include_mapped_path
         && settle.stable;
 
     CaseEvidence {

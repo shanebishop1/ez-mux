@@ -28,6 +28,7 @@ mod mode_runtime;
 mod options;
 mod popup;
 mod repair;
+mod slot_focus;
 mod slot_swap;
 mod style;
 mod teardown;
@@ -89,6 +90,13 @@ pub trait TmuxClient {
     /// Returns an error when slot metadata is invalid, target slot is
     /// outside the canonical range, or tmux swap/select operations fail.
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError>;
+
+    /// Focuses one canonical slot pane without swapping pane identities.
+    ///
+    /// # Errors
+    /// Returns an error when slot metadata is invalid, target slot is
+    /// outside the canonical range, or tmux cannot select the pane.
+    fn focus_slot(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError>;
 
     /// Switches a canonical slot to one runtime mode.
     ///
@@ -216,6 +224,10 @@ impl TmuxClient for ProcessTmuxClient {
 
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError> {
         slot_swap::swap_slot_with_center(session_name, slot_id)
+    }
+
+    fn focus_slot(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError> {
+        slot_focus::focus_slot(session_name, slot_id)
     }
 
     fn apply_layout_preset(
