@@ -28,6 +28,8 @@ struct FakeTmux {
     attach_error: RefCell<Option<String>>,
     mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
     mode_switch_error: RefCell<Option<String>>,
+    swap_calls: RefCell<Vec<(String, u8)>>,
+    swap_error: RefCell<Option<String>>,
     focus_calls: RefCell<Vec<(String, u8)>>,
     focus_error: RefCell<Option<String>>,
     popup_toggles: RefCell<Vec<(String, u8)>>,
@@ -121,9 +123,20 @@ impl TmuxClient for FakeTmux {
 
     fn swap_slot_with_center(
         &self,
-        _session_name: &str,
-        _slot_id: u8,
+        session_name: &str,
+        slot_id: u8,
     ) -> Result<(), ez_mux::session::SessionError> {
+        self.swap_calls
+            .borrow_mut()
+            .push((session_name.to_string(), slot_id));
+
+        if let Some(stderr) = self.swap_error.borrow().as_ref() {
+            return Err(ez_mux::session::SessionError::TmuxCommandFailed {
+                command: String::from("__internal swap"),
+                stderr: stderr.clone(),
+            });
+        }
+
         Ok(())
     }
 
@@ -274,6 +287,8 @@ impl Default for FakeTmux {
             attach_error: RefCell::new(None),
             mode_switches: RefCell::new(Vec::new()),
             mode_switch_error: RefCell::new(None),
+            swap_calls: RefCell::new(Vec::new()),
+            swap_error: RefCell::new(None),
             focus_calls: RefCell::new(Vec::new()),
             focus_error: RefCell::new(None),
             popup_toggles: RefCell::new(Vec::new()),
@@ -533,6 +548,37 @@ fn slot_targeted_focus_routes_to_tmux_client() {
         tmux.focus_calls.borrow().as_slice(),
         &[(String::from("ezm-session-55"), 4)]
     );
+}
+
+#[test]
+fn slot_targeted_swap_routes_to_tmux_client() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    ez_mux::session::TmuxClient::swap_slot_with_center(&tmux, "ezm-session-66", 1)
+        .expect("swap should succeed");
+
+    assert_eq!(
+        tmux.swap_calls.borrow().as_slice(),
+        &[(String::from("ezm-session-66"), 1)]
+    );
+}
+
+#[test]
+fn slot_targeted_swap_surfaces_tmux_failures() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        swap_error: RefCell::new(Some(String::from("swap-pane failed"))),
+        ..FakeTmux::default()
+    };
+
+    let error = ez_mux::session::TmuxClient::swap_slot_with_center(&tmux, "ezm-session-66", 3)
+        .expect_err("swap should fail");
+
+    assert!(error.to_string().contains("swap-pane failed"));
+    assert_eq!(tmux.swap_calls.borrow().len(), 1);
 }
 
 #[test]
