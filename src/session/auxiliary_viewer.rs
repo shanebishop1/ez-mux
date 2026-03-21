@@ -6,6 +6,7 @@ pub enum AuxiliaryViewerAction {
     Created,
     Reused,
     Closed,
+    SkippedUnavailable,
 }
 
 impl AuxiliaryViewerAction {
@@ -15,6 +16,7 @@ impl AuxiliaryViewerAction {
             Self::Created => "created",
             Self::Reused => "reused",
             Self::Closed => "closed",
+            Self::SkippedUnavailable => "skipped-unavailable",
         }
     }
 }
