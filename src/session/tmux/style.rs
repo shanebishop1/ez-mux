@@ -1,14 +1,13 @@
 use super::SessionError;
 use super::command::{tmux_output_value, tmux_primary_window_target, tmux_run};
-use super::options::{
-    required_pane_option, required_session_option, set_session_option, show_session_option,
-};
+use super::options::{required_session_option, set_session_option, show_session_option};
 
 const SLOT_GLYPH_PRESET_KEY: &str = "@ezm_slot_glyph_preset";
 const BORDER_LABEL_OPTION_KEY: &str = "@ezm_border_label";
 const BORDER_FORMAT: &str = "#[align=left]#{?@ezm_border_label,#{@ezm_border_label},#{pane_title}}";
 const DEFAULT_SLOT_GLYPH_PRESET: &str = "circled";
 const CONNECTED_BORDER_RULE: &str = "────────────────────────────────────────────────────";
+const ACTIVE_SLOT_BORDER_STYLE_FORMAT: &str = "fg=#{?#{==:#{@ezm_slot_id},1},#5ac8e0,#{?#{==:#{@ezm_slot_id},2},#eb6f92,#{?#{==:#{@ezm_slot_id},3},#7fd77a,#{?#{==:#{@ezm_slot_id},4},#b58df2,#f2cd72}}}}";
 
 const SLOT_COLORS: [&str; 5] = ["#5ac8e0", "#eb6f92", "#7fd77a", "#b58df2", "#f2cd72"];
 
@@ -132,7 +131,13 @@ pub(super) fn apply_runtime_style(
         &format!("fg={}", slot_color(center_slot)),
     ])?;
 
-    refresh_active_border(session_name)
+    tmux_run(&[
+        "set-window-option",
+        "-t",
+        &target,
+        "pane-active-border-style",
+        ACTIVE_SLOT_BORDER_STYLE_FORMAT,
+    ])
 }
 
 pub(super) fn apply_runtime_style_defaults(session_name: &str) -> Result<(), SessionError> {
@@ -143,28 +148,20 @@ pub(super) fn apply_runtime_style_defaults(session_name: &str) -> Result<(), Ses
 
 pub(super) fn refresh_active_border(session_name: &str) -> Result<(), SessionError> {
     let target = tmux_primary_window_target(session_name)?;
-    let active_slot = active_slot_id(session_name)?;
     tmux_run(&[
         "set-window-option",
         "-t",
         &target,
         "pane-active-border-style",
-        &format!("fg={}", slot_color(active_slot)),
+        ACTIVE_SLOT_BORDER_STYLE_FORMAT,
     ])
 }
 
 pub(super) fn refresh_active_border_for_slot(
     session_name: &str,
-    slot_id: u8,
+    _slot_id: u8,
 ) -> Result<(), SessionError> {
-    let target = tmux_primary_window_target(session_name)?;
-    tmux_run(&[
-        "set-window-option",
-        "-t",
-        &target,
-        "pane-active-border-style",
-        &format!("fg={}", slot_color(slot_id)),
-    ])
+    refresh_active_border(session_name)
 }
 
 fn parse_configured_preset(configured: &str) -> Result<SlotGlyphPreset, SessionError> {
@@ -208,41 +205,6 @@ fn slot_is_suspended(session_name: &str, slot_id: u8) -> Result<bool, SessionErr
 fn pane_is_dead(pane_id: &str) -> Result<bool, SessionError> {
     let value = tmux_output_value(&["display-message", "-p", "-t", pane_id, "#{pane_dead}"])?;
     Ok(value.trim() == "1")
-}
-
-fn active_slot_id(session_name: &str) -> Result<u8, SessionError> {
-    let target = tmux_primary_window_target(session_name)?;
-    let active_pane = tmux_output_value(&[
-        "list-panes",
-        "-t",
-        &target,
-        "-F",
-        "#{pane_id}|#{pane_active}",
-    ])?
-    .lines()
-    .find_map(|line| {
-        let mut parts = line.split('|');
-        let pane_id = parts.next()?.trim();
-        let active = parts.next()?.trim();
-        if active == "1" {
-            Some(pane_id.to_owned())
-        } else {
-            None
-        }
-    })
-    .ok_or_else(|| SessionError::TmuxCommandFailed {
-        command: format!("list-panes -t {target} -F #{{pane_id}}|#{{pane_active}}"),
-        stderr: String::from("failed resolving active pane for style refresh"),
-    })?;
-
-    let slot_raw = required_pane_option(session_name, 0, &active_pane, "@ezm_slot_id")?;
-    slot_raw
-        .trim()
-        .parse::<u8>()
-        .map_err(|error| SessionError::TmuxCommandFailed {
-            command: format!("show-options -p -v -t {active_pane} @ezm_slot_id"),
-            stderr: format!("failed parsing active slot id for style refresh: {error}"),
-        })
 }
 
 fn slot_color(slot_id: u8) -> &'static str {

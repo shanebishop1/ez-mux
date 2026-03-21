@@ -83,6 +83,38 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
         .unwrap_or_default()
         .trim()
         .to_owned();
+    let startup_active_border_style = harness
+        .tmux_capture(&[
+            "show-window-options",
+            "-v",
+            "-t",
+            &format!("{session}:0"),
+            "pane-active-border-style",
+        ])
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let startup_selected_pane = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &format!("{session}:0"),
+            "#{pane_id}",
+        ])
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let startup_selected_slot = slots
+        .iter()
+        .find(|slot| slot.pane_id == startup_selected_pane)
+        .map(|slot| slot.slot_id);
+    let startup_active_color = startup_selected_slot
+        .and_then(|slot| SLOT_COLORS.iter().find(|(id, _)| *id == slot))
+        .map(|(_, color)| *color)
+        .unwrap_or_default();
+    let startup_active_border_matches_selected_slot = !startup_active_color.is_empty()
+        && startup_active_border_style.contains(startup_active_color);
 
     let mut mode_switches_ok = true;
     let mut labels_connected = true;
@@ -95,6 +127,13 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
         format!("center_pane={center_pane}"),
         format!("center_slot={center_slot:?}"),
         format!("pane_border_style={pane_border_style}"),
+        format!("startup_active_border_style={startup_active_border_style}"),
+        format!("startup_selected_pane={startup_selected_pane}"),
+        format!("startup_selected_slot={startup_selected_slot:?}"),
+        format!("startup_active_color={startup_active_color}"),
+        format!(
+            "startup_active_border_matches_selected_slot={startup_active_border_matches_selected_slot}"
+        ),
         format!("pane_border_lines={border_lines}"),
         format!("pane_border_status={border_status}"),
         format!("pane_border_format={border_format}"),
@@ -270,6 +309,7 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
     let pass = launch.exit_code == 0
         && !session.is_empty()
         && center_slot_is_blue
+        && startup_active_border_matches_selected_slot
         && border_contract_ok
         && labels_connected
         && palette_mapping_ok
