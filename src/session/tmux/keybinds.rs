@@ -13,6 +13,11 @@ const NEOVIM_MODE_KEY: &str = "N";
 const LAZYGIT_MODE_KEY: &str = "G";
 const POPUP_KEY: &str = "P";
 const THREE_PANE_PRESET_KEY: &str = "M-3";
+const PANE_NAV_LEFT_KEY: &str = "h";
+const PANE_NAV_DOWN_KEY: &str = "j";
+const PANE_NAV_UP_KEY: &str = "k";
+const PANE_NAV_RIGHT_KEY: &str = "l";
+const ACTIVE_SLOT_BORDER_STYLE_FORMAT: &str = "fg=#{?#{==:#{@ezm_slot_id},1},#5ac8e0,#{?#{==:#{@ezm_slot_id},2},#eb6f92,#{?#{==:#{@ezm_slot_id},3},#7fd77a,#{?#{==:#{@ezm_slot_id},4},#b58df2,#f2cd72}}}}";
 
 pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     let ezm_bin = resolved_ezm_bin_shell_token();
@@ -21,7 +26,17 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
         unbind_key_if_present(table, &key)?;
     }
 
-    let three_pane_preset_command = preset_command(&ezm_bin);
+    install_prefix_routing_bindings(&ezm_bin)?;
+    install_pane_navigation_bindings()?;
+    install_slot_table_bindings(&ezm_bin)?;
+    install_table_exit_bindings()?;
+    install_mode_bindings(&ezm_bin)?;
+
+    Ok(())
+}
+
+fn install_prefix_routing_bindings(ezm_bin: &str) -> Result<(), SessionError> {
+    let three_pane_preset_command = preset_command(ezm_bin);
 
     tmux_run(&[
         "bind-key",
@@ -48,11 +63,32 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
         "switch-client",
         "-T",
         FOCUS_TABLE,
-    ])?;
+    ])
+}
 
+fn install_pane_navigation_bindings() -> Result<(), SessionError> {
+    for (key, direction) in pane_nav_bindings() {
+        tmux_run(&[
+            "bind-key",
+            "-T",
+            "prefix",
+            key,
+            "select-pane",
+            direction,
+            "\\;",
+            "set-window-option",
+            "pane-active-border-style",
+            ACTIVE_SLOT_BORDER_STYLE_FORMAT,
+        ])?;
+    }
+
+    Ok(())
+}
+
+fn install_slot_table_bindings(ezm_bin: &str) -> Result<(), SessionError> {
     for slot in 1_u8..=5 {
         let key = slot.to_string();
-        let swap_command = swap_command(&ezm_bin, slot);
+        let swap_command = swap_command(ezm_bin, slot);
         tmux_run(&[
             "bind-key",
             "-T",
@@ -66,7 +102,7 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
             "root",
         ])?;
 
-        let focus_command = focus_command(&ezm_bin, slot);
+        let focus_command = focus_command(ezm_bin, slot);
         tmux_run(&[
             "bind-key",
             "-T",
@@ -81,6 +117,10 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
         ])?;
     }
 
+    Ok(())
+}
+
+fn install_table_exit_bindings() -> Result<(), SessionError> {
     for key in ["Escape", "q", "Any"] {
         tmux_run(&[
             "bind-key",
@@ -102,13 +142,17 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
         ])?;
     }
 
+    Ok(())
+}
+
+fn install_mode_bindings(ezm_bin: &str) -> Result<(), SessionError> {
     let mode_bindings = [
-        (TOGGLE_MODE_KEY, toggle_mode_command(&ezm_bin)),
-        (AGENT_MODE_KEY, mode_command(&ezm_bin, "agent")),
-        (SHELL_MODE_KEY, mode_command(&ezm_bin, "shell")),
-        (NEOVIM_MODE_KEY, mode_command(&ezm_bin, "neovim")),
-        (LAZYGIT_MODE_KEY, mode_command(&ezm_bin, "lazygit")),
-        (POPUP_KEY, popup_command(&ezm_bin)),
+        (TOGGLE_MODE_KEY, toggle_mode_command(ezm_bin)),
+        (AGENT_MODE_KEY, mode_command(ezm_bin, "agent")),
+        (SHELL_MODE_KEY, mode_command(ezm_bin, "shell")),
+        (NEOVIM_MODE_KEY, mode_command(ezm_bin, "neovim")),
+        (LAZYGIT_MODE_KEY, mode_command(ezm_bin, "lazygit")),
+        (POPUP_KEY, popup_command(ezm_bin)),
     ];
 
     for (key, command) in mode_bindings {
@@ -129,6 +173,10 @@ fn clear_specs() -> Vec<(&'static str, String)> {
         ("prefix", NEOVIM_MODE_KEY.to_owned()),
         ("prefix", LAZYGIT_MODE_KEY.to_owned()),
         ("prefix", POPUP_KEY.to_owned()),
+        ("prefix", PANE_NAV_LEFT_KEY.to_owned()),
+        ("prefix", PANE_NAV_DOWN_KEY.to_owned()),
+        ("prefix", PANE_NAV_UP_KEY.to_owned()),
+        ("prefix", PANE_NAV_RIGHT_KEY.to_owned()),
         (SWAP_TABLE, String::from("Escape")),
         (SWAP_TABLE, String::from("q")),
         (SWAP_TABLE, String::from("Any")),
@@ -143,6 +191,15 @@ fn clear_specs() -> Vec<(&'static str, String)> {
     }
 
     specs
+}
+
+fn pane_nav_bindings() -> [(&'static str, &'static str); 4] {
+    [
+        (PANE_NAV_LEFT_KEY, "-L"),
+        (PANE_NAV_DOWN_KEY, "-D"),
+        (PANE_NAV_UP_KEY, "-U"),
+        (PANE_NAV_RIGHT_KEY, "-R"),
+    ]
 }
 
 fn unbind_key_if_present(table: &str, key: &str) -> Result<(), SessionError> {
@@ -230,8 +287,8 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
 
     use super::{
-        focus_command, mode_command, popup_command, resolve_ezm_bin, shell_single_quote,
-        swap_command, toggle_mode_command,
+        ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
+        popup_command, resolve_ezm_bin, shell_single_quote, swap_command, toggle_mode_command,
     };
 
     #[test]
@@ -309,6 +366,24 @@ mod tests {
     fn shell_single_quote_escapes_apostrophes_for_run_shell() {
         let rendered = shell_single_quote("/tmp/it's ezm");
         assert_eq!(rendered, String::from("'/tmp/it'\"'\"'s ezm'"));
+    }
+
+    #[test]
+    fn pane_nav_bindings_cover_hjkl_directions() {
+        assert_eq!(
+            pane_nav_bindings(),
+            [("h", "-L"), ("j", "-D"), ("k", "-U"), ("l", "-R")]
+        );
+    }
+
+    #[test]
+    fn active_slot_border_style_format_maps_all_five_slot_colors() {
+        assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#{@ezm_slot_id}"));
+        assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#5ac8e0"));
+        assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#eb6f92"));
+        assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#7fd77a"));
+        assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#b58df2"));
+        assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#f2cd72"));
     }
 
     #[cfg(unix)]
