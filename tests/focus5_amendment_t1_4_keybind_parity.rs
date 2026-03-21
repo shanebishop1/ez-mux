@@ -10,6 +10,7 @@ use red_support::{
 use support::foundation_harness::FoundationHarness;
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_paths() {
     let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-4")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
@@ -50,6 +51,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             create_matrix.core_runtime_routes_present
         ),
         format!(
+            "create_pane_nav_routes_present={}",
+            create_matrix.pane_nav_routes_present
+        ),
+        format!(
             "create_internal_route_shell_safe={}",
             create_matrix.internal_route_shell_safe
         ),
@@ -66,10 +71,21 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             attach_matrix.core_runtime_routes_present
         ),
         format!(
+            "attach_pane_nav_routes_present={}",
+            attach_matrix.pane_nav_routes_present
+        ),
+        format!(
             "attach_internal_route_shell_safe={}",
             attach_matrix.internal_route_shell_safe
         ),
         format!("create_prefix_f_binding={}", create_matrix.prefix_f_binding),
+        format!("create_prefix_h_binding={}", create_matrix.nav_left_binding),
+        format!("create_prefix_j_binding={}", create_matrix.nav_down_binding),
+        format!("create_prefix_k_binding={}", create_matrix.nav_up_binding),
+        format!(
+            "create_prefix_l_binding={}",
+            create_matrix.nav_right_binding
+        ),
         format!(
             "create_focus_slot_binding={}",
             create_matrix.focus_slot_binding
@@ -81,6 +97,13 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         format!("create_mode_binding={}", create_matrix.mode_binding),
         format!("create_popup_binding={}", create_matrix.popup_binding),
         format!("attach_prefix_f_binding={}", attach_matrix.prefix_f_binding),
+        format!("attach_prefix_h_binding={}", attach_matrix.nav_left_binding),
+        format!("attach_prefix_j_binding={}", attach_matrix.nav_down_binding),
+        format!("attach_prefix_k_binding={}", attach_matrix.nav_up_binding),
+        format!(
+            "attach_prefix_l_binding={}",
+            attach_matrix.nav_right_binding
+        ),
         format!(
             "attach_focus_slot_binding={}",
             attach_matrix.focus_slot_binding
@@ -104,10 +127,12 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         && create_matrix.focus_prefix_route_present
         && create_matrix.focus_slot_route_present
         && create_matrix.core_runtime_routes_present
+        && create_matrix.pane_nav_routes_present
         && create_matrix.internal_route_shell_safe
         && attach_matrix.focus_prefix_route_present
         && attach_matrix.focus_slot_route_present
         && attach_matrix.core_runtime_routes_present
+        && attach_matrix.pane_nav_routes_present
         && attach_matrix.internal_route_shell_safe;
 
     assert!(
@@ -230,6 +255,10 @@ fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
 #[allow(clippy::struct_excessive_bools)]
 struct KeybindMatrix {
     prefix_f_binding: String,
+    nav_left_binding: String,
+    nav_down_binding: String,
+    nav_up_binding: String,
+    nav_right_binding: String,
     focus_slot_binding: String,
     swap_slot_binding: String,
     mode_binding: String,
@@ -237,6 +266,7 @@ struct KeybindMatrix {
     focus_prefix_route_present: bool,
     focus_slot_route_present: bool,
     core_runtime_routes_present: bool,
+    pane_nav_routes_present: bool,
     internal_route_shell_safe: bool,
 }
 
@@ -251,6 +281,22 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         .map(|table| harness.tmux_capture(&["list-keys", "-T", table, "1"]))
         .transpose()?
         .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let nav_left_binding = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "h"])?
+        .trim()
+        .to_owned();
+    let nav_down_binding = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "j"])?
+        .trim()
+        .to_owned();
+    let nav_up_binding = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "k"])?
+        .trim()
+        .to_owned();
+    let nav_right_binding = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "l"])?
         .trim()
         .to_owned();
     let mode_binding = harness
@@ -299,9 +345,23 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
             .unwrap_or_default()
             .contains(marker)
     });
+    let pane_nav_routes_present = [
+        (nav_left_binding.as_str(), "select-pane -L"),
+        (nav_down_binding.as_str(), "select-pane -D"),
+        (nav_up_binding.as_str(), "select-pane -U"),
+        (nav_right_binding.as_str(), "select-pane -R"),
+    ]
+    .iter()
+    .all(|(binding, direction)| {
+        binding.contains(direction) && binding.contains("pane-active-border-style")
+    });
 
     Ok(KeybindMatrix {
         prefix_f_binding,
+        nav_left_binding,
+        nav_down_binding,
+        nav_up_binding,
+        nav_right_binding,
         focus_slot_binding,
         swap_slot_binding,
         mode_binding,
@@ -309,6 +369,7 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         focus_prefix_route_present,
         focus_slot_route_present,
         core_runtime_routes_present,
+        pane_nav_routes_present,
         internal_route_shell_safe,
     })
 }

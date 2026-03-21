@@ -88,6 +88,7 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
     let mut labels_connected = true;
     let mut palette_mapping_ok = true;
     let mut shell_text_inheritance_ok = true;
+    let mut active_border_tracks_slot_color = true;
     let mut evidence = vec![
         format!("startup_exit_code={}", launch.exit_code),
         format!("session={session}"),
@@ -131,6 +132,34 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
             .to_owned();
         if mode_switch.exit_code != 0 || slot_mode != "shell" {
             mode_switches_ok = false;
+        }
+
+        let focus_args = [
+            "__internal",
+            "focus",
+            "--session",
+            session.as_str(),
+            "--slot",
+            slot_id_arg.as_str(),
+        ];
+        let focus_switch = harness
+            .run_ezm(&focus_args, &[], 0)
+            .unwrap_or_else(|error| panic!("focus switch failed for slot {slot_id}: {error}"));
+        let pane_active_border_style = harness
+            .tmux_capture(&[
+                "show-window-options",
+                "-v",
+                "-t",
+                &format!("{session}:0"),
+                "pane-active-border-style",
+            ])
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let active_border_matches_slot =
+            focus_switch.exit_code == 0 && pane_active_border_style.contains(color);
+        if !active_border_matches_slot {
+            active_border_tracks_slot_color = false;
         }
 
         let border_label = harness
@@ -207,6 +236,16 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
         evidence.push(format!(
             "slot{slot_id}_pane_inherits_slot_color={pane_inherits_slot_color}"
         ));
+        evidence.push(format!(
+            "slot{slot_id}_focus_switch_exit={}",
+            focus_switch.exit_code
+        ));
+        evidence.push(format!(
+            "slot{slot_id}_pane_active_border_style={pane_active_border_style}"
+        ));
+        evidence.push(format!(
+            "slot{slot_id}_active_border_matches_slot={active_border_matches_slot}"
+        ));
     }
 
     let center_slot_is_blue = center_slot == Some(1) && pane_border_style.contains("#5ac8e0");
@@ -221,6 +260,9 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
     evidence.push(format!(
         "shell_text_inheritance_ok={shell_text_inheritance_ok}"
     ));
+    evidence.push(format!(
+        "active_border_tracks_slot_color={active_border_tracks_slot_color}"
+    ));
     evidence.push(format!("mode_switches_ok={mode_switches_ok}"));
     write_green_cluster_evidence(&harness, "style-parity", &evidence)
         .unwrap_or_else(|error| panic!("failed writing T-1.3 style evidence: {error}"));
@@ -232,6 +274,7 @@ fn t1_3_restores_focus5_connected_border_palette_and_shell_text_inheritance() {
         && labels_connected
         && palette_mapping_ok
         && shell_text_inheritance_ok
+        && active_border_tracks_slot_color
         && mode_switches_ok;
 
     assert!(
