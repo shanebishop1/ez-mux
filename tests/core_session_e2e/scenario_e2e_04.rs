@@ -36,13 +36,17 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let before_geometry = read_pane_geometry(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-04 failed reading pre-swap geometry: {error}"));
 
-    let slot_id = 1_u8;
+    let center_before = center_pane_from_geometry(&before_geometry);
+    let slot_id = before_slots
+        .iter()
+        .find(|slot| slot.pane_id != center_before)
+        .map_or(1, |slot| slot.slot_id);
+    let slot_key = slot_id.to_string();
     let slot_pane_id = before_slots
         .iter()
         .find(|slot| slot.slot_id == slot_id)
         .map(|slot| slot.pane_id.clone())
         .unwrap_or_default();
-    let center_before = center_pane_from_geometry(&before_geometry);
     let slot_before = pane_geometry_by_id(&before_geometry, &slot_pane_id);
 
     assertions.push(format!("swap slot target = {slot_id}"));
@@ -53,20 +57,20 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .tmux_capture(&["list-keys", "-T", "prefix", "g"])
         .unwrap_or_default();
     let swap_slot_keybind = harness
-        .tmux_capture(&["list-keys", "-T", "ezm-swap", "1"])
+        .tmux_capture(&["list-keys", "-T", "ezm-swap", &slot_key])
         .unwrap_or_default();
     let keybind_matrix_present = swap_prefix_keybind.contains("ezm-swap")
         && swap_slot_keybind.contains("__internal swap")
-        && swap_slot_keybind.contains("--slot 1");
+        && swap_slot_keybind.contains(&format!("--slot {slot_id}"));
     assertions.push(format!(
-        "swap keybind matrix present for prefix g -> table -> slot 1 = {keybind_matrix_present}"
+        "swap keybind matrix present for prefix g -> table -> slot {slot_id} = {keybind_matrix_present}"
     ));
 
     send_prefix_keybind(harness, &session, "g")
         .unwrap_or_else(|error| panic!("E2E-04 failed sending swap table prefix: {error}"));
     harness
-        .tmux_capture(&["send-keys", "-K", "-t", &format!("{session}:0"), "1"])
-        .or_else(|_| harness.tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "1"]))
+        .tmux_capture(&["send-keys", "-K", "-t", &format!("{session}:0"), &slot_key])
+        .or_else(|_| harness.tmux_capture(&["send-keys", "-t", &format!("{session}:0"), &slot_key]))
         .unwrap_or_else(|error| panic!("E2E-04 failed sending swap slot key: {error}"));
 
     let mut swap_applied = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {

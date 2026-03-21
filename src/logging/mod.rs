@@ -9,6 +9,7 @@ pub use launch::LaunchLog;
 pub use launch::RunIdSource;
 pub use launch::SystemClock;
 pub use launch::SystemRunIdSource;
+pub use launch::append_launch_log_event;
 pub use launch::initialize_launch_log;
 pub use launch::initialize_launch_log_with_defaults;
 pub use open::LogOpener;

@@ -27,6 +27,7 @@ impl SessionAction {
 pub struct SessionLaunchOutcome {
     pub identity: SessionIdentity,
     pub remote_project_dir: std::path::PathBuf,
+    pub remote_routing_active: bool,
     pub action: SessionAction,
 }
 
@@ -72,21 +73,22 @@ pub fn ensure_project_session_with_remote_prefix(
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
     let identity = resolve_session_identity(project_dir)?;
-    let remote_project_dir =
-        resolve_remote_path(&identity.project_dir, remote_prefix)?.effective_path;
+    let remote_path = resolve_remote_path(&identity.project_dir, remote_prefix)?;
+    let remote_project_dir = remote_path.effective_path;
     let action = if tmux.session_exists(&identity.session_name)? {
         tmux.validate_session_invariants(&identity.session_name)?;
-        tmux.attach_session(&identity.session_name)?;
         SessionAction::Attach
     } else {
-        tmux.create_detached_session(&identity.session_name, &remote_project_dir)?;
-        tmux.bootstrap_default_layout(&identity.session_name, &remote_project_dir)?;
+        tmux.create_detached_session(&identity.session_name, &identity.project_dir)?;
+        tmux.bootstrap_default_layout(&identity.session_name, &identity.project_dir)?;
         SessionAction::Create
     };
+    tmux.attach_session(&identity.session_name)?;
 
     Ok(SessionLaunchOutcome {
         identity,
         remote_project_dir,
+        remote_routing_active: remote_path.remapped,
         action,
     })
 }

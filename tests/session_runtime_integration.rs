@@ -12,6 +12,7 @@ use ez_mux::session::analyze_session_damage;
 use ez_mux::session::auxiliary_viewer;
 use ez_mux::session::ensure_project_session;
 use ez_mux::session::ensure_project_session_with_remote_prefix;
+use ez_mux::session::focus_slot;
 use ez_mux::session::mode_launch_contract;
 use ez_mux::session::reconcile_session_damage;
 use ez_mux::session::resolve_session_identity;
@@ -24,8 +25,11 @@ struct FakeTmux {
     created: RefCell<Vec<(String, PathBuf)>>,
     bootstrapped: RefCell<Vec<(String, PathBuf)>>,
     attached: RefCell<Vec<String>>,
+    attach_error: RefCell<Option<String>>,
     mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
     mode_switch_error: RefCell<Option<String>>,
+    focus_calls: RefCell<Vec<(String, u8)>>,
+    focus_error: RefCell<Option<String>>,
     popup_toggles: RefCell<Vec<(String, u8)>>,
     popup_toggle_error: RefCell<Option<String>>,
     popup_toggle_open: RefCell<bool>,
@@ -61,6 +65,12 @@ impl TmuxClient for FakeTmux {
 
     fn attach_session(&self, session_name: &str) -> Result<(), ez_mux::session::SessionError> {
         self.attached.borrow_mut().push(session_name.to_string());
+        if let Some(stderr) = self.attach_error.borrow().as_ref() {
+            return Err(ez_mux::session::SessionError::TmuxCommandFailed {
+                command: String::from("attach-session"),
+                stderr: stderr.clone(),
+            });
+        }
         if !self.interactive_attach {
             *self.skipped_non_interactive_attach.borrow_mut() += 1;
         }
@@ -114,6 +124,25 @@ impl TmuxClient for FakeTmux {
         _session_name: &str,
         _slot_id: u8,
     ) -> Result<(), ez_mux::session::SessionError> {
+        Ok(())
+    }
+
+    fn focus_slot(
+        &self,
+        session_name: &str,
+        slot_id: u8,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        self.focus_calls
+            .borrow_mut()
+            .push((session_name.to_string(), slot_id));
+
+        if let Some(stderr) = self.focus_error.borrow().as_ref() {
+            return Err(ez_mux::session::SessionError::TmuxCommandFailed {
+                command: String::from("__internal focus"),
+                stderr: stderr.clone(),
+            });
+        }
+
         Ok(())
     }
 
@@ -242,8 +271,11 @@ impl Default for FakeTmux {
             created: RefCell::new(Vec::new()),
             bootstrapped: RefCell::new(Vec::new()),
             attached: RefCell::new(Vec::new()),
+            attach_error: RefCell::new(None),
             mode_switches: RefCell::new(Vec::new()),
             mode_switch_error: RefCell::new(None),
+            focus_calls: RefCell::new(Vec::new()),
+            focus_error: RefCell::new(None),
             popup_toggles: RefCell::new(Vec::new()),
             popup_toggle_error: RefCell::new(None),
             popup_toggle_open: RefCell::new(false),
@@ -269,6 +301,25 @@ impl Default for FakeTmux {
             interactive_attach: false,
         }
     }
+}
+
+#[test]
+fn runtime_create_path_surfaces_attach_failure_instead_of_reporting_success() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        attach_error: RefCell::new(Some(String::from("attach failed"))),
+        ..FakeTmux::default()
+    };
+
+    let error = ensure_project_session(project_dir, &tmux).expect_err("create path should fail");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("attach failed"));
+    assert_eq!(tmux.created.borrow().len(), 1);
+    assert_eq!(tmux.bootstrapped.borrow().len(), 1);
+    assert_eq!(tmux.attached.borrow().len(), 1);
 }
 
 #[test]
@@ -321,8 +372,9 @@ fn runtime_creates_first_then_attaches_second_without_duplicate_create() {
     assert_eq!(tmux.created.borrow().len(), 1);
     assert_eq!(tmux.bootstrapped.borrow().len(), 1);
     assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
-    assert_eq!(tmux.attached.borrow().len(), 1);
-    assert_eq!(tmux.attached.borrow()[0], second.identity.session_name);
+    assert_eq!(tmux.attached.borrow().len(), 2);
+    assert_eq!(tmux.attached.borrow()[0], first.identity.session_name);
+    assert_eq!(tmux.attached.borrow()[1], second.identity.session_name);
     assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 0);
 }
 
@@ -345,12 +397,12 @@ fn runtime_attach_path_is_non_interactive_safe() {
     assert_eq!(tmux.created.borrow().len(), 1);
     assert_eq!(tmux.bootstrapped.borrow().len(), 1);
     assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
-    assert_eq!(tmux.attached.borrow().len(), 1);
-    assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 1);
+    assert_eq!(tmux.attached.borrow().len(), 2);
+    assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 2);
 }
 
 #[test]
-fn runtime_create_and_bootstrap_use_remapped_project_dir_when_remote_prefix_active() {
+fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_prefix_active() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
     let project_dir = repo_root.join("worktrees").join("feature-x");
@@ -385,15 +437,10 @@ fn runtime_create_and_bootstrap_use_remapped_project_dir_when_remote_prefix_acti
         PathBuf::from("/srv/remotes/alpha/worktrees/feature-x")
     );
     assert_eq!(tmux.created.borrow().len(), 1);
-    assert_eq!(
-        tmux.created.borrow()[0].1,
-        PathBuf::from("/srv/remotes/alpha/worktrees/feature-x")
-    );
+    assert_eq!(tmux.created.borrow()[0].1, first.identity.project_dir);
     assert_eq!(tmux.bootstrapped.borrow().len(), 1);
-    assert_eq!(
-        tmux.bootstrapped.borrow()[0].1,
-        PathBuf::from("/srv/remotes/alpha/worktrees/feature-x")
-    );
+    assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
+    assert_eq!(tmux.attached.borrow().len(), 2);
 }
 
 #[test]
@@ -469,6 +516,37 @@ fn slot_targeted_mode_switch_rejects_non_canonical_slot_id_at_runtime_boundary()
     let rendered = error.to_string();
     assert!(rendered.contains("outside canonical range 1..5"));
     assert!(tmux.mode_switches.borrow().is_empty());
+}
+
+#[test]
+fn slot_targeted_focus_routes_to_tmux_client() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let outcome = focus_slot("ezm-session-55", 4, &tmux).expect("focus should succeed");
+
+    assert_eq!(outcome.session_name, "ezm-session-55");
+    assert_eq!(outcome.slot_id, 4);
+    assert_eq!(
+        tmux.focus_calls.borrow().as_slice(),
+        &[(String::from("ezm-session-55"), 4)]
+    );
+}
+
+#[test]
+fn slot_targeted_focus_rejects_non_canonical_slot_id_at_runtime_boundary() {
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let error =
+        focus_slot("ezm-session-55", 9, &tmux).expect_err("focus should reject slot outside 1..5");
+
+    assert!(error.to_string().contains("outside canonical range 1..5"));
+    assert!(tmux.focus_calls.borrow().is_empty());
 }
 
 #[test]

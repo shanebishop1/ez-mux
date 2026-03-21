@@ -1,5 +1,6 @@
 mod auxiliary_viewer;
 mod error;
+mod focus;
 mod mode;
 mod mode_adapter;
 mod mode_runtime;
@@ -20,6 +21,8 @@ pub use auxiliary_viewer::AuxiliaryViewerAction;
 pub use auxiliary_viewer::AuxiliaryViewerOutcome;
 pub use auxiliary_viewer::auxiliary_viewer;
 pub use error::SessionError;
+pub use focus::FocusSlotOutcome;
+pub use focus::focus_slot;
 pub use mode::SlotMode;
 pub use mode_adapter::ModeLaunchContract;
 pub use mode_adapter::TeardownHook;

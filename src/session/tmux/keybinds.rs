@@ -2,7 +2,9 @@ use super::SessionError;
 use super::command::{tmux_output, tmux_run};
 
 const SWAP_TABLE: &str = "ezm-swap";
+const FOCUS_TABLE: &str = "ezm-focus";
 const SWAP_PREFIX_KEY: &str = "g";
+const FOCUS_PREFIX_KEY: &str = "f";
 const TOGGLE_MODE_KEY: &str = "u";
 const AGENT_MODE_KEY: &str = "a";
 const SHELL_MODE_KEY: &str = "S";
@@ -36,17 +38,40 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
         "-T",
         SWAP_TABLE,
     ])?;
+    tmux_run(&[
+        "bind-key",
+        "-T",
+        "prefix",
+        FOCUS_PREFIX_KEY,
+        "switch-client",
+        "-T",
+        FOCUS_TABLE,
+    ])?;
 
     for slot in 1_u8..=5 {
         let key = slot.to_string();
-        let command = swap_command(slot);
+        let swap_command = swap_command(slot);
         tmux_run(&[
             "bind-key",
             "-T",
             SWAP_TABLE,
             &key,
             "run-shell",
-            &command,
+            &swap_command,
+            "\\;",
+            "switch-client",
+            "-T",
+            "root",
+        ])?;
+
+        let focus_command = focus_command(slot);
+        tmux_run(&[
+            "bind-key",
+            "-T",
+            FOCUS_TABLE,
+            &key,
+            "run-shell",
+            &focus_command,
             "\\;",
             "switch-client",
             "-T",
@@ -59,6 +84,15 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
             "bind-key",
             "-T",
             SWAP_TABLE,
+            key,
+            "switch-client",
+            "-T",
+            "root",
+        ])?;
+        tmux_run(&[
+            "bind-key",
+            "-T",
+            FOCUS_TABLE,
             key,
             "switch-client",
             "-T",
@@ -86,6 +120,7 @@ fn clear_specs() -> Vec<(&'static str, String)> {
     let mut specs = vec![
         ("prefix", THREE_PANE_PRESET_KEY.to_owned()),
         ("prefix", SWAP_PREFIX_KEY.to_owned()),
+        ("prefix", FOCUS_PREFIX_KEY.to_owned()),
         ("prefix", TOGGLE_MODE_KEY.to_owned()),
         ("prefix", AGENT_MODE_KEY.to_owned()),
         ("prefix", SHELL_MODE_KEY.to_owned()),
@@ -95,10 +130,14 @@ fn clear_specs() -> Vec<(&'static str, String)> {
         (SWAP_TABLE, String::from("Escape")),
         (SWAP_TABLE, String::from("q")),
         (SWAP_TABLE, String::from("Any")),
+        (FOCUS_TABLE, String::from("Escape")),
+        (FOCUS_TABLE, String::from("q")),
+        (FOCUS_TABLE, String::from("Any")),
     ];
 
     for slot in 1_u8..=5 {
         specs.push((SWAP_TABLE, slot.to_string()));
+        specs.push((FOCUS_TABLE, slot.to_string()));
     }
 
     specs
@@ -132,6 +171,10 @@ fn swap_command(slot_id: u8) -> String {
     format!("${{EZM_BIN:-ezm}} __internal swap --session '#{{session_name}}' --slot {slot_id}")
 }
 
+fn focus_command(slot_id: u8) -> String {
+    format!("${{EZM_BIN:-ezm}} __internal focus --session '#{{session_name}}' --slot {slot_id}")
+}
+
 fn mode_command(mode: &str) -> String {
     format!(
         "${{EZM_BIN:-ezm}} __internal mode --session '#{{session_name}}' --slot '#{{@ezm_slot_id}}' --mode {mode}"
@@ -157,13 +200,21 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
 
-    use super::{mode_command, popup_command, swap_command, toggle_mode_command};
+    use super::{focus_command, mode_command, popup_command, swap_command, toggle_mode_command};
 
     #[test]
     fn swap_command_targets_internal_runtime_entrypoint() {
         let rendered = swap_command(4);
         assert!(rendered.contains("__internal swap"));
         assert!(rendered.contains("--slot 4"));
+        assert!(rendered.contains("#{session_name}"));
+    }
+
+    #[test]
+    fn focus_command_targets_internal_runtime_entrypoint() {
+        let rendered = focus_command(2);
+        assert!(rendered.contains("__internal focus"));
+        assert!(rendered.contains("--slot 2"));
         assert!(rendered.contains("#{session_name}"));
     }
 

@@ -11,6 +11,7 @@ use super::LogOpener;
 use super::LoggingError;
 use super::ProcessLogOpener;
 use super::RunIdSource;
+use super::append_launch_log_event;
 use super::fallback_log_root;
 use super::initialize_launch_log;
 use super::open::latest_log_file;
@@ -226,6 +227,44 @@ fn falls_back_when_primary_log_root_creation_fails() {
     let warning = launch.warning.expect("warning should be present");
     assert!(warning.contains("failed to create primary log root"));
     assert!(warning.contains(&launch.root.display().to_string()));
+}
+
+#[test]
+fn appends_launch_event_lines_to_existing_log_file() {
+    let state_root = tempdir().expect("state root");
+    let fallback_root = tempdir().expect("fallback root");
+
+    let mut env = HashMap::new();
+    env.insert(
+        String::from("XDG_STATE_HOME"),
+        state_root.path().display().to_string(),
+    );
+    env.insert(String::from("HOME"), String::from("/tmp/home"));
+
+    let clock = FixedClock {
+        now: OffsetDateTime::from_unix_timestamp(1_710_000_000).expect("timestamp"),
+    };
+    let run_ids = SequenceRunIds::from(&["event-append"]);
+
+    let launch = initialize_launch_log(
+        &env,
+        OperatingSystem::Linux,
+        &clock,
+        &run_ids,
+        fallback_root.path(),
+    )
+    .expect("launch log should initialize");
+
+    append_launch_log_event(
+        &launch.file_path,
+        "launch-failure",
+        "remote-prefix routing failed",
+    )
+    .expect("event append should succeed");
+
+    let content = fs::read_to_string(&launch.file_path).expect("read launch log");
+    assert!(content.contains("event=launch-log-created"));
+    assert!(content.contains("event=launch-failure; detail=remote-prefix routing failed"));
 }
 
 #[test]
