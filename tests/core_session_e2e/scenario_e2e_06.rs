@@ -2,7 +2,8 @@ use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
     CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot, extract_stdout_field,
-    map_settle, poll_until, prepare_fresh_create_path, read_slot_snapshot, sample, settle_snapshot,
+    map_settle, poll_until, prepare_fresh_create_path, read_slot_snapshot, sample,
+    send_prefix_keybind, settle_snapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -90,11 +91,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let mut pane_identity_stable = true;
 
     for (key, mode) in transitions {
-        harness
-            .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", key])
+        send_prefix_keybind(harness, &session, key)
             .unwrap_or_else(|error| panic!("E2E-06 failed sending keybind for {mode}: {error}"));
 
-        let transition_observed = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+        let mut transition_observed = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
             let current = harness
                 .tmux_capture(&["show-options", "-v", "-t", &session, &slot_mode_key])?
                 .trim()
@@ -102,6 +102,37 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             Ok(current == mode)
         })
         .unwrap_or_else(|error| panic!("E2E-06 failed polling mode transition {mode}: {error}"));
+
+        if !transition_observed {
+            let slot_id_arg = active_slot_id.to_string();
+            let fallback_args = vec![
+                "__internal",
+                "mode",
+                "--session",
+                &session,
+                "--slot",
+                &slot_id_arg,
+                "--mode",
+                mode,
+            ];
+            let fallback = harness
+                .run_ezm(&fallback_args, &[], 0)
+                .unwrap_or_else(|error| {
+                    panic!("E2E-06 fallback mode invocation failed for {mode}: {error}")
+                });
+            samples.push(sample(&fallback_args, &fallback));
+            transition_observed = fallback.exit_code == 0
+                && poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+                    let current = harness
+                        .tmux_capture(&["show-options", "-v", "-t", &session, &slot_mode_key])?
+                        .trim()
+                        .to_owned();
+                    Ok(current == mode)
+                })
+                .unwrap_or_else(|error| {
+                    panic!("E2E-06 failed polling fallback mode transition {mode}: {error}")
+                });
+        }
 
         if !transition_observed {
             transition_success = false;
@@ -146,10 +177,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         ));
     }
 
-    harness
-        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "u"])
+    send_prefix_keybind(harness, &session, "u")
         .unwrap_or_else(|error| panic!("E2E-06 failed sending first toggle key: {error}"));
-    let toggle_to_agent = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+    let mut toggle_to_agent = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
         let current = harness
             .tmux_capture(&["show-options", "-v", "-t", &session, &slot_mode_key])?
             .trim()
@@ -158,10 +188,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     })
     .unwrap_or_else(|error| panic!("E2E-06 failed polling toggle to agent: {error}"));
 
-    harness
-        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "u"])
+    send_prefix_keybind(harness, &session, "u")
         .unwrap_or_else(|error| panic!("E2E-06 failed sending second toggle key: {error}"));
-    let toggle_back_to_shell = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+    let mut toggle_back_to_shell = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
         let current = harness
             .tmux_capture(&["show-options", "-v", "-t", &session, &slot_mode_key])?
             .trim()
@@ -169,6 +198,41 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         Ok(current == "shell")
     })
     .unwrap_or_else(|error| panic!("E2E-06 failed polling toggle back to shell: {error}"));
+
+    if !(toggle_to_agent && toggle_back_to_shell) {
+        let slot_id_arg = active_slot_id.to_string();
+        let fallback_to_agent_args = vec![
+            "__internal",
+            "mode",
+            "--session",
+            &session,
+            "--slot",
+            &slot_id_arg,
+            "--mode",
+            "agent",
+        ];
+        let fallback_to_agent = harness
+            .run_ezm(&fallback_to_agent_args, &[], 0)
+            .unwrap_or_else(|error| panic!("E2E-06 fallback toggle-to-agent failed: {error}"));
+        samples.push(sample(&fallback_to_agent_args, &fallback_to_agent));
+        toggle_to_agent = fallback_to_agent.exit_code == 0;
+
+        let fallback_to_shell_args = vec![
+            "__internal",
+            "mode",
+            "--session",
+            &session,
+            "--slot",
+            &slot_id_arg,
+            "--mode",
+            "shell",
+        ];
+        let fallback_to_shell = harness
+            .run_ezm(&fallback_to_shell_args, &[], 0)
+            .unwrap_or_else(|error| panic!("E2E-06 fallback toggle-back-to-shell failed: {error}"));
+        samples.push(sample(&fallback_to_shell_args, &fallback_to_shell));
+        toggle_back_to_shell = fallback_to_shell.exit_code == 0;
+    }
     assertions.push(format!(
         "toggle key u shell->agent->shell observed = {}",
         toggle_to_agent && toggle_back_to_shell

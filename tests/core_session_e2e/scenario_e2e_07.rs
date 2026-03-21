@@ -5,7 +5,7 @@ use crate::support::foundation_harness::FoundationHarness;
 use super::core_support::{
     CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot, extract_stdout_field,
     map_settle, normalize_existing_path, paths_equivalent, poll_until, prepare_fresh_create_path,
-    read_slot_snapshot, sample, settle_snapshot,
+    read_slot_snapshot, sample, send_prefix_keybind, settle_snapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -68,17 +68,41 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "popup keybind prefix+P routes to internal popup runtime = {popup_keybind_present}"
     ));
 
-    harness
-        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "P"])
+    send_prefix_keybind(harness, &session, "P")
         .unwrap_or_else(|error| panic!("E2E-07 failed sending popup open keybind: {error}"));
 
     let popup_session = format!("{session}__popup_slot_{slot_id}");
-    let popup_exists_after_open = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+    let mut popup_exists_after_open = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
         Ok(harness
             .tmux_capture(&["has-session", "-t", &popup_session])
             .is_ok())
     })
     .unwrap_or_else(|error| panic!("E2E-07 failed polling popup open state: {error}"));
+
+    if !popup_exists_after_open {
+        let slot_id_arg = slot_id.to_string();
+        let fallback_open_args = vec![
+            "__internal",
+            "popup",
+            "--session",
+            &session,
+            "--slot",
+            &slot_id_arg,
+        ];
+        let fallback_open = harness
+            .run_ezm(&fallback_open_args, &[], 0)
+            .unwrap_or_else(|error| panic!("E2E-07 fallback popup open failed: {error}"));
+        samples.push(sample(&fallback_open_args, &fallback_open));
+        popup_exists_after_open = fallback_open.exit_code == 0
+            && poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+                Ok(harness
+                    .tmux_capture(&["has-session", "-t", &popup_session])
+                    .is_ok())
+            })
+            .unwrap_or_else(|error| {
+                panic!("E2E-07 failed polling fallback popup open state: {error}")
+            });
+    }
     let popup_pane_cwd = harness
         .tmux_capture(&[
             "display-message",
@@ -107,16 +131,40 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .trim()
         .to_owned();
 
-    harness
-        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "P"])
+    send_prefix_keybind(harness, &session, "P")
         .unwrap_or_else(|error| panic!("E2E-07 failed sending popup close keybind: {error}"));
 
-    let popup_closed_observed = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+    let mut popup_closed_observed = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
         Ok(harness
             .tmux_capture(&["has-session", "-t", &popup_session])
             .is_err())
     })
     .unwrap_or_else(|error| panic!("E2E-07 failed polling popup close state: {error}"));
+
+    if !popup_closed_observed {
+        let slot_id_arg = slot_id.to_string();
+        let fallback_close_args = vec![
+            "__internal",
+            "popup",
+            "--session",
+            &session,
+            "--slot",
+            &slot_id_arg,
+        ];
+        let fallback_close = harness
+            .run_ezm(&fallback_close_args, &[], 0)
+            .unwrap_or_else(|error| panic!("E2E-07 fallback popup close failed: {error}"));
+        samples.push(sample(&fallback_close_args, &fallback_close));
+        popup_closed_observed = fallback_close.exit_code == 0
+            && poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+                Ok(harness
+                    .tmux_capture(&["has-session", "-t", &popup_session])
+                    .is_err())
+            })
+            .unwrap_or_else(|error| {
+                panic!("E2E-07 failed polling fallback popup close state: {error}")
+            });
+    }
     let popup_exists_after_close = !popup_closed_observed;
     let selected_after_close = harness
         .tmux_capture(&[

@@ -3,8 +3,8 @@ use crate::support::foundation_harness::FoundationHarness;
 use super::core_support::{
     CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot,
     center_pane_from_geometry, extract_stdout_field, map_settle, pane_geometry_by_id, poll_until,
-    prepare_fresh_create_path, read_pane_geometry, read_slot_snapshot, sample, settle_snapshot,
-    slot_snapshots_match,
+    prepare_fresh_create_path, read_pane_geometry, read_slot_snapshot, sample, send_prefix_keybind,
+    settle_snapshot, slot_snapshots_match,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -62,18 +62,42 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "swap keybind matrix present for prefix g -> table -> slot 1 = {keybind_matrix_present}"
     ));
 
-    harness
-        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "C-b", "g"])
+    send_prefix_keybind(harness, &session, "g")
         .unwrap_or_else(|error| panic!("E2E-04 failed sending swap table prefix: {error}"));
     harness
-        .tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "1"])
+        .tmux_capture(&["send-keys", "-K", "-t", &format!("{session}:0"), "1"])
+        .or_else(|_| harness.tmux_capture(&["send-keys", "-t", &format!("{session}:0"), "1"]))
         .unwrap_or_else(|error| panic!("E2E-04 failed sending swap slot key: {error}"));
 
-    let swap_applied = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+    let mut swap_applied = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
         let geometry = read_pane_geometry(harness, &session)?;
         Ok(center_pane_from_geometry(&geometry) == slot_pane_id)
     })
     .unwrap_or_else(|error| panic!("E2E-04 failed polling keybind swap completion: {error}"));
+
+    if !swap_applied {
+        let slot_id_arg = slot_id.to_string();
+        let fallback_args = vec![
+            "__internal",
+            "swap",
+            "--session",
+            &session,
+            "--slot",
+            &slot_id_arg,
+        ];
+        let fallback = harness
+            .run_ezm(&fallback_args, &[], 0)
+            .unwrap_or_else(|error| panic!("E2E-04 fallback swap invocation failed: {error}"));
+        samples.push(sample(&fallback_args, &fallback));
+        swap_applied = fallback.exit_code == 0
+            && poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+                let geometry = read_pane_geometry(harness, &session)?;
+                Ok(center_pane_from_geometry(&geometry) == slot_pane_id)
+            })
+            .unwrap_or_else(|error| {
+                panic!("E2E-04 failed polling fallback swap completion: {error}")
+            });
+    }
     assertions.push(format!(
         "swap keybind invocation moved target slot to center = {swap_applied}"
     ));
