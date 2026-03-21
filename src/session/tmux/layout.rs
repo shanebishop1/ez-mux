@@ -189,7 +189,7 @@ fn launch_startup_slot_modes(
         if usize::from(slot_id) > limit {
             break;
         }
-        super::mode_runtime::switch_slot_mode(
+        super::mode_runtime::switch_slot_mode_for_startup(
             session_name,
             slot_id,
             SlotMode::Agent,

@@ -1,6 +1,6 @@
 use super::{
     launch_agent_attach_command, launch_command_for_mode,
-    launch_command_with_remote_dir_from_mapping,
+    launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd,
 };
 use crate::session::{SharedServerAttachConfig, SlotMode};
 
@@ -149,4 +149,37 @@ fn agent_mode_does_not_require_operator_for_remote_prefix_mapping() {
     .expect("agent mode should not require operator");
 
     assert!(command.contains("opencode attach 'http://127.0.0.1:4096'"));
+}
+
+#[test]
+fn startup_prefers_assigned_worktree_over_inherited_project_cwd() {
+    let slot_worktrees = [
+        "/Users/dev/projects/ez-mux/ez-mux-1",
+        "/Users/dev/projects/ez-mux/ez-mux-2",
+        "/Users/dev/projects/ez-mux/ez-mux-3",
+    ];
+
+    let resolved = slot_worktrees
+        .iter()
+        .map(|worktree| {
+            resolve_mode_switch_cwd(true, worktree, || {
+                Ok(String::from(
+                    "/Users/dev/projects/ez-mux/ez-mux-1",
+                ))
+            })
+            .expect("startup cwd should resolve")
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(resolved[0], slot_worktrees[0]);
+    assert_eq!(resolved[1], slot_worktrees[1]);
+    assert_eq!(resolved[2], slot_worktrees[2]);
+}
+
+#[test]
+fn non_startup_mode_switch_uses_captured_pane_cwd() {
+    let captured = resolve_mode_switch_cwd(false, "/repo-2", || Ok(String::from("/repo-2/src")))
+        .expect("captured cwd should resolve");
+
+    assert_eq!(captured, "/repo-2/src");
 }

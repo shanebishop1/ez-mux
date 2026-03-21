@@ -22,6 +22,45 @@ pub(super) fn switch_slot_mode(
     remote_prefix: Option<&str>,
     shared_server: Option<&SharedServerAttachConfig>,
 ) -> Result<(), SessionError> {
+    switch_slot_mode_internal(
+        session_name,
+        slot_id,
+        mode,
+        operator,
+        remote_prefix,
+        shared_server,
+        false,
+    )
+}
+
+pub(super) fn switch_slot_mode_for_startup(
+    session_name: &str,
+    slot_id: u8,
+    mode: SlotMode,
+    operator: Option<&str>,
+    remote_prefix: Option<&str>,
+    shared_server: Option<&SharedServerAttachConfig>,
+) -> Result<(), SessionError> {
+    switch_slot_mode_internal(
+        session_name,
+        slot_id,
+        mode,
+        operator,
+        remote_prefix,
+        shared_server,
+        true,
+    )
+}
+
+fn switch_slot_mode_internal(
+    session_name: &str,
+    slot_id: u8,
+    mode: SlotMode,
+    operator: Option<&str>,
+    remote_prefix: Option<&str>,
+    shared_server: Option<&SharedServerAttachConfig>,
+    prefer_assigned_worktree_cwd: bool,
+) -> Result<(), SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
         return Err(SessionError::SlotRegistry(
             super::super::SlotRegistryError::InvalidSlotId { slot_id },
@@ -40,7 +79,9 @@ pub(super) fn switch_slot_mode(
 
     let pane_id = required_session_option(session_name, &slot_pane_key)?;
     let worktree = required_session_option(session_name, &slot_worktree_key)?;
-    let current_cwd = capture_slot_cwd(session_name, slot_id, &pane_id, &slot_cwd_key, &worktree)?;
+    let current_cwd = resolve_mode_switch_cwd(prefer_assigned_worktree_cwd, &worktree, || {
+        capture_slot_cwd(session_name, slot_id, &pane_id, &slot_cwd_key, &worktree)
+    })?;
     let existing_mode = required_session_option(session_name, &slot_mode_key)?;
     let existing_pane_cwd = required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_cwd")?;
     let existing_pane_mode =
@@ -249,6 +290,21 @@ fn capture_slot_cwd(
         command: format!("capture-slot-cwd -t {session_name} --slot {slot_id}"),
         stderr: String::from("slot cwd capture returned empty path"),
     })
+}
+
+fn resolve_mode_switch_cwd<F>(
+    prefer_assigned_worktree_cwd: bool,
+    assigned_worktree: &str,
+    captured_cwd: F,
+) -> Result<String, SessionError>
+where
+    F: FnOnce() -> Result<String, SessionError>,
+{
+    if prefer_assigned_worktree_cwd {
+        return Ok(assigned_worktree.to_owned());
+    }
+
+    captured_cwd()
 }
 
 fn run_teardown_hooks(pane_id: &str, hooks: &[TeardownHook]) -> Result<(), SessionError> {
