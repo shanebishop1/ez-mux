@@ -48,6 +48,15 @@ if [ "$dry_run" -eq 0 ] && [ "$host_os" != "Darwin" ]; then
   exit 65
 fi
 
+if command -v python3 >/dev/null 2>&1; then
+  python_bin="python3"
+elif command -v python >/dev/null 2>&1; then
+  python_bin="python"
+else
+  echo "python3 (or python) is required for macOS amendment verification" >&2
+  exit 69
+fi
+
 run_id="run-$(date +%s)-$$"
 artifact_root="$repo_root/target/e2e-evidence/focus5-macos-amendment/$run_id"
 log_dir="$artifact_root/logs"
@@ -80,7 +89,7 @@ resource_snapshot() {
 find_run_dir_after_marker() {
   suite_dir="$1"
   marker_path="$2"
-  python - "$suite_dir" "$marker_path" <<'PY'
+  "$python_bin" - "$suite_dir" "$marker_path" <<'PY'
 import pathlib
 import sys
 
@@ -152,7 +161,7 @@ run_command "core_session" "core-session-orchestration" "cargo test --test core_
 run_command "foundation" "foundation" "cargo test --test foundation_e2e -- --nocapture"
 run_command "smoke" "cross-platform-smoke" "sh scripts/smoke/run-macos-smoke.sh"
 
-python - "$artifact_root" <<'PY'
+"$python_bin" - "$artifact_root" <<'PY'
 import json
 import pathlib
 import sys
