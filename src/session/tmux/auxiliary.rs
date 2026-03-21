@@ -3,6 +3,7 @@ use super::command::{tmux_output_value, tmux_run};
 use super::options::show_session_option;
 use super::slot_swap::validate_canonical_slot_registry;
 use crate::session::{AuxiliaryViewerAction, AuxiliaryViewerOutcome};
+use std::path::{Path, PathBuf};
 
 const AUXILIARY_WINDOW_NAME: &str = "beads-viewer";
 
@@ -10,10 +11,19 @@ pub(super) fn auxiliary_viewer(
     session_name: &str,
     open: bool,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
-    validate_canonical_slot_registry(session_name)?;
-
     let existing = find_window_id_by_name(session_name, AUXILIARY_WINDOW_NAME)?;
     if open {
+        if existing.is_none() && discover_executable_in_path("bv").is_none() {
+            return Ok(AuxiliaryViewerOutcome {
+                session_name: session_name.to_owned(),
+                action: AuxiliaryViewerAction::SkippedUnavailable,
+                window_name: String::from(AUXILIARY_WINDOW_NAME),
+                window_id: None,
+            });
+        }
+
+        validate_canonical_slot_registry(session_name)?;
+
         if let Some(window_id) = existing {
             return Ok(AuxiliaryViewerOutcome {
                 session_name: session_name.to_owned(),
@@ -23,10 +33,14 @@ pub(super) fn auxiliary_viewer(
             });
         }
 
+        let bv_executable =
+            discover_executable_in_path("bv").ok_or_else(|| SessionError::TmuxCommandFailed {
+                command: String::from("auxiliary-viewer discover bv"),
+                stderr: String::from("bv executable disappeared during startup reconciliation"),
+            })?;
+
         let cwd = resolve_auxiliary_cwd(session_name)?;
-        let command = String::from(
-            "sh -lc 'if command -v bv >/dev/null 2>&1; then exec bv; else printf \"bv not available; auxiliary viewer stub\\n\"; fi'",
-        );
+        let command = build_auxiliary_launch_command(&bv_executable);
         let window_id = tmux_output_value(&[
             "new-window",
             "-d",
@@ -64,6 +78,8 @@ pub(super) fn auxiliary_viewer(
             window_id: Some(window_id),
         });
     }
+
+    validate_canonical_slot_registry(session_name)?;
 
     if let Some(window_id) = existing {
         tmux_run(&["kill-window", "-t", &window_id])?;
@@ -126,4 +142,99 @@ fn find_window_id_by_name(
     }
 
     Ok(None)
+}
+
+fn build_auxiliary_launch_command(executable_path: &Path) -> String {
+    let escaped_path = shell_escape_double_quoted(&executable_path.to_string_lossy());
+    format!("sh -lc \"exec \\\"{escaped_path}\\\"\"")
+}
+
+fn shell_escape_double_quoted(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`")
+}
+
+fn discover_executable_in_path(command_name: &str) -> Option<PathBuf> {
+    let path_env = std::env::var_os("PATH")?;
+    let candidate_names = executable_candidate_names(command_name);
+    for path_dir in std::env::split_paths(&path_env) {
+        for candidate_name in &candidate_names {
+            let candidate_path = path_dir.join(candidate_name);
+            if is_executable_file(&candidate_path) {
+                return Some(candidate_path);
+            }
+        }
+    }
+
+    None
+}
+
+fn executable_candidate_names(command_name: &str) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        let mut names = vec![command_name.to_owned()];
+        for extension in ["exe", "cmd", "bat"] {
+            names.push(format!("{command_name}.{extension}"));
+        }
+        names
+    }
+
+    #[cfg(not(windows))]
+    {
+        vec![command_name.to_owned()]
+    }
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        if let Ok(metadata) = std::fs::metadata(path) {
+            return metadata.permissions().mode() & 0o111 != 0;
+        }
+        false
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AUXILIARY_WINDOW_NAME, build_auxiliary_launch_command, discover_executable_in_path,
+    };
+
+    #[test]
+    fn auxiliary_launch_command_uses_resolved_bv_path() {
+        let command = build_auxiliary_launch_command(std::path::Path::new("/tmp/tools/bv"));
+        assert_eq!(command, "sh -lc \"exec \\\"/tmp/tools/bv\\\"\"");
+    }
+
+    #[test]
+    fn auxiliary_launch_command_escapes_double_quote_sensitive_characters() {
+        let command = build_auxiliary_launch_command(std::path::Path::new(
+            "/tmp/tools/space and \"quote\"/$HOME/`cmd`/bv",
+        ));
+        assert_eq!(
+            command,
+            "sh -lc \"exec \\\"/tmp/tools/space and \\\"quote\\\"/\\$HOME/\\`cmd\\`/bv\\\"\""
+        );
+    }
+
+    #[test]
+    fn discover_executable_returns_none_for_missing_binary_name() {
+        let unlikely = format!("ezm-no-such-tool-{AUXILIARY_WINDOW_NAME}");
+        assert!(discover_executable_in_path(&unlikely).is_none());
+    }
 }

@@ -38,6 +38,7 @@ struct FakeTmux {
     auxiliary_calls: RefCell<Vec<(String, bool)>>,
     auxiliary_error: RefCell<Option<String>>,
     auxiliary_exists: RefCell<bool>,
+    auxiliary_available: RefCell<bool>,
     teardown_calls: RefCell<Vec<String>>,
     teardown_project_removed: RefCell<bool>,
     damage_analysis_calls: RefCell<Vec<String>>,
@@ -217,23 +218,37 @@ impl TmuxClient for FakeTmux {
         }
 
         let action = if open {
-            let existed = *self.auxiliary_exists.borrow();
-            *self.auxiliary_exists.borrow_mut() = true;
-            if existed {
-                ez_mux::session::AuxiliaryViewerAction::Reused
+            if *self.auxiliary_available.borrow() {
+                let existed = *self.auxiliary_exists.borrow();
+                *self.auxiliary_exists.borrow_mut() = true;
+                if existed {
+                    ez_mux::session::AuxiliaryViewerAction::Reused
+                } else {
+                    ez_mux::session::AuxiliaryViewerAction::Created
+                }
             } else {
-                ez_mux::session::AuxiliaryViewerAction::Created
+                ez_mux::session::AuxiliaryViewerAction::SkippedUnavailable
             }
         } else {
             *self.auxiliary_exists.borrow_mut() = false;
             ez_mux::session::AuxiliaryViewerAction::Closed
         };
 
+        let window_id = if matches!(
+            action,
+            ez_mux::session::AuxiliaryViewerAction::Created
+                | ez_mux::session::AuxiliaryViewerAction::Reused
+        ) {
+            Some(String::from("@9"))
+        } else {
+            None
+        };
+
         Ok(ez_mux::session::AuxiliaryViewerOutcome {
             session_name: session_name.to_owned(),
             action,
             window_name: String::from("beads-viewer"),
-            window_id: Some(String::from("@9")),
+            window_id,
         })
     }
 
@@ -297,6 +312,7 @@ impl Default for FakeTmux {
             auxiliary_calls: RefCell::new(Vec::new()),
             auxiliary_error: RefCell::new(None),
             auxiliary_exists: RefCell::new(false),
+            auxiliary_available: RefCell::new(true),
             teardown_calls: RefCell::new(Vec::new()),
             teardown_project_removed: RefCell::new(false),
             damage_analysis_calls: RefCell::new(Vec::new()),
@@ -390,6 +406,7 @@ fn runtime_creates_first_then_attaches_second_without_duplicate_create() {
     assert_eq!(tmux.attached.borrow().len(), 2);
     assert_eq!(tmux.attached.borrow()[0], first.identity.session_name);
     assert_eq!(tmux.attached.borrow()[1], second.identity.session_name);
+    assert_eq!(tmux.auxiliary_calls.borrow().len(), 2);
     assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 0);
 }
 
@@ -413,7 +430,35 @@ fn runtime_attach_path_is_non_interactive_safe() {
     assert_eq!(tmux.bootstrapped.borrow().len(), 1);
     assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
     assert_eq!(tmux.attached.borrow().len(), 2);
+    assert_eq!(tmux.auxiliary_calls.borrow().len(), 2);
     assert_eq!(*tmux.skipped_non_interactive_attach.borrow(), 2);
+}
+
+#[test]
+fn runtime_bv_missing_skips_auxiliary_window_without_failing_startup() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        auxiliary_available: RefCell::new(false),
+        ..FakeTmux::default()
+    };
+
+    let first = ensure_project_session(project_dir, &tmux).expect("first run");
+    let second = ensure_project_session(project_dir, &tmux).expect("second run");
+
+    assert_eq!(first.action, SessionAction::Create);
+    assert_eq!(second.action, SessionAction::Attach);
+    assert_eq!(tmux.created.borrow().len(), 1);
+    assert_eq!(tmux.attached.borrow().len(), 2);
+    assert_eq!(tmux.auxiliary_calls.borrow().len(), 2);
+
+    let skipped = auxiliary_viewer("ezm-session-bv-missing", true, &tmux).expect("skip");
+    assert_eq!(
+        skipped.action,
+        ez_mux::session::AuxiliaryViewerAction::SkippedUnavailable
+    );
+    assert!(skipped.window_id.is_none());
 }
 
 #[test]

@@ -83,6 +83,7 @@ pub fn ensure_project_session_with_remote_prefix(
         tmux.bootstrap_default_layout(&identity.session_name, &identity.project_dir)?;
         SessionAction::Create
     };
+    tmux.auxiliary_viewer(&identity.session_name, true)?;
     tmux.attach_session(&identity.session_name)?;
 
     Ok(SessionLaunchOutcome {

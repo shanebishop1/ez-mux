@@ -214,9 +214,11 @@ impl TmuxClient for InterruptingTmuxClient {
     }
 
     fn auxiliary_viewer(&self, _: &str, _: bool) -> Result<AuxiliaryViewerOutcome, SessionError> {
-        Err(SessionError::TmuxCommandFailed {
-            command: String::from("auxiliary-viewer"),
-            stderr: String::from("not used in this test"),
+        Ok(AuxiliaryViewerOutcome {
+            session_name: String::from("ezm-session"),
+            action: crate::session::AuxiliaryViewerAction::SkippedUnavailable,
+            window_name: String::from("beads-viewer"),
+            window_id: None,
         })
     }
 
