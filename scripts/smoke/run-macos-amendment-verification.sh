@@ -4,6 +4,16 @@ set -eu
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repo_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
 
+if ! command -v tmux >/dev/null 2>&1; then
+  if [ -x "/opt/homebrew/bin/tmux" ]; then
+    PATH="/opt/homebrew/bin:$PATH"
+    export PATH
+  elif [ -x "/usr/local/bin/tmux" ]; then
+    PATH="/usr/local/bin:$PATH"
+    export PATH
+  fi
+fi
+
 dry_run=0
 if [ "$#" -gt 0 ]; then
   if [ "$1" = "--dry-run" ]; then
