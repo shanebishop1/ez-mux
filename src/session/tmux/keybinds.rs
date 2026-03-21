@@ -168,28 +168,28 @@ fn missing_binding_diagnostic(output: &std::process::Output) -> bool {
 }
 
 fn swap_command(slot_id: u8) -> String {
-    format!("${{EZM_BIN:-ezm}} __internal swap --session '#{{session_name}}' --slot {slot_id}")
+    format!("${{EZM_BIN:-ezm}} __internal swap --session \"#{{session_name}}\" --slot {slot_id}")
 }
 
 fn focus_command(slot_id: u8) -> String {
-    format!("${{EZM_BIN:-ezm}} __internal focus --session '#{{session_name}}' --slot {slot_id}")
+    format!("${{EZM_BIN:-ezm}} __internal focus --session \"#{{session_name}}\" --slot {slot_id}")
 }
 
 fn mode_command(mode: &str) -> String {
     format!(
-        "${{EZM_BIN:-ezm}} __internal mode --session '#{{session_name}}' --slot '#{{@ezm_slot_id}}' --mode {mode}"
+        "${{EZM_BIN:-ezm}} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode}"
     )
 }
 
 fn toggle_mode_command() -> String {
     String::from(
-        "__ezm_slot='#{@ezm_slot_id}'; __ezm_mode='#{@ezm_slot_mode}'; __ezm_next='agent'; if [ \"${__ezm_mode}\" = \"agent\" ]; then __ezm_next='shell'; fi; ${EZM_BIN:-ezm} __internal mode --session '#{session_name}' --slot \"${__ezm_slot}\" --mode \"${__ezm_next}\"",
+        "__ezm_slot=\"#{@ezm_slot_id}\"; __ezm_mode=\"#{@ezm_slot_mode}\"; __ezm_next=\"agent\"; if [ \"${__ezm_mode}\" = \"agent\" ]; then __ezm_next=\"shell\"; fi; ${EZM_BIN:-ezm} __internal mode --session \"#{session_name}\" --slot \"${__ezm_slot}\" --mode \"${__ezm_next}\"",
     )
 }
 
 fn popup_command() -> String {
     String::from(
-        "${EZM_BIN:-ezm} __internal popup --session '#{session_name}' --slot '#{@ezm_slot_id}'",
+        "${EZM_BIN:-ezm} __internal popup --session \"#{session_name}\" --slot \"#{@ezm_slot_id}\"",
     )
 }
 
@@ -216,6 +216,7 @@ mod tests {
         assert!(rendered.contains("__internal focus"));
         assert!(rendered.contains("--slot 2"));
         assert!(rendered.contains("#{session_name}"));
+        assert!(!rendered.contains('\''));
     }
 
     #[test]
@@ -224,14 +225,16 @@ mod tests {
         assert!(rendered.contains("__internal mode"));
         assert!(rendered.contains("--mode neovim"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
+        assert!(!rendered.contains('\''));
     }
 
     #[test]
     fn toggle_mode_command_switches_between_shell_and_agent() {
         let rendered = toggle_mode_command();
         assert!(rendered.contains("__internal mode"));
-        assert!(rendered.contains("__ezm_next='agent'"));
-        assert!(rendered.contains("__ezm_next='shell'"));
+        assert!(rendered.contains("__ezm_next=\"agent\""));
+        assert!(rendered.contains("__ezm_next=\"shell\""));
+        assert!(!rendered.contains('\''));
     }
 
     #[test]
@@ -239,6 +242,7 @@ mod tests {
         let rendered = popup_command();
         assert!(rendered.contains("__internal popup"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
+        assert!(!rendered.contains('\''));
     }
 
     #[cfg(unix)]

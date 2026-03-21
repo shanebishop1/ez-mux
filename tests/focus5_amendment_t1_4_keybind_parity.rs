@@ -50,6 +50,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             create_matrix.core_runtime_routes_present
         ),
         format!(
+            "create_internal_route_shell_safe={}",
+            create_matrix.internal_route_shell_safe
+        ),
+        format!(
             "attach_focus_prefix_route_present={}",
             attach_matrix.focus_prefix_route_present
         ),
@@ -61,16 +65,24 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             "attach_core_runtime_routes_present={}",
             attach_matrix.core_runtime_routes_present
         ),
+        format!(
+            "attach_internal_route_shell_safe={}",
+            attach_matrix.internal_route_shell_safe
+        ),
         format!("create_prefix_f_binding={}", create_matrix.prefix_f_binding),
         format!(
             "create_focus_slot_binding={}",
             create_matrix.focus_slot_binding
         ),
+        format!("create_mode_binding={}", create_matrix.mode_binding),
+        format!("create_popup_binding={}", create_matrix.popup_binding),
         format!("attach_prefix_f_binding={}", attach_matrix.prefix_f_binding),
         format!(
             "attach_focus_slot_binding={}",
             attach_matrix.focus_slot_binding
         ),
+        format!("attach_mode_binding={}", attach_matrix.mode_binding),
+        format!("attach_popup_binding={}", attach_matrix.popup_binding),
     ];
     write_green_cluster_evidence(&harness, "t1-4-keybind-matrix", &evidence)
         .unwrap_or_else(|error| panic!("failed writing T-1.4 keybind evidence: {error}"));
@@ -84,9 +96,11 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         && create_matrix.focus_prefix_route_present
         && create_matrix.focus_slot_route_present
         && create_matrix.core_runtime_routes_present
+        && create_matrix.internal_route_shell_safe
         && attach_matrix.focus_prefix_route_present
         && attach_matrix.focus_slot_route_present
-        && attach_matrix.core_runtime_routes_present;
+        && attach_matrix.core_runtime_routes_present
+        && attach_matrix.internal_route_shell_safe;
 
     assert!(
         pass,
@@ -205,12 +219,16 @@ fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
 }
 
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 struct KeybindMatrix {
     prefix_f_binding: String,
     focus_slot_binding: String,
+    mode_binding: String,
+    popup_binding: String,
     focus_prefix_route_present: bool,
     focus_slot_route_present: bool,
     core_runtime_routes_present: bool,
+    internal_route_shell_safe: bool,
 }
 
 fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, String> {
@@ -226,10 +244,26 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         .unwrap_or_default()
         .trim()
         .to_owned();
+    let mode_binding = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "u"])?
+        .trim()
+        .to_owned();
+    let popup_binding = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "P"])?
+        .trim()
+        .to_owned();
 
     let focus_prefix_route_present = focus_table.is_some();
     let focus_slot_route_present =
         focus_slot_binding.contains("__internal focus") && focus_slot_binding.contains("--slot 1");
+    let internal_route_shell_safe = focus_slot_binding.contains("__internal focus")
+        && mode_binding.contains("__internal mode")
+        && popup_binding.contains("__internal popup")
+        && !focus_slot_binding.contains("'#{session_name}'")
+        && !mode_binding.contains("'#{session_name}'")
+        && !mode_binding.contains("'#{@ezm_slot_id}'")
+        && !popup_binding.contains("'#{session_name}'")
+        && !popup_binding.contains("'#{@ezm_slot_id}'");
 
     let core_checks = [
         ("prefix", "g", "ezm-swap"),
@@ -251,9 +285,12 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
     Ok(KeybindMatrix {
         prefix_f_binding,
         focus_slot_binding,
+        mode_binding,
+        popup_binding,
         focus_prefix_route_present,
         focus_slot_route_present,
         core_runtime_routes_present,
+        internal_route_shell_safe,
     })
 }
 
