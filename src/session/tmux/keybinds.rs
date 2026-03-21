@@ -38,14 +38,7 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
 fn install_prefix_routing_bindings(ezm_bin: &str) -> Result<(), SessionError> {
     let three_pane_preset_command = preset_command(ezm_bin);
 
-    tmux_run(&[
-        "bind-key",
-        "-T",
-        "prefix",
-        THREE_PANE_PRESET_KEY,
-        "run-shell",
-        &three_pane_preset_command,
-    ])?;
+    install_run_shell_binding("prefix", THREE_PANE_PRESET_KEY, &three_pane_preset_command)?;
     tmux_run(&[
         "bind-key",
         "-T",
@@ -95,6 +88,7 @@ fn install_slot_table_bindings(ezm_bin: &str) -> Result<(), SessionError> {
             SWAP_TABLE,
             &key,
             "run-shell",
+            "-b",
             &swap_command,
             "\\;",
             "switch-client",
@@ -109,6 +103,7 @@ fn install_slot_table_bindings(ezm_bin: &str) -> Result<(), SessionError> {
             FOCUS_TABLE,
             &key,
             "run-shell",
+            "-b",
             &focus_command,
             "\\;",
             "switch-client",
@@ -156,10 +151,14 @@ fn install_mode_bindings(ezm_bin: &str) -> Result<(), SessionError> {
     ];
 
     for (key, command) in mode_bindings {
-        tmux_run(&["bind-key", "-T", "prefix", key, "run-shell", &command])?;
+        install_run_shell_binding("prefix", key, &command)?;
     }
 
     Ok(())
+}
+
+fn install_run_shell_binding(table: &str, key: &str, command: &str) -> Result<(), SessionError> {
+    tmux_run(&["bind-key", "-T", table, key, "run-shell", "-b", command])
 }
 
 fn clear_specs() -> Vec<(&'static str, String)> {
