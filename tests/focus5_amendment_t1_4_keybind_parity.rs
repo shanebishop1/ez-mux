@@ -74,12 +74,20 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             "create_focus_slot_binding={}",
             create_matrix.focus_slot_binding
         ),
+        format!(
+            "create_swap_slot_binding={}",
+            create_matrix.swap_slot_binding
+        ),
         format!("create_mode_binding={}", create_matrix.mode_binding),
         format!("create_popup_binding={}", create_matrix.popup_binding),
         format!("attach_prefix_f_binding={}", attach_matrix.prefix_f_binding),
         format!(
             "attach_focus_slot_binding={}",
             attach_matrix.focus_slot_binding
+        ),
+        format!(
+            "attach_swap_slot_binding={}",
+            attach_matrix.swap_slot_binding
         ),
         format!("attach_mode_binding={}", attach_matrix.mode_binding),
         format!("attach_popup_binding={}", attach_matrix.popup_binding),
@@ -223,6 +231,7 @@ fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
 struct KeybindMatrix {
     prefix_f_binding: String,
     focus_slot_binding: String,
+    swap_slot_binding: String,
     mode_binding: String,
     popup_binding: String,
     focus_prefix_route_present: bool,
@@ -248,6 +257,10 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         .tmux_capture(&["list-keys", "-T", "prefix", "u"])?
         .trim()
         .to_owned();
+    let swap_slot_binding = harness
+        .tmux_capture(&["list-keys", "-T", "ezm-swap", "1"])?
+        .trim()
+        .to_owned();
     let popup_binding = harness
         .tmux_capture(&["list-keys", "-T", "prefix", "P"])?
         .trim()
@@ -257,8 +270,13 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
     let focus_slot_route_present =
         focus_slot_binding.contains("__internal focus") && focus_slot_binding.contains("--slot 1");
     let internal_route_shell_safe = focus_slot_binding.contains("__internal focus")
+        && swap_slot_binding.contains("__internal swap")
         && mode_binding.contains("__internal mode")
         && popup_binding.contains("__internal popup")
+        && !focus_slot_binding.contains("${EZM_BIN:-ezm}")
+        && !swap_slot_binding.contains("${EZM_BIN:-ezm}")
+        && !mode_binding.contains("${EZM_BIN:-ezm}")
+        && !popup_binding.contains("${EZM_BIN:-ezm}")
         && !focus_slot_binding.contains("'#{session_name}'")
         && !mode_binding.contains("'#{session_name}'")
         && !mode_binding.contains("'#{@ezm_slot_id}'")
@@ -285,6 +303,7 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
     Ok(KeybindMatrix {
         prefix_f_binding,
         focus_slot_binding,
+        swap_slot_binding,
         mode_binding,
         popup_binding,
         focus_prefix_route_present,
