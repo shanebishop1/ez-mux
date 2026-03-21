@@ -8,11 +8,11 @@ pub struct FocusSlotOutcome {
     pub slot_id: u8,
 }
 
-/// Focuses one canonical slot pane in an existing tmux session.
+/// Moves one canonical slot pane into the center focus position.
 ///
 /// # Errors
 /// Returns an error when the slot is outside canonical range or tmux cannot
-/// focus the target pane.
+/// focus/swap the target pane.
 pub fn focus_slot(
     session_name: &str,
     slot_id: u8,

@@ -5,7 +5,8 @@ mod support;
 use std::fs;
 
 use red_support::{
-    SlotSnapshot, extract_stdout_field, parse_switch_table, paths_equivalent, read_slot_snapshot,
+    SlotSnapshot, center_pane_id, extract_stdout_field, parse_switch_table, paths_equivalent,
+    read_pane_widths, read_slot_snapshot,
 };
 use support::foundation_harness::FoundationHarness;
 
@@ -59,6 +60,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             create_matrix.internal_route_shell_safe
         ),
         format!(
+            "create_non_blocking_internal_routes={}",
+            create_matrix.non_blocking_internal_routes
+        ),
+        format!(
             "attach_focus_prefix_route_present={}",
             attach_matrix.focus_prefix_route_present
         ),
@@ -77,6 +82,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         format!(
             "attach_internal_route_shell_safe={}",
             attach_matrix.internal_route_shell_safe
+        ),
+        format!(
+            "attach_non_blocking_internal_routes={}",
+            attach_matrix.non_blocking_internal_routes
         ),
         format!("create_prefix_f_binding={}", create_matrix.prefix_f_binding),
         format!("create_prefix_h_binding={}", create_matrix.nav_left_binding),
@@ -129,11 +138,13 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         && create_matrix.core_runtime_routes_present
         && create_matrix.pane_nav_routes_present
         && create_matrix.internal_route_shell_safe
+        && create_matrix.non_blocking_internal_routes
         && attach_matrix.focus_prefix_route_present
         && attach_matrix.focus_slot_route_present
         && attach_matrix.core_runtime_routes_present
         && attach_matrix.pane_nav_routes_present
-        && attach_matrix.internal_route_shell_safe;
+        && attach_matrix.internal_route_shell_safe
+        && attach_matrix.non_blocking_internal_routes;
 
     assert!(
         pass,
@@ -143,6 +154,7 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
     let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-4")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
@@ -157,10 +169,14 @@ fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
         .unwrap_or_else(|error| panic!("failed reading create-path slots: {error}"));
     let create_target_slot = 3_u8;
     let create_target_pane = slot_pane_id(&before_create_slots, create_target_slot);
+    let create_center_before = center_pane_for_session(&harness, &session)
+        .unwrap_or_else(|error| panic!("failed reading create-path center before focus: {error}"));
     let create_focus = run_focus_route(&harness, &session, create_target_slot)
         .unwrap_or_else(|error| panic!("failed executing create-path focus route: {error}"));
     let selected_after_create = selected_pane_id(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading selected pane after create focus: {error}"));
+    let create_center_after = center_pane_for_session(&harness, &session)
+        .unwrap_or_else(|error| panic!("failed reading create-path center after focus: {error}"));
     let after_create_slots = read_slot_snapshot(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading post-create-focus slots: {error}"));
     let create_mapping_stable = slot_snapshots_match(&before_create_slots, &after_create_slots);
@@ -175,10 +191,14 @@ fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
         .unwrap_or_else(|error| panic!("failed reading attach-path slots: {error}"));
     let attach_target_slot = 5_u8;
     let attach_target_pane = slot_pane_id(&before_attach_slots, attach_target_slot);
+    let attach_center_before = center_pane_for_session(&harness, &attach_session)
+        .unwrap_or_else(|error| panic!("failed reading attach-path center before focus: {error}"));
     let attach_focus = run_focus_route(&harness, &attach_session, attach_target_slot)
         .unwrap_or_else(|error| panic!("failed executing attach-path focus route: {error}"));
     let selected_after_attach = selected_pane_id(&harness, &attach_session)
         .unwrap_or_else(|error| panic!("failed reading selected pane after attach focus: {error}"));
+    let attach_center_after = center_pane_for_session(&harness, &attach_session)
+        .unwrap_or_else(|error| panic!("failed reading attach-path center after focus: {error}"));
     let attach_repeat_focus = run_focus_route(&harness, &attach_session, attach_target_slot)
         .unwrap_or_else(|error| {
             panic!("failed repeating attach-path focus route for determinism: {error}")
@@ -197,20 +217,24 @@ fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
         format!("session={session}"),
         format!("create_target_slot={create_target_slot}"),
         format!("create_target_pane={create_target_pane}"),
+        format!("create_center_before={create_center_before}"),
         format!("create_focus_exit_code={}", create_focus.exit_code),
         format!("create_focus_stdout={}", create_focus.stdout.trim()),
         format!("create_focus_stderr={}", create_focus.stderr.trim()),
         format!("selected_after_create={selected_after_create}"),
+        format!("create_center_after={create_center_after}"),
         format!("create_mapping_stable={create_mapping_stable}"),
         format!("attach_exit_code={}", attach.exit_code),
         format!("attach_action={attach_action}"),
         format!("attach_session={attach_session}"),
         format!("attach_target_slot={attach_target_slot}"),
         format!("attach_target_pane={attach_target_pane}"),
+        format!("attach_center_before={attach_center_before}"),
         format!("attach_focus_exit_code={}", attach_focus.exit_code),
         format!("attach_focus_stdout={}", attach_focus.stdout.trim()),
         format!("attach_focus_stderr={}", attach_focus.stderr.trim()),
         format!("selected_after_attach={selected_after_attach}"),
+        format!("attach_center_after={attach_center_after}"),
         format!(
             "attach_repeat_focus_exit_code={}",
             attach_repeat_focus.exit_code
@@ -234,12 +258,16 @@ fn t1_4_prefix_f_focus_flow_is_deterministic_on_create_and_attach_paths() {
         && !session.is_empty()
         && create_focus.exit_code == 0
         && selected_after_create == create_target_pane
+        && create_center_before != create_target_pane
+        && create_center_after == create_target_pane
         && create_mapping_stable
         && attach.exit_code == 0
         && attach_action == "attach"
         && attach_session == session
         && attach_focus.exit_code == 0
         && selected_after_attach == attach_target_pane
+        && attach_center_before != attach_target_pane
+        && attach_center_after == attach_target_pane
         && attach_repeat_focus.exit_code == 0
         && selected_after_attach_repeat == attach_target_pane
         && attach_mapping_stable;
@@ -268,8 +296,10 @@ struct KeybindMatrix {
     core_runtime_routes_present: bool,
     pane_nav_routes_present: bool,
     internal_route_shell_safe: bool,
+    non_blocking_internal_routes: bool,
 }
 
+#[allow(clippy::too_many_lines)]
 fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, String> {
     let prefix_f_binding = harness
         .tmux_capture(&["list-keys", "-T", "prefix", "f"])?
@@ -328,6 +358,10 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         && !mode_binding.contains("'#{@ezm_slot_id}'")
         && !popup_binding.contains("'#{session_name}'")
         && !popup_binding.contains("'#{@ezm_slot_id}'");
+    let non_blocking_internal_routes = focus_slot_binding.contains("run-shell -b")
+        && swap_slot_binding.contains("run-shell -b")
+        && mode_binding.contains("run-shell -b")
+        && popup_binding.contains("run-shell -b");
 
     let core_checks = [
         ("prefix", "g", "ezm-swap"),
@@ -371,7 +405,13 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         core_runtime_routes_present,
         pane_nav_routes_present,
         internal_route_shell_safe,
+        non_blocking_internal_routes,
     })
+}
+
+fn center_pane_for_session(harness: &FoundationHarness, session: &str) -> Result<String, String> {
+    let pane_widths = read_pane_widths(harness, session)?;
+    Ok(center_pane_id(&pane_widths).unwrap_or_default())
 }
 
 fn run_focus_route(
