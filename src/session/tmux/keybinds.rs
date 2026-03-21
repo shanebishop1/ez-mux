@@ -1,5 +1,6 @@
 use super::SessionError;
 use super::command::{tmux_output, tmux_run};
+use crate::config::EZM_BIN_ENV;
 
 const SWAP_TABLE: &str = "ezm-swap";
 const FOCUS_TABLE: &str = "ezm-focus";
@@ -13,13 +14,14 @@ const LAZYGIT_MODE_KEY: &str = "G";
 const POPUP_KEY: &str = "P";
 const THREE_PANE_PRESET_KEY: &str = "M-3";
 
-const THREE_PANE_PRESET_RUN_SHELL: &str =
-    "${EZM_BIN:-ezm} __internal preset --session #{session_name} --preset three-pane";
-
 pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
+    let ezm_bin = resolved_ezm_bin_shell_token();
+
     for (table, key) in clear_specs() {
         unbind_key_if_present(table, &key)?;
     }
+
+    let three_pane_preset_command = preset_command(&ezm_bin);
 
     tmux_run(&[
         "bind-key",
@@ -27,7 +29,7 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
         "prefix",
         THREE_PANE_PRESET_KEY,
         "run-shell",
-        THREE_PANE_PRESET_RUN_SHELL,
+        &three_pane_preset_command,
     ])?;
     tmux_run(&[
         "bind-key",
@@ -50,7 +52,7 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
 
     for slot in 1_u8..=5 {
         let key = slot.to_string();
-        let swap_command = swap_command(slot);
+        let swap_command = swap_command(&ezm_bin, slot);
         tmux_run(&[
             "bind-key",
             "-T",
@@ -64,7 +66,7 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
             "root",
         ])?;
 
-        let focus_command = focus_command(slot);
+        let focus_command = focus_command(&ezm_bin, slot);
         tmux_run(&[
             "bind-key",
             "-T",
@@ -101,12 +103,12 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     }
 
     let mode_bindings = [
-        (TOGGLE_MODE_KEY, toggle_mode_command()),
-        (AGENT_MODE_KEY, mode_command("agent")),
-        (SHELL_MODE_KEY, mode_command("shell")),
-        (NEOVIM_MODE_KEY, mode_command("neovim")),
-        (LAZYGIT_MODE_KEY, mode_command("lazygit")),
-        (POPUP_KEY, popup_command()),
+        (TOGGLE_MODE_KEY, toggle_mode_command(&ezm_bin)),
+        (AGENT_MODE_KEY, mode_command(&ezm_bin, "agent")),
+        (SHELL_MODE_KEY, mode_command(&ezm_bin, "shell")),
+        (NEOVIM_MODE_KEY, mode_command(&ezm_bin, "neovim")),
+        (LAZYGIT_MODE_KEY, mode_command(&ezm_bin, "lazygit")),
+        (POPUP_KEY, popup_command(&ezm_bin)),
     ];
 
     for (key, command) in mode_bindings {
@@ -167,30 +169,57 @@ fn missing_binding_diagnostic(output: &std::process::Output) -> bool {
         || (stderr.contains("table") && stderr.contains("doesn't exist"))
 }
 
-fn swap_command(slot_id: u8) -> String {
-    format!("${{EZM_BIN:-ezm}} __internal swap --session \"#{{session_name}}\" --slot {slot_id}")
+fn preset_command(ezm_bin: &str) -> String {
+    format!("{ezm_bin} __internal preset --session \"#{{session_name}}\" --preset three-pane")
 }
 
-fn focus_command(slot_id: u8) -> String {
-    format!("${{EZM_BIN:-ezm}} __internal focus --session \"#{{session_name}}\" --slot {slot_id}")
+fn swap_command(ezm_bin: &str, slot_id: u8) -> String {
+    format!("{ezm_bin} __internal swap --session \"#{{session_name}}\" --slot {slot_id}")
 }
 
-fn mode_command(mode: &str) -> String {
+fn focus_command(ezm_bin: &str, slot_id: u8) -> String {
+    format!("{ezm_bin} __internal focus --session \"#{{session_name}}\" --slot {slot_id}")
+}
+
+fn mode_command(ezm_bin: &str, mode: &str) -> String {
     format!(
-        "${{EZM_BIN:-ezm}} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode}"
+        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode}"
     )
 }
 
-fn toggle_mode_command() -> String {
-    String::from(
-        "__ezm_slot=\"#{@ezm_slot_id}\"; __ezm_mode=\"#{@ezm_slot_mode}\"; __ezm_next=\"agent\"; if [ \"${__ezm_mode}\" = \"agent\" ]; then __ezm_next=\"shell\"; fi; ${EZM_BIN:-ezm} __internal mode --session \"#{session_name}\" --slot \"${__ezm_slot}\" --mode \"${__ezm_next}\"",
+fn toggle_mode_command(ezm_bin: &str) -> String {
+    format!(
+        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode \"#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}\""
     )
 }
 
-fn popup_command() -> String {
-    String::from(
-        "${EZM_BIN:-ezm} __internal popup --session \"#{session_name}\" --slot \"#{@ezm_slot_id}\"",
+fn popup_command(ezm_bin: &str) -> String {
+    format!(
+        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\""
     )
+}
+
+fn resolved_ezm_bin_shell_token() -> String {
+    let env_ezm_bin = std::env::var(EZM_BIN_ENV)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let current_exe = std::env::current_exe()
+        .ok()
+        .map(|path| path.display().to_string());
+    let ezm_bin = resolve_ezm_bin(env_ezm_bin, current_exe);
+
+    shell_single_quote(&ezm_bin)
+}
+
+fn resolve_ezm_bin(env_ezm_bin: Option<String>, current_exe: Option<String>) -> String {
+    env_ezm_bin
+        .or(current_exe)
+        .unwrap_or_else(|| String::from("ezm"))
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 #[cfg(test)]
@@ -200,49 +229,86 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
 
-    use super::{focus_command, mode_command, popup_command, swap_command, toggle_mode_command};
+    use super::{
+        focus_command, mode_command, popup_command, resolve_ezm_bin, shell_single_quote,
+        swap_command, toggle_mode_command,
+    };
 
     #[test]
     fn swap_command_targets_internal_runtime_entrypoint() {
-        let rendered = swap_command(4);
+        let rendered = swap_command("'ezm'", 4);
         assert!(rendered.contains("__internal swap"));
         assert!(rendered.contains("--slot 4"));
         assert!(rendered.contains("#{session_name}"));
+        assert!(!rendered.contains("${EZM_BIN:-ezm}"));
     }
 
     #[test]
     fn focus_command_targets_internal_runtime_entrypoint() {
-        let rendered = focus_command(2);
+        let rendered = focus_command("'ezm'", 2);
         assert!(rendered.contains("__internal focus"));
         assert!(rendered.contains("--slot 2"));
         assert!(rendered.contains("#{session_name}"));
-        assert!(!rendered.contains('\''));
+        assert!(rendered.starts_with("'ezm' __internal focus"));
+        assert!(!rendered.contains("'#{session_name}'"));
+        assert!(!rendered.contains("${EZM_BIN:-ezm}"));
     }
 
     #[test]
     fn mode_commands_target_focused_slot_metadata() {
-        let rendered = mode_command("neovim");
+        let rendered = mode_command("'ezm'", "neovim");
         assert!(rendered.contains("__internal mode"));
         assert!(rendered.contains("--mode neovim"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
-        assert!(!rendered.contains('\''));
+        assert!(rendered.starts_with("'ezm' __internal mode"));
+        assert!(!rendered.contains("'#{session_name}'"));
+        assert!(!rendered.contains("'#{@ezm_slot_id}'"));
+        assert!(!rendered.contains("${EZM_BIN:-ezm}"));
     }
 
     #[test]
     fn toggle_mode_command_switches_between_shell_and_agent() {
-        let rendered = toggle_mode_command();
+        let rendered = toggle_mode_command("'ezm'");
         assert!(rendered.contains("__internal mode"));
-        assert!(rendered.contains("__ezm_next=\"agent\""));
-        assert!(rendered.contains("__ezm_next=\"shell\""));
-        assert!(!rendered.contains('\''));
+        assert!(rendered.contains("#{?#{==:#{@ezm_slot_mode},agent},shell,agent}"));
+        assert!(rendered.starts_with("'ezm' __internal mode"));
+        assert!(!rendered.contains("'#{session_name}'"));
+        assert!(!rendered.contains("'#{@ezm_slot_id}'"));
+        assert!(!rendered.contains("${EZM_BIN:-ezm}"));
+        assert!(!rendered.contains("if ["));
     }
 
     #[test]
     fn popup_command_targets_focused_slot_metadata() {
-        let rendered = popup_command();
+        let rendered = popup_command("'ezm'");
         assert!(rendered.contains("__internal popup"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
-        assert!(!rendered.contains('\''));
+        assert!(rendered.starts_with("'ezm' __internal popup"));
+        assert!(!rendered.contains("'#{session_name}'"));
+        assert!(!rendered.contains("'#{@ezm_slot_id}'"));
+        assert!(!rendered.contains("${EZM_BIN:-ezm}"));
+    }
+
+    #[test]
+    fn resolve_ezm_bin_prefers_env_then_current_exe_then_literal_ezm() {
+        assert_eq!(
+            resolve_ezm_bin(
+                Some(String::from("/tmp/ezm")),
+                Some(String::from("/bin/ezm"))
+            ),
+            String::from("/tmp/ezm")
+        );
+        assert_eq!(
+            resolve_ezm_bin(None, Some(String::from("/bin/ezm"))),
+            String::from("/bin/ezm")
+        );
+        assert_eq!(resolve_ezm_bin(None, None), String::from("ezm"));
+    }
+
+    #[test]
+    fn shell_single_quote_escapes_apostrophes_for_run_shell() {
+        let rendered = shell_single_quote("/tmp/it's ezm");
+        assert_eq!(rendered, String::from("'/tmp/it'\"'\"'s ezm'"));
     }
 
     #[cfg(unix)]
