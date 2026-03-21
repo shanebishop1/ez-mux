@@ -61,7 +61,7 @@ pub fn mode_launch_contract(mode: SlotMode) -> ModeLaunchContract {
     }
 }
 
-fn launch_tool_command(
+pub(super) fn launch_tool_command(
     binary_name: &str,
     launch_invocation: &str,
     policy: ModeToolFailurePolicy,

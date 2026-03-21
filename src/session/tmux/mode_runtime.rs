@@ -1,7 +1,8 @@
+use super::super::mode_adapter::{ModeToolFailurePolicy, launch_tool_command};
 use super::CANONICAL_SLOT_IDS;
 use super::SessionError;
 use super::SlotMode;
-use super::command::{tmux_output_value, tmux_run};
+use super::command::{format_output_diagnostics, tmux_output, tmux_output_value, tmux_run};
 use super::options::{
     required_pane_option, required_session_option, set_pane_option, set_session_option,
     show_session_option,
@@ -9,8 +10,8 @@ use super::options::{
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::refresh_active_border_for_slot;
 use crate::session::{
-    TeardownHook, mode_launch_contract, resolve_operator_identity_for_remote_prefix,
-    resolve_remote_path,
+    SharedServerAttachConfig, TeardownHook, mode_launch_contract,
+    resolve_operator_identity_for_remote_prefix, resolve_remote_path,
 };
 
 pub(super) fn switch_slot_mode(
@@ -19,6 +20,7 @@ pub(super) fn switch_slot_mode(
     mode: SlotMode,
     operator: Option<&str>,
     remote_prefix: Option<&str>,
+    shared_server: Option<&SharedServerAttachConfig>,
 ) -> Result<(), SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
         return Err(SessionError::SlotRegistry(
@@ -26,7 +28,9 @@ pub(super) fn switch_slot_mode(
         ));
     }
 
-    resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
+    if matches!(mode, SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit) {
+        resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
+    }
 
     validate_canonical_slot_registry(session_name)?;
     let slot_pane_key = format!("@ezm_slot_{slot_id}_pane");
@@ -54,11 +58,13 @@ pub(super) fn switch_slot_mode(
     }
 
     let contract = mode_launch_contract(mode);
-    let launch_command = launch_command_with_remote_dir(
+    let launch_command = launch_command_for_mode(
+        mode,
         &contract.launch_command,
         &current_cwd,
         remote_prefix,
         operator,
+        shared_server,
     )?;
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
     respawn_slot_mode(&pane_id, &current_cwd, &launch_command)?;
@@ -120,13 +126,66 @@ pub(super) fn switch_slot_mode(
     Ok(())
 }
 
-fn launch_command_with_remote_dir(
+fn launch_command_for_mode(
+    mode: SlotMode,
     launch_command: &str,
     cwd: &str,
     remote_prefix: Option<&str>,
     operator: Option<&str>,
+    shared_server: Option<&SharedServerAttachConfig>,
 ) -> Result<String, SessionError> {
-    launch_command_with_remote_dir_from_mapping(launch_command, cwd, remote_prefix, operator)
+    match mode {
+        SlotMode::Agent => launch_agent_attach_command(cwd, remote_prefix, shared_server),
+        SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit => {
+            launch_command_with_remote_dir_from_mapping(
+                launch_command,
+                cwd,
+                remote_prefix,
+                operator,
+            )
+        }
+    }
+}
+
+fn launch_agent_attach_command(
+    cwd: &str,
+    remote_prefix: Option<&str>,
+    shared_server: Option<&SharedServerAttachConfig>,
+) -> Result<String, SessionError> {
+    let shared_server = shared_server.ok_or(SessionError::MissingSharedServerAttachConfig)?;
+    let attach_url = shared_server.url.trim();
+    if attach_url.is_empty() {
+        return Err(SessionError::MissingSharedServerAttachConfig);
+    }
+
+    let attach_dir = resolve_remote_path(std::path::Path::new(cwd), remote_prefix)?.effective_path;
+    let attach_dir = attach_dir.display().to_string();
+
+    let attach_invocation = if let Some(password) = shared_server
+        .password
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        format!(
+            "opencode attach '{}' --dir '{}' --password '{}'",
+            escape_single_quotes(attach_url),
+            escape_single_quotes(&attach_dir),
+            escape_single_quotes(password)
+        )
+    } else {
+        format!(
+            "opencode attach '{}' --dir '{}'",
+            escape_single_quotes(attach_url),
+            escape_single_quotes(&attach_dir)
+        )
+    };
+
+    Ok(launch_tool_command(
+        "opencode",
+        &attach_invocation,
+        ModeToolFailurePolicy::ContinueToShell,
+    ))
 }
 
 fn launch_command_with_remote_dir_from_mapping(
@@ -154,7 +213,11 @@ fn launch_command_with_remote_dir_from_mapping(
 
 #[cfg(test)]
 mod tests {
-    use super::launch_command_with_remote_dir_from_mapping;
+    use super::{
+        launch_agent_attach_command, launch_command_for_mode,
+        launch_command_with_remote_dir_from_mapping,
+    };
+    use crate::session::{SharedServerAttachConfig, SlotMode};
 
     #[test]
     fn remote_prefix_injects_ezm_remote_dir_export() {
@@ -209,6 +272,77 @@ mod tests {
                 .contains("remote-prefix routing requires OPERATOR")
         );
     }
+
+    #[test]
+    fn agent_mode_uses_shared_server_attach_url_and_mapped_dir() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("alpha");
+        let nested = repo_root.join("worktrees").join("feature-x");
+        std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+        std::fs::create_dir_all(&nested).expect("create nested");
+
+        let command = launch_agent_attach_command(
+            &nested.display().to_string(),
+            Some("/srv/remotes"),
+            Some(&SharedServerAttachConfig {
+                url: String::from("http://127.0.0.1:4096"),
+                password: None,
+            }),
+        )
+        .expect("agent command should resolve");
+
+        assert!(command.contains("opencode attach 'http://127.0.0.1:4096'"));
+        assert!(command.contains("--dir '/srv/remotes/alpha/worktrees/feature-x'"));
+    }
+
+    #[test]
+    fn agent_mode_password_is_included_when_configured() {
+        let command = launch_agent_attach_command(
+            "/tmp/local-only",
+            None,
+            Some(&SharedServerAttachConfig {
+                url: String::from("http://127.0.0.1:4096"),
+                password: Some(String::from("secret-token")),
+            }),
+        )
+        .expect("agent command should resolve");
+
+        assert!(command.contains("--password 'secret-token'"));
+    }
+
+    #[test]
+    fn agent_mode_requires_shared_server_attach_config() {
+        let error = launch_agent_attach_command("/tmp/local-only", None, None)
+            .expect_err("missing shared server config should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("agent mode requires shared-server attach configuration")
+        );
+    }
+
+    #[test]
+    fn agent_mode_does_not_require_operator_for_remote_prefix_mapping() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("alpha");
+        std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+
+        let command = launch_command_for_mode(
+            SlotMode::Agent,
+            "placeholder",
+            &repo_root.display().to_string(),
+            Some("/srv/remotes"),
+            None,
+            Some(&SharedServerAttachConfig {
+                url: String::from("http://127.0.0.1:4096"),
+                password: None,
+            }),
+        )
+        .expect("agent mode should not require operator");
+
+        assert!(command.contains("opencode attach 'http://127.0.0.1:4096'"));
+    }
 }
 
 fn capture_slot_cwd(
@@ -260,7 +394,7 @@ fn run_teardown_hooks(pane_id: &str, hooks: &[TeardownHook]) -> Result<(), Sessi
 
 fn respawn_slot_mode(pane_id: &str, cwd: &str, launch_command: &str) -> Result<(), SessionError> {
     let shell_command = format!("sh -lc '{}'", escape_single_quotes(launch_command));
-    tmux_run(&[
+    let args = [
         "respawn-pane",
         "-k",
         "-t",
@@ -268,7 +402,16 @@ fn respawn_slot_mode(pane_id: &str, cwd: &str, launch_command: &str) -> Result<(
         "-c",
         cwd,
         &shell_command,
-    ])
+    ];
+    let output = tmux_output(&args)?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: format!("respawn-pane -k -t {pane_id} -c {cwd} <mode-launch-command>"),
+        stderr: format_output_diagnostics(&output),
+    })
 }
 
 fn escape_single_quotes(value: &str) -> String {

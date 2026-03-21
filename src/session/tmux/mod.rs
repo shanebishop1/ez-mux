@@ -8,6 +8,7 @@ use super::LayoutPreset;
 use super::PaneWidthSample;
 use super::PopupShellOutcome;
 use super::SessionError;
+use super::SharedServerAttachConfig;
 use super::SlotMode;
 use super::SlotRegistry;
 use super::TeardownOutcome;
@@ -101,6 +102,7 @@ pub trait TmuxClient {
         mode: SlotMode,
         operator: Option<&str>,
         remote_prefix: Option<&str>,
+        shared_server: Option<&SharedServerAttachConfig>,
     ) -> Result<(), SessionError>;
 
     /// Toggles popup shell helper session for one canonical slot.
@@ -231,8 +233,16 @@ impl TmuxClient for ProcessTmuxClient {
         mode: SlotMode,
         operator: Option<&str>,
         remote_prefix: Option<&str>,
+        shared_server: Option<&SharedServerAttachConfig>,
     ) -> Result<(), SessionError> {
-        mode_runtime::switch_slot_mode(session_name, slot_id, mode, operator, remote_prefix)
+        mode_runtime::switch_slot_mode(
+            session_name,
+            slot_id,
+            mode,
+            operator,
+            remote_prefix,
+            shared_server,
+        )
     }
 
     fn toggle_popup_shell(

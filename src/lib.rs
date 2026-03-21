@@ -397,6 +397,36 @@ mod tests {
         assert!(stderr.contains("remote-prefix routing requires OPERATOR to be set"));
     }
 
+    #[test]
+    fn invalid_shared_server_port_fails_fast_without_leaking_password() {
+        let (mut env, _state) = TestEnv::with_temp_state();
+        env.vars.insert(
+            String::from(crate::config::OPENCODE_SERVER_PORT_ENV),
+            String::from("invalid-port"),
+        );
+        env.vars.insert(
+            String::from(crate::config::OPENCODE_SERVER_PASSWORD_ENV),
+            String::from("top-secret-token"),
+        );
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = run_with_io(
+            ["ezm"],
+            &env,
+            OperatingSystem::Linux,
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::UsageOrConfigFailure.as_i32());
+        assert_eq!(String::from_utf8(stdout).expect("utf8"), "");
+        let stderr = String::from_utf8(stderr).expect("utf8");
+        assert!(stderr.contains("active log file:"));
+        assert!(stderr.contains("invalid OpenCode server port"));
+        assert!(!stderr.contains("top-secret-token"));
+    }
+
     struct BrokenPipeWriter;
 
     impl std::io::Write for BrokenPipeWriter {

@@ -119,9 +119,18 @@ pub(super) struct RemoteRemapFixture {
 pub(super) struct RemotePathEvidence {
     pub(super) local_project_dir: String,
     pub(super) remote_prefix: String,
+    pub(super) remote_dir_prefix_source: String,
     pub(super) expected_mapped_path: String,
     pub(super) effective_mapped_path: String,
     pub(super) remap_applied: bool,
+    pub(super) opencode_attach_url: String,
+    pub(super) opencode_server_url_source: String,
+    pub(super) opencode_server_host: String,
+    pub(super) opencode_server_host_source: String,
+    pub(super) opencode_server_port: String,
+    pub(super) opencode_server_port_source: String,
+    pub(super) opencode_server_password_set: bool,
+    pub(super) opencode_server_password_source: String,
 }
 
 #[derive(Serialize)]
@@ -190,6 +199,25 @@ pub(super) fn extract_stdout_field(stdout: &str, key: &str) -> Option<String> {
     let tail = &stdout[start..];
     let end = tail.find(';').unwrap_or(tail.len());
     Some(tail[..end].trim().trim_end_matches('.').to_owned())
+}
+
+pub(super) fn send_prefix_keybind(
+    harness: &FoundationHarness,
+    session_name: &str,
+    key: &str,
+) -> Result<(), String> {
+    let target = format!("{session_name}:0");
+
+    if harness
+        .tmux_capture(&["send-keys", "-K", "-t", &target, "C-b", key])
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    harness
+        .tmux_capture(&["send-keys", "-t", &target, "C-b", key])
+        .map(|_| ())
 }
 
 #[allow(clippy::too_many_lines)]

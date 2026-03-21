@@ -1,8 +1,9 @@
 use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
-    CaseEvidence, SessionSnapshot, create_remote_remap_fixture, extract_stdout_field, map_settle,
-    prepare_fresh_create_path, read_slot_snapshot, sample, settle_snapshot,
+    CaseEvidence, RemotePathEvidence, SessionSnapshot, create_remote_remap_fixture,
+    extract_stdout_field, map_settle, prepare_fresh_create_path, read_slot_snapshot, sample,
+    settle_snapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -34,8 +35,43 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let launch_action = extract_stdout_field(&launch.stdout, "session_action").unwrap_or_default();
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
+    let effective_mapped_path =
+        extract_stdout_field(&launch.stdout, "remote_project_dir").unwrap_or_default();
+    let effective_remote_dir_prefix =
+        extract_stdout_field(&launch.stdout, "remote_dir_prefix").unwrap_or_default();
+    let remote_dir_prefix_source =
+        extract_stdout_field(&launch.stdout, "remote_dir_prefix_source").unwrap_or_default();
+    let opencode_attach_url =
+        extract_stdout_field(&launch.stdout, "opencode_attach_url").unwrap_or_default();
+    let opencode_server_url_source =
+        extract_stdout_field(&launch.stdout, "opencode_server_url_source").unwrap_or_default();
+    let opencode_server_host =
+        extract_stdout_field(&launch.stdout, "opencode_server_host").unwrap_or_default();
+    let opencode_server_host_source =
+        extract_stdout_field(&launch.stdout, "opencode_server_host_source").unwrap_or_default();
+    let opencode_server_port =
+        extract_stdout_field(&launch.stdout, "opencode_server_port").unwrap_or_default();
+    let opencode_server_port_source =
+        extract_stdout_field(&launch.stdout, "opencode_server_port_source").unwrap_or_default();
+    let opencode_server_password_set =
+        extract_stdout_field(&launch.stdout, "opencode_server_password_set")
+            .is_some_and(|value| value == "true");
+    let opencode_server_password_source =
+        extract_stdout_field(&launch.stdout, "opencode_server_password_source").unwrap_or_default();
 
-    let switch_args = vec![
+    let expected_attach_url = String::from("http://127.0.0.1:4096");
+    let remap_applied = effective_mapped_path == expected_mapped_path;
+    let remote_prefix_source_is_env = remote_dir_prefix_source == "env";
+    let remote_prefix_matches = effective_remote_dir_prefix == remote_prefix;
+    let attach_url_matches_default = opencode_attach_url == expected_attach_url;
+    let server_url_source_is_default = opencode_server_url_source == "default";
+    let server_host_matches_default = opencode_server_host == "127.0.0.1";
+    let server_host_source_is_default = opencode_server_host_source == "default";
+    let server_port_matches_default = opencode_server_port == "4096";
+    let server_port_source_is_default = opencode_server_port_source == "default";
+    let password_source_is_default = opencode_server_password_source == "default";
+
+    let shell_switch_args = vec![
         "__internal",
         "mode",
         "--session",
@@ -45,10 +81,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "--mode",
         "shell",
     ];
-    let switch_success = harness
+    let shell_switch_success = harness
         .run_ezm_in_dir(
             &fixture.project_dir,
-            &switch_args,
+            &shell_switch_args,
             &[
                 ("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix),
                 ("OPERATOR", &expected_operator),
@@ -56,7 +92,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-10 shell switch failed to execute: {error}"));
-    samples.push(sample(&switch_args, &switch_success));
+    samples.push(sample(&shell_switch_args, &shell_switch_success));
 
     let slots = read_slot_snapshot(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-10 failed reading slot snapshot: {error}"));
@@ -76,49 +112,129 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         ])
         .unwrap_or_else(|error| panic!("E2E-10 failed reading pane start command: {error}"));
 
+    let agent_switch_args = vec![
+        "__internal",
+        "mode",
+        "--session",
+        &session,
+        "--slot",
+        "4",
+        "--mode",
+        "agent",
+    ];
+    let agent_switch_success = harness
+        .run_ezm_in_dir(
+            &fixture.project_dir,
+            &agent_switch_args,
+            &[("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix)],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-10 agent switch failed to execute: {error}"));
+    samples.push(sample(&agent_switch_args, &agent_switch_success));
+
+    let slots_after_agent = read_slot_snapshot(harness, &session)
+        .unwrap_or_else(|error| panic!("E2E-10 failed reading post-agent slot snapshot: {error}"));
+    let slot_four_pane = slots_after_agent
+        .iter()
+        .find(|slot| slot.slot_id == 4)
+        .map(|slot| slot.pane_id.clone())
+        .unwrap_or_default();
+
+    let agent_pane_start_command = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &slot_four_pane,
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-10 failed reading agent pane start command: {error}"));
+
     let switch_fail = harness
         .run_ezm_in_dir(
             &fixture.project_dir,
-            &switch_args,
+            &shell_switch_args,
             &[("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix)],
             0,
         )
         .unwrap_or_else(|error| {
             panic!("E2E-10 missing-operator branch failed to execute: {error}")
         });
-    samples.push(sample(&switch_args, &switch_fail));
+    samples.push(sample(&shell_switch_args, &switch_fail));
 
     let fail_fast_non_zero = switch_fail.exit_code != 0;
     let fail_fast_diagnostic = switch_fail
         .stderr
         .contains("remote-prefix routing requires OPERATOR to be set");
-    let operator_matches = pane_start_command.contains(&expected_operator);
-    let remote_dir_matches = pane_start_command.contains(&expected_mapped_path);
+    let shell_operator_matches = pane_start_command.contains(&expected_operator);
+    let shell_remote_dir_matches = pane_start_command.contains(&expected_mapped_path);
+    let agent_attach_url_matches = agent_pane_start_command.contains(&expected_attach_url);
+    let agent_attach_dir_matches = agent_pane_start_command.contains(&expected_mapped_path);
+    let agent_attach_uses_opencode = agent_pane_start_command.contains("opencode attach");
+    let agent_password_flag_absent = !agent_pane_start_command.contains("--password");
 
     assertions.push(format!("launch action = {launch_action}"));
     assertions.push(format!("session = {session}"));
     assertions.push(format!(
-        "success branch mode switch exit_code = {}",
-        switch_success.exit_code
+        "launch effective mapped path = {effective_mapped_path}"
     ));
     assertions.push(format!(
-        "success branch pane start command = {}",
+        "launch remote prefix = {effective_remote_dir_prefix} (source={remote_dir_prefix_source})"
+    ));
+    assertions.push(format!(
+        "launch attach url = {opencode_attach_url} (url_source={opencode_server_url_source})"
+    ));
+    assertions.push(format!(
+        "launch server host = {opencode_server_host} (source={opencode_server_host_source})"
+    ));
+    assertions.push(format!(
+        "launch server port = {opencode_server_port} (source={opencode_server_port_source})"
+    ));
+    assertions.push(format!(
+        "launch password configured flag = {opencode_server_password_set} (source={opencode_server_password_source})"
+    ));
+    assertions.push(format!(
+        "shell success branch mode switch exit_code = {}",
+        shell_switch_success.exit_code
+    ));
+    assertions.push(format!(
+        "shell success branch pane start command = {}",
         pane_start_command.trim()
     ));
     assertions.push(format!(
-        "success branch effective operator token present in pane start command = {operator_matches}"
+        "shell success branch effective operator token present in pane start command = {shell_operator_matches}"
     ));
     assertions.push(format!(
-        "success branch effective remote dir token present in pane start command = {remote_dir_matches}"
+        "shell success branch effective remote dir token present in pane start command = {shell_remote_dir_matches}"
     ));
     assertions.push(format!(
-        "success branch expected remote dir = {expected_mapped_path}"
+        "shell success branch expected remote dir = {expected_mapped_path}"
     ));
     assertions.push(format!(
-        "success branch effective operator matches configured operator = {operator_matches}"
+        "shell success branch effective operator matches configured operator = {shell_operator_matches}"
     ));
     assertions.push(format!(
-        "success branch effective remote dir matches mapped path = {remote_dir_matches}"
+        "shell success branch effective remote dir matches mapped path = {shell_remote_dir_matches}"
+    ));
+    assertions.push(format!(
+        "agent success branch mode switch exit_code = {}",
+        agent_switch_success.exit_code
+    ));
+    assertions.push(format!(
+        "agent success branch pane start command = {}",
+        agent_pane_start_command.trim()
+    ));
+    assertions.push(format!(
+        "agent success branch includes opencode attach invocation = {agent_attach_uses_opencode}"
+    ));
+    assertions.push(format!(
+        "agent success branch effective attach url matches default resolution = {agent_attach_url_matches}"
+    ));
+    assertions.push(format!(
+        "agent success branch effective attach dir matches mapped path = {agent_attach_dir_matches}"
+    ));
+    assertions.push(format!(
+        "agent success branch omits password flag when password is unset = {agent_password_flag_absent}"
     ));
     assertions.push(format!(
         "fail-fast branch exit_code={} non_zero={fail_fast_non_zero}",
@@ -134,9 +250,25 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let pass = launch.exit_code == 0
         && launch_action == "create"
         && session == expected_session
-        && switch_success.exit_code == 0
-        && operator_matches
-        && remote_dir_matches
+        && remap_applied
+        && remote_prefix_source_is_env
+        && remote_prefix_matches
+        && attach_url_matches_default
+        && server_url_source_is_default
+        && server_host_matches_default
+        && server_host_source_is_default
+        && server_port_matches_default
+        && server_port_source_is_default
+        && !opencode_server_password_set
+        && password_source_is_default
+        && shell_switch_success.exit_code == 0
+        && shell_operator_matches
+        && shell_remote_dir_matches
+        && agent_switch_success.exit_code == 0
+        && agent_attach_uses_opencode
+        && agent_attach_url_matches
+        && agent_attach_dir_matches
+        && agent_password_flag_absent
         && fail_fast_non_zero
         && fail_fast_diagnostic
         && settle.stable;
@@ -153,8 +285,23 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             count: session_count,
         },
         layout: None,
-        slots: Some(slots),
-        remote_path: None,
+        slots: Some(slots_after_agent),
+        remote_path: Some(RemotePathEvidence {
+            local_project_dir: fixture.project_dir.display().to_string(),
+            remote_prefix,
+            remote_dir_prefix_source,
+            expected_mapped_path,
+            effective_mapped_path,
+            remap_applied,
+            opencode_attach_url,
+            opencode_server_url_source,
+            opencode_server_host,
+            opencode_server_host_source,
+            opencode_server_port,
+            opencode_server_port_source,
+            opencode_server_password_set,
+            opencode_server_password_source,
+        }),
         helper_state: None,
     }
 }

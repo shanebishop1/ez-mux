@@ -4,6 +4,12 @@ use super::SlotMode;
 use super::TmuxClient;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedServerAttachConfig {
+    pub url: String,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlotModeSwitchOutcome {
     pub session_name: String,
     pub slot_id: u8,
@@ -20,6 +26,7 @@ pub fn switch_slot_mode(
     mode: SlotMode,
     operator: Option<&str>,
     remote_prefix: Option<&str>,
+    shared_server: Option<&SharedServerAttachConfig>,
     tmux: &impl TmuxClient,
 ) -> Result<SlotModeSwitchOutcome, SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -28,7 +35,14 @@ pub fn switch_slot_mode(
         ));
     }
 
-    tmux.switch_slot_mode(session_name, slot_id, mode, operator, remote_prefix)?;
+    tmux.switch_slot_mode(
+        session_name,
+        slot_id,
+        mode,
+        operator,
+        remote_prefix,
+        shared_server,
+    )?;
 
     Ok(SlotModeSwitchOutcome {
         session_name: session_name.to_owned(),
