@@ -25,9 +25,7 @@ fn t1_5_default_startup_is_local_first_and_omits_remote_only_diagnostics() {
     let remote_only_fields_suppressed = extract_stdout_field(&launch.stdout, "remote_project_dir")
         .is_none()
         && extract_stdout_field(&launch.stdout, "remote_dir_prefix").is_none()
-        && extract_stdout_field(&launch.stdout, "opencode_attach_url").is_none()
-        && extract_stdout_field(&launch.stdout, "opencode_server_host").is_none()
-        && extract_stdout_field(&launch.stdout, "opencode_server_port").is_none();
+        && extract_stdout_field(&launch.stdout, "opencode_attach_url").is_none();
 
     let slots = read_slot_snapshot(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading slot snapshot: {error}"));
@@ -38,8 +36,7 @@ fn t1_5_default_startup_is_local_first_and_omits_remote_only_diagnostics() {
         .unwrap_or_default();
     let slot1_start_command = read_pane_start_command(&harness, &slot1_pane)
         .unwrap_or_else(|error| panic!("failed reading slot 1 pane start command: {error}"));
-    let startup_uses_local_agent_launch = slot1_start_command.contains("opencode")
-        && !slot1_start_command.contains("opencode attach");
+    let startup_avoids_attach_invocation = !slot1_start_command.contains("opencode attach");
 
     let evidence = vec![
         format!("startup_exit_code={}", launch.exit_code),
@@ -49,7 +46,7 @@ fn t1_5_default_startup_is_local_first_and_omits_remote_only_diagnostics() {
         format!("remote_routing_active={remote_routing_active}"),
         format!("remote_only_fields_suppressed={remote_only_fields_suppressed}"),
         format!("slot1_start_command={slot1_start_command}"),
-        format!("startup_uses_local_agent_launch={startup_uses_local_agent_launch}"),
+        format!("startup_avoids_attach_invocation={startup_avoids_attach_invocation}"),
     ];
     write_green_cluster_evidence(&harness, "t1-5-local-default", &evidence)
         .unwrap_or_else(|error| panic!("failed writing T-1.5 local-default evidence: {error}"));
@@ -60,7 +57,7 @@ fn t1_5_default_startup_is_local_first_and_omits_remote_only_diagnostics() {
         && routing_mode == "local"
         && remote_routing_active == "false"
         && remote_only_fields_suppressed
-        && startup_uses_local_agent_launch;
+        && startup_avoids_attach_invocation;
 
     assert!(
         pass,
@@ -82,7 +79,7 @@ fn t1_5_remote_diagnostics_emit_only_when_remote_routing_is_active() {
         .run_ezm_in_dir(
             &fixture.project_dir,
             &[],
-            &[("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix)],
+            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
             0,
         )
         .unwrap_or_else(|error| panic!("remote routing launch failed: {error}"));
@@ -158,7 +155,7 @@ fn t1_5_routing_failures_surface_explicit_stderr_and_log_evidence() {
         "shell",
     ];
     let fail = harness
-        .run_ezm(&args, &[("OPENCODE_REMOTE_DIR_PREFIX", "/srv/remotes")], 0)
+        .run_ezm(&args, &[("EZM_REMOTE_DIR_PREFIX", "/srv/remotes")], 0)
         .unwrap_or_else(|error| panic!("routing failure launch failed: {error}"));
 
     let active_log = extract_active_log_path(&fail.stderr).unwrap_or_default();

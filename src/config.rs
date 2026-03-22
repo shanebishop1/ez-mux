@@ -14,13 +14,8 @@ pub const EZM_BIN_ENV: &str = "EZM_BIN";
 pub const OPERATOR_ENV: &str = "OPERATOR";
 pub const EZM_REMOTE_DIR_PREFIX_ENV: &str = "EZM_REMOTE_DIR_PREFIX";
 pub const EZM_REMOTE_SERVER_URL_ENV: &str = "EZM_REMOTE_SERVER_URL";
-pub const OPENCODE_REMOTE_DIR_PREFIX_ENV: &str = "OPENCODE_REMOTE_DIR_PREFIX";
 pub const OPENCODE_SERVER_URL_ENV: &str = "OPENCODE_SERVER_URL";
-pub const OPENCODE_SERVER_HOST_ENV: &str = "OPENCODE_SERVER_HOST";
-pub const OPENCODE_SERVER_PORT_ENV: &str = "OPENCODE_SERVER_PORT";
 pub const OPENCODE_SERVER_PASSWORD_ENV: &str = "OPENCODE_SERVER_PASSWORD";
-pub const DEFAULT_OPENCODE_SERVER_HOST: &str = "127.0.0.1";
-pub const DEFAULT_OPENCODE_SERVER_PORT: u16 = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatingSystem {
@@ -89,10 +84,6 @@ pub enum ConfigError {
     },
     #[error("invalid OpenCode server URL from {origin}: expected absolute http(s) URL")]
     InvalidOpenCodeServerUrl { origin: &'static str },
-    #[error("invalid OpenCode server host from {origin}: expected hostname without scheme or path")]
-    InvalidOpenCodeServerHost { origin: &'static str },
-    #[error("invalid OpenCode server port from {origin}: expected integer in range 1..65535")]
-    InvalidOpenCodeServerPort { origin: &'static str },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
@@ -100,10 +91,7 @@ pub struct FileConfig {
     pub operator: Option<String>,
     pub ezm_remote_dir_prefix: Option<String>,
     pub ezm_remote_server_url: Option<String>,
-    pub opencode_remote_dir_prefix: Option<String>,
     pub opencode_server_url: Option<String>,
-    pub opencode_server_host: Option<String>,
-    pub opencode_server_port: Option<u16>,
     pub opencode_server_password: Option<String>,
 }
 
@@ -142,10 +130,7 @@ pub struct ResolvedValue<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedServerRuntimeResolution {
     pub url: ResolvedValue<Option<String>>,
-    pub host: ResolvedValue<String>,
-    pub port: ResolvedValue<u16>,
     pub password: ResolvedValue<Option<String>>,
-    pub attach_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,7 +179,7 @@ pub fn resolve_operator(
 ///
 /// # Errors
 ///
-/// Returns [`ConfigError`] when server URL/host/port values are invalid.
+/// Returns [`ConfigError`] when server URL values are invalid.
 pub fn resolve_remote_runtime(
     env: &impl EnvProvider,
     file_config: &FileConfig,
@@ -211,7 +196,6 @@ pub fn resolve_remote_runtime(
         env.get_var(OPENCODE_SERVER_URL_ENV),
         file_config.opencode_server_url.clone(),
     );
-    let explicit_server_url = server_url.value.is_some();
     if let Some(url) = server_url.value.as_deref() {
         validate_server_url(
             url,
@@ -222,50 +206,18 @@ pub fn resolve_remote_runtime(
             ),
         )?;
     }
-
-    let server_host = resolve_string_setting_with_default(
-        None,
-        env.get_var(OPENCODE_SERVER_HOST_ENV),
-        file_config.opencode_server_host.clone(),
-        DEFAULT_OPENCODE_SERVER_HOST,
-    );
-    if !explicit_server_url {
-        validate_server_host(
-            &server_host.value,
-            source_scope(
-                server_host.source,
-                "env OPENCODE_SERVER_HOST",
-                "config opencode_server_host",
-            ),
-        )?;
-    }
-
-    let server_port = resolve_server_port(
-        env.get_var(OPENCODE_SERVER_PORT_ENV),
-        file_config.opencode_server_port,
-        !explicit_server_url,
-    )?;
     let server_password = resolve_optional_setting(
         None,
         env.get_var(OPENCODE_SERVER_PASSWORD_ENV),
         file_config.opencode_server_password.clone(),
     );
 
-    let attach_url = if let Some(url) = server_url.value.clone() {
-        url
-    } else {
-        format_attach_url(&server_host.value, server_port.value)
-    };
-
     Ok(RemoteRuntimeResolution {
         remote_dir_prefix,
         remote_server_url,
         shared_server: SharedServerRuntimeResolution {
             url: server_url,
-            host: server_host,
-            port: server_port,
             password: server_password,
-            attach_url,
         },
     })
 }
@@ -281,21 +233,7 @@ fn resolve_remote_dir_prefix(
         };
     }
 
-    if let Some(value) = normalize_optional_value(env.get_var(OPENCODE_REMOTE_DIR_PREFIX_ENV)) {
-        return ResolvedValue {
-            value: Some(value),
-            source: ValueSource::Env,
-        };
-    }
-
     if let Some(value) = normalize_optional_value(file_config.ezm_remote_dir_prefix.clone()) {
-        return ResolvedValue {
-            value: Some(value),
-            source: ValueSource::File,
-        };
-    }
-
-    if let Some(value) = normalize_optional_value(file_config.opencode_remote_dir_prefix.clone()) {
         return ResolvedValue {
             value: Some(value),
             source: ValueSource::File,
@@ -346,82 +284,6 @@ fn resolve_optional_setting(
     }
 }
 
-fn resolve_string_setting_with_default(
-    cli_value: Option<String>,
-    env_value: Option<String>,
-    file_value: Option<String>,
-    default_value: &str,
-) -> ResolvedValue<String> {
-    if let Some(value) = normalize_optional_value(cli_value) {
-        return ResolvedValue {
-            value,
-            source: ValueSource::Cli,
-        };
-    }
-
-    if let Some(value) = normalize_optional_value(env_value) {
-        return ResolvedValue {
-            value,
-            source: ValueSource::Env,
-        };
-    }
-
-    if let Some(value) = normalize_optional_value(file_value) {
-        return ResolvedValue {
-            value,
-            source: ValueSource::File,
-        };
-    }
-
-    ResolvedValue {
-        value: default_value.to_owned(),
-        source: ValueSource::Default,
-    }
-}
-
-fn resolve_server_port(
-    env_port: Option<String>,
-    file_port: Option<u16>,
-    strict: bool,
-) -> Result<ResolvedValue<u16>, ConfigError> {
-    if let Some(raw_port) = normalize_optional_value(env_port) {
-        if let Ok(parsed_port) = raw_port.parse::<u16>() {
-            if parsed_port != 0 {
-                return Ok(ResolvedValue {
-                    value: parsed_port,
-                    source: ValueSource::Env,
-                });
-            }
-        }
-
-        if strict {
-            return Err(ConfigError::InvalidOpenCodeServerPort {
-                origin: "env OPENCODE_SERVER_PORT",
-            });
-        }
-    }
-
-    if let Some(file_port) = file_port {
-        if file_port != 0 {
-            return Ok(ResolvedValue {
-                value: file_port,
-                source: ValueSource::File,
-            });
-        }
-
-        if strict {
-            return Err(ConfigError::InvalidOpenCodeServerPort {
-                origin: "config opencode_server_port",
-            });
-        }
-    }
-
-    Ok(ResolvedValue {
-        value: DEFAULT_OPENCODE_SERVER_PORT,
-        source: ValueSource::Default,
-    })
-}
-
 fn source_scope(
     source: ValueSource,
     env_source: &'static str,
@@ -449,24 +311,6 @@ fn validate_server_url(url: &str, source: &'static str) -> Result<(), ConfigErro
     }
 
     Ok(())
-}
-
-fn validate_server_host(host: &str, source: &'static str) -> Result<(), ConfigError> {
-    if host.contains(char::is_whitespace) || host.contains("://") || host.contains('/') {
-        return Err(ConfigError::InvalidOpenCodeServerHost { origin: source });
-    }
-
-    Ok(())
-}
-
-fn format_attach_url(host: &str, port: u16) -> String {
-    let authority = if host.contains(':') && !(host.starts_with('[') && host.ends_with(']')) {
-        format!("[{host}]")
-    } else {
-        host.to_owned()
-    };
-
-    format!("http://{authority}:{port}")
 }
 
 #[cfg(test)]

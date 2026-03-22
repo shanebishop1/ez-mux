@@ -5,7 +5,7 @@ use super::SessionIdentity;
 use super::TmuxClient;
 use super::resolve_remote_path;
 use super::resolve_session_identity;
-use crate::config::{EZM_REMOTE_DIR_PREFIX_ENV, OPENCODE_REMOTE_DIR_PREFIX_ENV};
+use crate::config::EZM_REMOTE_DIR_PREFIX_ENV;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionAction {
@@ -52,9 +52,7 @@ pub fn ensure_project_session(
     project_dir: &Path,
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
-    let remote_prefix = std::env::var(EZM_REMOTE_DIR_PREFIX_ENV)
-        .ok()
-        .or_else(|| std::env::var(OPENCODE_REMOTE_DIR_PREFIX_ENV).ok());
+    let remote_prefix = std::env::var(EZM_REMOTE_DIR_PREFIX_ENV).ok();
 
     ensure_project_session_with_remote_prefix(project_dir, remote_prefix.as_deref(), tmux)
 }

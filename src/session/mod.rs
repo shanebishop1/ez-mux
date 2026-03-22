@@ -38,7 +38,6 @@ pub use popup_shell::toggle_popup_shell;
 pub use preset::LayoutPreset;
 pub use preset::LayoutPresetOutcome;
 pub use preset::apply_layout_preset;
-pub use remote_remap::OPENCODE_REMOTE_DIR_PREFIX_ENV;
 pub use remote_remap::RemotePathResolution;
 pub use remote_remap::resolve_remote_path;
 pub use repair::SessionDamageAnalysis;

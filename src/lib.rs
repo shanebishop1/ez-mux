@@ -370,7 +370,7 @@ mod tests {
     fn remote_prefix_without_operator_writes_clear_stderr_and_non_zero_exit() {
         let (mut env, state) = TestEnv::with_temp_state();
         env.vars.insert(
-            String::from(crate::session::OPENCODE_REMOTE_DIR_PREFIX_ENV),
+            String::from(crate::config::EZM_REMOTE_DIR_PREFIX_ENV),
             String::from("/srv/remotes"),
         );
         env.vars.insert(
@@ -411,11 +411,11 @@ mod tests {
     }
 
     #[test]
-    fn invalid_shared_server_port_fails_fast_without_leaking_password() {
+    fn invalid_shared_server_url_fails_fast_without_leaking_password() {
         let (mut env, _state) = TestEnv::with_temp_state();
         env.vars.insert(
-            String::from(crate::config::OPENCODE_SERVER_PORT_ENV),
-            String::from("invalid-port"),
+            String::from(crate::config::OPENCODE_SERVER_URL_ENV),
+            String::from("invalid-url"),
         );
         env.vars.insert(
             String::from(crate::config::OPENCODE_SERVER_PASSWORD_ENV),
@@ -436,7 +436,7 @@ mod tests {
         assert_eq!(String::from_utf8(stdout).expect("utf8"), "");
         let stderr = String::from_utf8(stderr).expect("utf8");
         assert!(stderr.contains("active log file:"));
-        assert!(stderr.contains("invalid OpenCode server port"));
+        assert!(stderr.contains("invalid OpenCode server URL"));
         assert!(!stderr.contains("top-secret-token"));
     }
 

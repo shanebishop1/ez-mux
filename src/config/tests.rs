@@ -130,7 +130,7 @@ fn precedence_is_cli_then_env_then_file_then_default() {
 fn remote_runtime_prefers_env_over_file_values() {
     let mut env = HashMap::new();
     env.insert(
-        String::from(OPENCODE_REMOTE_DIR_PREFIX_ENV),
+        String::from(EZM_REMOTE_DIR_PREFIX_ENV),
         String::from("/env/remotes"),
     );
     env.insert(
@@ -144,12 +144,9 @@ fn remote_runtime_prefers_env_over_file_values() {
 
     let file = FileConfig {
         operator: None,
-        ezm_remote_dir_prefix: None,
+        ezm_remote_dir_prefix: Some(String::from("/file/remotes")),
         ezm_remote_server_url: None,
-        opencode_remote_dir_prefix: Some(String::from("/file/remotes")),
         opencode_server_url: Some(String::from("https://file.example:4096")),
-        opencode_server_host: Some(String::from("file-host")),
-        opencode_server_port: Some(5000),
         opencode_server_password: Some(String::from("file-secret")),
     };
 
@@ -170,10 +167,6 @@ fn remote_runtime_prefers_env_over_file_values() {
         }
     );
     assert_eq!(
-        resolved.shared_server.attach_url,
-        "https://env.example:4242"
-    );
-    assert_eq!(
         resolved.shared_server.password,
         ResolvedValue {
             value: Some(String::from("env-secret")),
@@ -183,25 +176,18 @@ fn remote_runtime_prefers_env_over_file_values() {
 }
 
 #[test]
-fn remote_runtime_prefers_ezm_env_remote_prefix_over_legacy_env_fallback() {
+fn remote_runtime_prefers_ezm_env_remote_prefix_when_present() {
     let mut env = HashMap::new();
     env.insert(
         String::from(EZM_REMOTE_DIR_PREFIX_ENV),
         String::from("/ezm/env-remotes"),
     );
-    env.insert(
-        String::from(OPENCODE_REMOTE_DIR_PREFIX_ENV),
-        String::from("/legacy/env-remotes"),
-    );
 
     let file = FileConfig {
         operator: None,
-        ezm_remote_dir_prefix: None,
+        ezm_remote_dir_prefix: Some(String::from("/ezm/file-remotes")),
         ezm_remote_server_url: None,
-        opencode_remote_dir_prefix: Some(String::from("/legacy/file-remotes")),
         opencode_server_url: None,
-        opencode_server_host: None,
-        opencode_server_port: None,
         opencode_server_password: None,
     };
 
@@ -217,14 +203,10 @@ fn remote_runtime_prefers_ezm_env_remote_prefix_over_legacy_env_fallback() {
 }
 
 #[test]
-fn remote_runtime_prefers_ezm_file_remote_prefix_over_legacy_file_key() {
+fn remote_runtime_uses_ezm_file_remote_prefix_when_env_missing() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("config.toml");
-    fs::write(
-        &path,
-        "ezm_remote_dir_prefix = '/ezm/file-remotes'\nopencode_remote_dir_prefix = '/legacy/file-remotes'\n",
-    )
-    .expect("write config");
+    fs::write(&path, "ezm_remote_dir_prefix = '/ezm/file-remotes'\n").expect("write config");
 
     let mut env = HashMap::new();
     env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
@@ -324,12 +306,9 @@ fn remote_runtime_uses_config_when_env_is_missing() {
     let env = HashMap::<String, String>::new();
     let file = FileConfig {
         operator: None,
-        ezm_remote_dir_prefix: None,
+        ezm_remote_dir_prefix: Some(String::from("/file/remotes")),
         ezm_remote_server_url: None,
-        opencode_remote_dir_prefix: Some(String::from("/file/remotes")),
-        opencode_server_url: None,
-        opencode_server_host: Some(String::from("server.internal")),
-        opencode_server_port: Some(7443),
+        opencode_server_url: Some(String::from("https://shared.example:7443")),
         opencode_server_password: Some(String::from("file-secret")),
     };
 
@@ -345,27 +324,9 @@ fn remote_runtime_uses_config_when_env_is_missing() {
     assert_eq!(
         resolved.shared_server.url,
         ResolvedValue {
-            value: None,
-            source: ValueSource::Default,
-        }
-    );
-    assert_eq!(
-        resolved.shared_server.host,
-        ResolvedValue {
-            value: String::from("server.internal"),
+            value: Some(String::from("https://shared.example:7443")),
             source: ValueSource::File,
         }
-    );
-    assert_eq!(
-        resolved.shared_server.port,
-        ResolvedValue {
-            value: 7443,
-            source: ValueSource::File,
-        }
-    );
-    assert_eq!(
-        resolved.shared_server.attach_url,
-        "http://server.internal:7443"
     );
     assert_eq!(
         resolved.shared_server.password,
@@ -377,45 +338,19 @@ fn remote_runtime_uses_config_when_env_is_missing() {
 }
 
 #[test]
-fn remote_runtime_defaults_host_and_port_when_unset() {
+fn remote_runtime_defaults_shared_server_url_to_none_when_unset() {
     let env = HashMap::<String, String>::new();
     let file = FileConfig::default();
 
     let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
 
     assert_eq!(
-        resolved.shared_server.host,
+        resolved.shared_server.url,
         ResolvedValue {
-            value: String::from(DEFAULT_OPENCODE_SERVER_HOST),
+            value: None,
             source: ValueSource::Default,
         }
     );
-    assert_eq!(
-        resolved.shared_server.port,
-        ResolvedValue {
-            value: DEFAULT_OPENCODE_SERVER_PORT,
-            source: ValueSource::Default,
-        }
-    );
-    assert_eq!(resolved.shared_server.attach_url, "http://127.0.0.1:4096");
-}
-
-#[test]
-fn invalid_env_server_port_fails_fast() {
-    let mut env = HashMap::new();
-    env.insert(
-        String::from(OPENCODE_SERVER_PORT_ENV),
-        String::from("not-a-port"),
-    );
-
-    let error = resolve_remote_runtime(&env, &FileConfig::default())
-        .expect_err("invalid port should fail fast");
-    assert!(matches!(
-        error,
-        ConfigError::InvalidOpenCodeServerPort {
-            origin: "env OPENCODE_SERVER_PORT"
-        }
-    ));
 }
 
 #[test]
@@ -437,55 +372,6 @@ fn invalid_server_url_fails_fast() {
 }
 
 #[test]
-fn invalid_server_host_fails_fast() {
-    let env = HashMap::<String, String>::new();
-    let file = FileConfig {
-        opencode_server_host: Some(String::from("http://bad-host")),
-        ..FileConfig::default()
-    };
-
-    let error = resolve_remote_runtime(&env, &file).expect_err("invalid host should fail fast");
-    assert!(matches!(
-        error,
-        ConfigError::InvalidOpenCodeServerHost {
-            origin: "config opencode_server_host"
-        }
-    ));
-}
-
-#[test]
-fn explicit_server_url_overrides_invalid_host_and_port_inputs() {
-    let mut env = HashMap::new();
-    env.insert(
-        String::from(OPENCODE_SERVER_URL_ENV),
-        String::from("https://shared.example:9443"),
-    );
-    env.insert(
-        String::from(OPENCODE_SERVER_HOST_ENV),
-        String::from("http://bad-host"),
-    );
-    env.insert(
-        String::from(OPENCODE_SERVER_PORT_ENV),
-        String::from("bad-port"),
-    );
-
-    let resolved =
-        resolve_remote_runtime(&env, &FileConfig::default()).expect("url should take priority");
-
-    assert_eq!(
-        resolved.shared_server.attach_url,
-        "https://shared.example:9443"
-    );
-    assert_eq!(
-        resolved.shared_server.url,
-        ResolvedValue {
-            value: Some(String::from("https://shared.example:9443")),
-            source: ValueSource::Env,
-        }
-    );
-}
-
-#[test]
 fn operator_env_constant_is_contract_stable() {
     assert_eq!(OPERATOR_ENV, "OPERATOR");
 }
@@ -494,11 +380,6 @@ fn operator_env_constant_is_contract_stable() {
 fn remote_shared_server_env_constants_are_contract_stable() {
     assert_eq!(EZM_REMOTE_DIR_PREFIX_ENV, "EZM_REMOTE_DIR_PREFIX");
     assert_eq!(EZM_REMOTE_SERVER_URL_ENV, "EZM_REMOTE_SERVER_URL");
-    assert_eq!(OPENCODE_REMOTE_DIR_PREFIX_ENV, "OPENCODE_REMOTE_DIR_PREFIX");
     assert_eq!(OPENCODE_SERVER_URL_ENV, "OPENCODE_SERVER_URL");
-    assert_eq!(OPENCODE_SERVER_HOST_ENV, "OPENCODE_SERVER_HOST");
-    assert_eq!(OPENCODE_SERVER_PORT_ENV, "OPENCODE_SERVER_PORT");
     assert_eq!(OPENCODE_SERVER_PASSWORD_ENV, "OPENCODE_SERVER_PASSWORD");
-    assert_eq!(DEFAULT_OPENCODE_SERVER_HOST, "127.0.0.1");
-    assert_eq!(DEFAULT_OPENCODE_SERVER_PORT, 4096);
 }

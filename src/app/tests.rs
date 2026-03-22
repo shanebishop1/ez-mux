@@ -333,19 +333,10 @@ fn remote_runtime_resolution(remote_prefix: Option<&str>) -> RemoteRuntimeResolu
                 value: Some(String::from("http://devbox-ez-1:4096")),
                 source: ValueSource::Env,
             },
-            host: ResolvedValue {
-                value: String::from("127.0.0.1"),
-                source: ValueSource::Default,
-            },
-            port: ResolvedValue {
-                value: 4096,
-                source: ValueSource::Default,
-            },
             password: ResolvedValue {
                 value: Some(String::from("secret")),
                 source: ValueSource::Env,
             },
-            attach_url: String::from("http://devbox-ez-1:4096"),
         },
     }
 }

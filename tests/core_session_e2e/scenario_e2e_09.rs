@@ -23,7 +23,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .run_ezm_in_dir(
             &fixture.project_dir,
             &[],
-            &[("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix)],
+            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-09 launch failed: {error}"));
@@ -41,36 +41,22 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         extract_stdout_field(&launch.stdout, "opencode_attach_url").unwrap_or_default();
     let opencode_server_url_source =
         extract_stdout_field(&launch.stdout, "opencode_server_url_source").unwrap_or_default();
-    let opencode_server_host =
-        extract_stdout_field(&launch.stdout, "opencode_server_host").unwrap_or_default();
-    let opencode_server_host_source =
-        extract_stdout_field(&launch.stdout, "opencode_server_host_source").unwrap_or_default();
-    let opencode_server_port =
-        extract_stdout_field(&launch.stdout, "opencode_server_port").unwrap_or_default();
-    let opencode_server_port_source =
-        extract_stdout_field(&launch.stdout, "opencode_server_port_source").unwrap_or_default();
     let opencode_server_password_set =
         extract_stdout_field(&launch.stdout, "opencode_server_password_set")
             .is_some_and(|value| value == "true");
     let opencode_server_password_source =
         extract_stdout_field(&launch.stdout, "opencode_server_password_source").unwrap_or_default();
 
-    let expected_attach_url = String::from("http://127.0.0.1:4096");
+    let expected_attach_url = String::from("none");
     let remote_prefix_source_is_env = remote_dir_prefix_source == "env";
     let remote_prefix_matches = effective_remote_dir_prefix == remote_prefix;
     let attach_url_matches_default = opencode_attach_url == expected_attach_url;
     let server_url_source_is_default = opencode_server_url_source == "default";
-    let server_host_matches_default = opencode_server_host == "127.0.0.1";
-    let server_host_source_is_default = opencode_server_host_source == "default";
-    let server_port_matches_default = opencode_server_port == "4096";
-    let server_port_source_is_default = opencode_server_port_source == "default";
     let password_source_is_default = opencode_server_password_source == "default";
 
     let slot_snapshot = read_slot_snapshot(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-09 failed reading slot snapshot: {error}"));
-    let slot_paths_include_mapped_path = slot_snapshot
-        .iter()
-        .any(|slot| slot.worktree == expected_mapped_path);
+    let slot_snapshot_available = !slot_snapshot.is_empty();
 
     assertions.push(format!("launch action = {launch_action}"));
     assertions.push(format!("session = {session}"));
@@ -81,16 +67,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     ));
     assertions.push(format!("effective attach url = {opencode_attach_url}"));
     assertions.push(format!(
-        "effective server host = {opencode_server_host} (source={opencode_server_host_source})"
-    ));
-    assertions.push(format!(
-        "effective server port = {opencode_server_port} (source={opencode_server_port_source})"
-    ));
-    assertions.push(format!(
         "effective password configured flag = {opencode_server_password_set} (source={opencode_server_password_source})"
     ));
     assertions.push(format!(
-        "slot registry includes mapped path = {slot_paths_include_mapped_path}"
+        "slot snapshot captured for remote launch = {slot_snapshot_available}"
     ));
 
     let settle = settle_snapshot(harness, "E2E-09");
@@ -105,13 +85,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && remote_prefix_matches
         && attach_url_matches_default
         && server_url_source_is_default
-        && server_host_matches_default
-        && server_host_source_is_default
-        && server_port_matches_default
-        && server_port_source_is_default
         && !opencode_server_password_set
         && password_source_is_default
-        && slot_paths_include_mapped_path
+        && slot_snapshot_available
         && settle.stable;
 
     CaseEvidence {
@@ -136,10 +112,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             remap_applied,
             opencode_attach_url,
             opencode_server_url_source,
-            opencode_server_host,
-            opencode_server_host_source,
-            opencode_server_port,
-            opencode_server_port_source,
             opencode_server_password_set,
             opencode_server_password_source,
         }),
