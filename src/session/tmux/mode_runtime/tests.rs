@@ -1,6 +1,7 @@
 use super::{
     launch_agent_attach_command, launch_command_for_mode,
-    launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd, use_startup_fast_path,
+    launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd,
+    startup_mode_signal_enabled, use_startup_fast_path,
 };
 use crate::session::{SharedServerAttachConfig, SlotMode};
 
@@ -188,4 +189,19 @@ fn non_startup_mode_switch_uses_captured_pane_cwd() {
 fn startup_mode_switch_enables_fast_path() {
     assert!(use_startup_fast_path(true));
     assert!(!use_startup_fast_path(false));
+}
+
+#[test]
+fn startup_mode_signal_reads_truthy_environment_values() {
+    assert!(startup_mode_signal_enabled(Some("1")));
+    assert!(startup_mode_signal_enabled(Some("true")));
+    assert!(startup_mode_signal_enabled(Some(" yes ")));
+    assert!(startup_mode_signal_enabled(Some("on")));
+}
+
+#[test]
+fn startup_mode_signal_defaults_to_non_startup_when_unset() {
+    assert!(!startup_mode_signal_enabled(None));
+    assert!(!startup_mode_signal_enabled(Some("0")));
+    assert!(!startup_mode_signal_enabled(Some("false")));
 }
