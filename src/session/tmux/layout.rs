@@ -77,7 +77,9 @@ pub(super) fn bootstrap_default_layout(
         set_session_option(session_name, &preset::slot_suspended_key(5), "0")?;
         set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_FIVE_PANE)?;
         install_runtime_keybinds()?;
-        apply_runtime_style_defaults(session_name)?;
+        if should_apply_runtime_styles_during_bootstrap() {
+            apply_runtime_style_defaults(session_name)?;
+        }
         launch_startup_slot_modes(session_name)?;
 
         if should_validate_registry_after_bootstrap() {
@@ -204,6 +206,10 @@ fn should_validate_registry_after_bootstrap() -> bool {
     false
 }
 
+fn should_apply_runtime_styles_during_bootstrap() -> bool {
+    false
+}
+
 fn startup_mode_for_slot(_slot_id: u8, _populated_slots: usize) -> &'static str {
     "agent"
 }
@@ -229,7 +235,7 @@ fn launch_startup_slot_modes(session_name: &str) -> Result<(), SessionError> {
 
 fn startup_mode_schedule_command(ezm_bin: &str, session_name: &str, slot_id: u8) -> String {
     format!(
-        "{ezm_bin} __internal mode --session {} --slot {slot_id} --mode agent </dev/null >/dev/null 2>&1",
+        "sleep 0.05; {ezm_bin} __internal mode --session {} --slot {slot_id} --mode agent </dev/null >/dev/null 2>&1",
         shell_single_quote(session_name)
     )
 }
@@ -258,8 +264,8 @@ fn shell_single_quote(value: &str) -> String {
 mod tests {
     use super::{
         RegistryWriteStrategy, bootstrap_registry_write_strategy,
-        should_validate_registry_after_bootstrap, startup_mode_for_slot,
-        startup_mode_schedule_command,
+        should_apply_runtime_styles_during_bootstrap, should_validate_registry_after_bootstrap,
+        startup_mode_for_slot, startup_mode_schedule_command,
     };
 
     #[test]
@@ -274,6 +280,7 @@ mod tests {
     #[test]
     fn startup_mode_schedule_command_runs_internal_mode_in_background() {
         let rendered = startup_mode_schedule_command("'ezm'", "ezm-demo", 3);
+        assert!(rendered.contains("sleep 0.05;"));
         assert!(rendered.contains("__internal mode"));
         assert!(rendered.contains("--session 'ezm-demo'"));
         assert!(rendered.contains("--slot 3"));
@@ -292,5 +299,10 @@ mod tests {
     #[test]
     fn bootstrap_skips_full_registry_validation_roundtrip() {
         assert!(!should_validate_registry_after_bootstrap());
+    }
+
+    #[test]
+    fn bootstrap_defers_runtime_style_application() {
+        assert!(!should_apply_runtime_styles_during_bootstrap());
     }
 }
