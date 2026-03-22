@@ -12,6 +12,7 @@ const SHELL_MODE_KEY: &str = "S";
 const NEOVIM_MODE_KEY: &str = "N";
 const LAZYGIT_MODE_KEY: &str = "G";
 const POPUP_KEY: &str = "P";
+const DETACH_KEY: &str = "d";
 const THREE_PANE_PRESET_KEY: &str = "M-3";
 const PANE_NAV_LEFT_KEY: &str = "h";
 const PANE_NAV_DOWN_KEY: &str = "j";
@@ -154,7 +155,25 @@ fn install_mode_bindings(ezm_bin: &str) -> Result<(), SessionError> {
         install_run_shell_binding("prefix", key, &command)?;
     }
 
+    install_popup_context_detach_binding(ezm_bin)?;
+
     Ok(())
+}
+
+fn install_popup_context_detach_binding(ezm_bin: &str) -> Result<(), SessionError> {
+    let popup_close_command = popup_close_from_popup_context_command(ezm_bin);
+    let popup_close_action = format!("run-shell -b {popup_close_command}");
+    tmux_run(&[
+        "bind-key",
+        "-T",
+        "prefix",
+        DETACH_KEY,
+        "if-shell",
+        "-F",
+        "#{@ezm_popup_origin_session}",
+        &popup_close_action,
+        "detach-client",
+    ])
 }
 
 fn install_run_shell_binding(table: &str, key: &str, command: &str) -> Result<(), SessionError> {
@@ -172,6 +191,7 @@ fn clear_specs() -> Vec<(&'static str, String)> {
         ("prefix", NEOVIM_MODE_KEY.to_owned()),
         ("prefix", LAZYGIT_MODE_KEY.to_owned()),
         ("prefix", POPUP_KEY.to_owned()),
+        ("prefix", DETACH_KEY.to_owned()),
         ("prefix", PANE_NAV_LEFT_KEY.to_owned()),
         ("prefix", PANE_NAV_DOWN_KEY.to_owned()),
         ("prefix", PANE_NAV_UP_KEY.to_owned()),
@@ -255,7 +275,13 @@ fn toggle_mode_command(ezm_bin: &str) -> String {
 
 fn popup_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --client \"#{{client_tty}}\" </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal popup --session \"#{{?#{{@ezm_popup_origin_session}},#{{@ezm_popup_origin_session}},#{{session_name}}}}\" --slot \"#{{?#{{@ezm_popup_origin_slot}},#{{@ezm_popup_origin_slot}},#{{@ezm_slot_id}}}}\" --client \"#{{client_tty}}\" </dev/null >/dev/null 2>&1"
+    )
+}
+
+fn popup_close_from_popup_context_command(ezm_bin: &str) -> String {
+    format!(
+        "{ezm_bin} __internal popup --session \"#{{@ezm_popup_origin_session}}\" --slot \"#{{@ezm_popup_origin_slot}}\" --client \"#{{client_tty}}\" </dev/null >/dev/null 2>&1"
     )
 }
 
@@ -291,7 +317,8 @@ mod tests {
 
     use super::{
         ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
-        popup_command, resolve_ezm_bin, shell_single_quote, swap_command, toggle_mode_command,
+        popup_close_from_popup_context_command, popup_command, resolve_ezm_bin, shell_single_quote,
+        swap_command, toggle_mode_command,
     };
 
     #[test]
@@ -355,11 +382,16 @@ mod tests {
     fn popup_command_targets_focused_slot_metadata() {
         let rendered = popup_command("'ezm'");
         assert!(rendered.contains("__internal popup"));
-        assert!(rendered.contains("#{@ezm_slot_id}"));
+        assert!(
+            rendered.contains(
+                "#{?#{@ezm_popup_origin_slot},#{@ezm_popup_origin_slot},#{@ezm_slot_id}}"
+            )
+        );
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
         assert!(rendered.starts_with("'ezm' __internal popup"));
-        assert!(!rendered.contains("'#{session_name}'"));
-        assert!(!rendered.contains("'#{@ezm_slot_id}'"));
+        assert!(rendered.contains(
+            "#{?#{@ezm_popup_origin_session},#{@ezm_popup_origin_session},#{session_name}}"
+        ));
         assert!(!rendered.contains("${EZM_BIN:-ezm}"));
     }
 
@@ -372,6 +404,15 @@ mod tests {
     #[test]
     fn popup_command_avoids_client_interpolation_and_closes_stdio() {
         let rendered = popup_command("'ezm'");
+        assert!(rendered.contains("--client \"#{client_tty}\""));
+        assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn popup_context_close_command_uses_origin_session_and_slot() {
+        let rendered = popup_close_from_popup_context_command("'ezm'");
+        assert!(rendered.contains("--session \"#{@ezm_popup_origin_session}\""));
+        assert!(rendered.contains("--slot \"#{@ezm_popup_origin_slot}\""));
         assert!(rendered.contains("--client \"#{client_tty}\""));
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
     }
