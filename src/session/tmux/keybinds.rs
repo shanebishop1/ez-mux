@@ -255,7 +255,7 @@ fn toggle_mode_command(ezm_bin: &str) -> String {
 
 fn popup_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --client \"#{{client_name}}\" >/dev/null 2>&1"
+        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" </dev/null >/dev/null 2>&1"
     )
 }
 
@@ -356,7 +356,7 @@ mod tests {
         let rendered = popup_command("'ezm'");
         assert!(rendered.contains("__internal popup"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
-        assert!(rendered.contains("--client \"#{client_name}\""));
+        assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
         assert!(rendered.starts_with("'ezm' __internal popup"));
         assert!(!rendered.contains("'#{session_name}'"));
         assert!(!rendered.contains("'#{@ezm_slot_id}'"));
@@ -364,9 +364,16 @@ mod tests {
     }
 
     #[test]
-    fn popup_command_targets_tmux_client_name() {
+    fn popup_command_does_not_force_client_target() {
         let rendered = popup_command("'ezm'");
-        assert!(rendered.contains("--client \"#{client_name}\""));
+        assert!(!rendered.contains("--client"));
+    }
+
+    #[test]
+    fn popup_command_avoids_client_interpolation_and_closes_stdio() {
+        let rendered = popup_command("'ezm'");
+        assert!(!rendered.contains("--client"));
+        assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
     }
 
     #[test]
