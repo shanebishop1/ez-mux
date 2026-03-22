@@ -64,6 +64,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             create_matrix.non_blocking_internal_routes
         ),
         format!(
+            "create_popup_detach_shell_safe={}",
+            create_matrix.popup_detach_shell_safe
+        ),
+        format!(
             "attach_focus_prefix_route_present={}",
             attach_matrix.focus_prefix_route_present
         ),
@@ -87,6 +91,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             "attach_non_blocking_internal_routes={}",
             attach_matrix.non_blocking_internal_routes
         ),
+        format!(
+            "attach_popup_detach_shell_safe={}",
+            attach_matrix.popup_detach_shell_safe
+        ),
         format!("create_prefix_f_binding={}", create_matrix.prefix_f_binding),
         format!("create_prefix_h_binding={}", create_matrix.nav_left_binding),
         format!("create_prefix_j_binding={}", create_matrix.nav_down_binding),
@@ -105,6 +113,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         ),
         format!("create_mode_binding={}", create_matrix.mode_binding),
         format!("create_popup_binding={}", create_matrix.popup_binding),
+        format!(
+            "create_popup_detach_binding={}",
+            create_matrix.popup_detach_binding
+        ),
         format!("attach_prefix_f_binding={}", attach_matrix.prefix_f_binding),
         format!("attach_prefix_h_binding={}", attach_matrix.nav_left_binding),
         format!("attach_prefix_j_binding={}", attach_matrix.nav_down_binding),
@@ -123,6 +135,10 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         ),
         format!("attach_mode_binding={}", attach_matrix.mode_binding),
         format!("attach_popup_binding={}", attach_matrix.popup_binding),
+        format!(
+            "attach_popup_detach_binding={}",
+            attach_matrix.popup_detach_binding
+        ),
     ];
     write_green_cluster_evidence(&harness, "t1-4-keybind-matrix", &evidence)
         .unwrap_or_else(|error| panic!("failed writing T-1.4 keybind evidence: {error}"));
@@ -139,12 +155,14 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         && create_matrix.pane_nav_routes_present
         && create_matrix.internal_route_shell_safe
         && create_matrix.non_blocking_internal_routes
+        && create_matrix.popup_detach_shell_safe
         && attach_matrix.focus_prefix_route_present
         && attach_matrix.focus_slot_route_present
         && attach_matrix.core_runtime_routes_present
         && attach_matrix.pane_nav_routes_present
         && attach_matrix.internal_route_shell_safe
-        && attach_matrix.non_blocking_internal_routes;
+        && attach_matrix.non_blocking_internal_routes
+        && attach_matrix.popup_detach_shell_safe;
 
     assert!(
         pass,
@@ -291,12 +309,14 @@ struct KeybindMatrix {
     swap_slot_binding: String,
     mode_binding: String,
     popup_binding: String,
+    popup_detach_binding: String,
     focus_prefix_route_present: bool,
     focus_slot_route_present: bool,
     core_runtime_routes_present: bool,
     pane_nav_routes_present: bool,
     internal_route_shell_safe: bool,
     non_blocking_internal_routes: bool,
+    popup_detach_shell_safe: bool,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -341,6 +361,10 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         .tmux_capture(&["list-keys", "-T", "prefix", "P"])?
         .trim()
         .to_owned();
+    let popup_detach_binding = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "d"])?
+        .trim()
+        .to_owned();
 
     let focus_prefix_route_present = focus_table.is_some();
     let focus_slot_route_present =
@@ -362,6 +386,9 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         && swap_slot_binding.contains("run-shell -b")
         && mode_binding.contains("run-shell -b")
         && popup_binding.contains("run-shell -b");
+    let popup_detach_shell_safe = popup_detach_binding.contains("run-shell -b")
+        && popup_detach_binding.contains("__internal popup")
+        && !popup_detach_binding.contains("'\"'\"'");
 
     let core_checks = [
         ("prefix", "g", "ezm-swap"),
@@ -400,12 +427,14 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         swap_slot_binding,
         mode_binding,
         popup_binding,
+        popup_detach_binding,
         focus_prefix_route_present,
         focus_slot_route_present,
         core_runtime_routes_present,
         pane_nav_routes_present,
         internal_route_shell_safe,
         non_blocking_internal_routes,
+        popup_detach_shell_safe,
     })
 }
 

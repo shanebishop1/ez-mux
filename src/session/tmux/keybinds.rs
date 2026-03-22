@@ -183,7 +183,10 @@ fn install_popup_context_detach_binding(ezm_bin: &str) -> Result<(), SessionErro
 
 fn popup_context_detach_action(ezm_bin: &str) -> String {
     let popup_close_command = popup_close_from_popup_context_command(ezm_bin);
-    format!("run-shell -b {}", shell_single_quote(&popup_close_command))
+    format!(
+        "run-shell -b \"{}\"",
+        shell_escape_double_quoted(&popup_close_command)
+    )
 }
 
 fn install_run_shell_binding(table: &str, key: &str, command: &str) -> Result<(), SessionError> {
@@ -318,6 +321,14 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
+fn shell_escape_double_quoted(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`")
+}
+
 #[cfg(test)]
 mod tests {
     use std::process::{ExitStatus, Output};
@@ -431,9 +442,11 @@ mod tests {
     #[test]
     fn popup_detach_action_quotes_internal_popup_command_as_single_argument() {
         let rendered = popup_context_detach_action("'ezm'");
-        assert!(rendered.starts_with("run-shell -b '"));
+        assert!(rendered.starts_with("run-shell -b \""));
         assert!(rendered.contains("__internal popup"));
-        assert!(rendered.ends_with("2>&1'"));
+        assert!(rendered.contains("--session \\\"#{@ezm_popup_origin_session}\\\""));
+        assert!(rendered.ends_with("2>&1\""));
+        assert!(!rendered.contains("'\"'\"'"));
     }
 
     #[test]
