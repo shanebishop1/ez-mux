@@ -8,7 +8,7 @@ use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
 use super::command::{tmux_output_value, tmux_primary_window_target, tmux_run};
 use super::keybinds::install_runtime_keybinds;
-use super::options::{set_or_verify_pane_option, set_or_verify_session_option, set_session_option};
+use super::options::{set_pane_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::apply_runtime_style_defaults;
 use super::worktree::discover_worktrees_for_slots;
@@ -80,7 +80,9 @@ pub(super) fn bootstrap_default_layout(
         apply_runtime_style_defaults(session_name)?;
         launch_startup_slot_modes(session_name)?;
 
-        validate_canonical_slot_registry(session_name)?;
+        if should_validate_registry_after_bootstrap() {
+            validate_canonical_slot_registry(session_name)?;
+        }
         tmux_run(&["select-pane", "-t", &canonical_pane_ids[0]])
     })();
 
@@ -140,6 +142,8 @@ fn persist_registry(
     registry: &SlotRegistry,
     populated_slots: usize,
 ) -> Result<(), SessionError> {
+    let write_strategy = bootstrap_registry_write_strategy();
+
     for binding in registry.bindings() {
         let mode = startup_mode_for_slot(binding.slot_id, populated_slots);
         let slot_pane_key = format!("@ezm_slot_{}_pane", binding.slot_id);
@@ -147,25 +151,57 @@ fn persist_registry(
         let slot_cwd_key = format!("@ezm_slot_{}_cwd", binding.slot_id);
         let slot_mode_key = format!("@ezm_slot_{}_mode", binding.slot_id);
         let worktree_value = binding.worktree_path.display().to_string();
-        set_or_verify_session_option(session_name, &slot_pane_key, &binding.pane_id)?;
-        set_or_verify_session_option(session_name, &slot_worktree_key, &worktree_value)?;
-        set_or_verify_session_option(session_name, &slot_cwd_key, &worktree_value)?;
-        set_or_verify_session_option(session_name, &slot_mode_key, mode)?;
+        write_strategy.write_session_option(session_name, &slot_pane_key, &binding.pane_id)?;
+        write_strategy.write_session_option(session_name, &slot_worktree_key, &worktree_value)?;
+        write_strategy.write_session_option(session_name, &slot_cwd_key, &worktree_value)?;
+        write_strategy.write_session_option(session_name, &slot_mode_key, mode)?;
 
         let pane_worktree_key = "@ezm_slot_worktree";
         let pane_slot_key = "@ezm_slot_id";
         let pane_cwd_key = "@ezm_slot_cwd";
         let pane_mode_key = "@ezm_slot_mode";
-        set_or_verify_pane_option(
+        write_strategy.write_pane_option(
             &binding.pane_id,
             pane_slot_key,
             &binding.slot_id.to_string(),
         )?;
-        set_or_verify_pane_option(&binding.pane_id, pane_worktree_key, &worktree_value)?;
-        set_or_verify_pane_option(&binding.pane_id, pane_cwd_key, &worktree_value)?;
-        set_or_verify_pane_option(&binding.pane_id, pane_mode_key, mode)?;
+        write_strategy.write_pane_option(&binding.pane_id, pane_worktree_key, &worktree_value)?;
+        write_strategy.write_pane_option(&binding.pane_id, pane_cwd_key, &worktree_value)?;
+        write_strategy.write_pane_option(&binding.pane_id, pane_mode_key, mode)?;
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RegistryWriteStrategy {
+    SetOnly,
+}
+
+impl RegistryWriteStrategy {
+    fn write_session_option(
+        self,
+        session_name: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), SessionError> {
+        match self {
+            Self::SetOnly => set_session_option(session_name, key, value),
+        }
+    }
+
+    fn write_pane_option(self, pane_id: &str, key: &str, value: &str) -> Result<(), SessionError> {
+        match self {
+            Self::SetOnly => set_pane_option(pane_id, key, value),
+        }
+    }
+}
+
+fn bootstrap_registry_write_strategy() -> RegistryWriteStrategy {
+    RegistryWriteStrategy::SetOnly
+}
+
+fn should_validate_registry_after_bootstrap() -> bool {
+    false
 }
 
 fn startup_mode_for_slot(_slot_id: u8, _populated_slots: usize) -> &'static str {
@@ -220,7 +256,11 @@ fn shell_single_quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{startup_mode_for_slot, startup_mode_schedule_command};
+    use super::{
+        RegistryWriteStrategy, bootstrap_registry_write_strategy,
+        should_validate_registry_after_bootstrap, startup_mode_for_slot,
+        startup_mode_schedule_command,
+    };
 
     #[test]
     fn startup_mode_defaults_visible_slots_to_agent_when_worktree_candidates_are_underfilled() {
@@ -239,5 +279,18 @@ mod tests {
         assert!(rendered.contains("--slot 3"));
         assert!(rendered.contains("--mode agent"));
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn bootstrap_registry_uses_set_only_writes() {
+        assert_eq!(
+            bootstrap_registry_write_strategy(),
+            RegistryWriteStrategy::SetOnly
+        );
+    }
+
+    #[test]
+    fn bootstrap_skips_full_registry_validation_roundtrip() {
+        assert!(!should_validate_registry_after_bootstrap());
     }
 }

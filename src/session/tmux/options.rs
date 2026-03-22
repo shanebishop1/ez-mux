@@ -42,50 +42,12 @@ pub(super) fn canonical_slot_mismatch_error(session_name: &str, reason: &str) ->
     }
 }
 
-pub(super) fn set_or_verify_session_option(
-    session_name: &str,
-    key: &str,
-    value: &str,
-) -> Result<(), SessionError> {
-    if let Some(existing) = show_session_option(session_name, key)? {
-        if existing == value {
-            return Ok(());
-        }
-
-        return Err(SessionError::TmuxCommandFailed {
-            command: format!("set-option -t {session_name} {key} {value}"),
-            stderr: format!("refusing to remap existing value `{existing}`"),
-        });
-    }
-
-    tmux_run(&["set-option", "-t", session_name, key, value])
-}
-
 pub(super) fn set_session_option(
     session_name: &str,
     key: &str,
     value: &str,
 ) -> Result<(), SessionError> {
     tmux_run(&["set-option", "-t", session_name, key, value])
-}
-
-pub(super) fn set_or_verify_pane_option(
-    pane_id: &str,
-    key: &str,
-    value: &str,
-) -> Result<(), SessionError> {
-    if let Some(existing) = show_pane_option(pane_id, key)? {
-        if existing == value {
-            return Ok(());
-        }
-
-        return Err(SessionError::TmuxCommandFailed {
-            command: format!("set-option -p -t {pane_id} {key} {value}"),
-            stderr: format!("refusing to remap existing value `{existing}`"),
-        });
-    }
-
-    tmux_run(&["set-option", "-p", "-t", pane_id, key, value])
 }
 
 pub(super) fn set_pane_option(pane_id: &str, key: &str, value: &str) -> Result<(), SessionError> {
