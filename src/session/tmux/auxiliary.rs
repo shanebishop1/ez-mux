@@ -24,7 +24,9 @@ pub(super) fn auxiliary_viewer(
             });
         }
 
-        validate_canonical_slot_registry(session_name)?;
+        if should_validate_registry_for_auxiliary(open) {
+            validate_canonical_slot_registry(session_name)?;
+        }
 
         if let Some(window_id) = existing {
             return Ok(AuxiliaryViewerOutcome {
@@ -87,7 +89,9 @@ pub(super) fn auxiliary_viewer(
         });
     }
 
-    validate_canonical_slot_registry(session_name)?;
+    if should_validate_registry_for_auxiliary(open) {
+        validate_canonical_slot_registry(session_name)?;
+    }
 
     if let Some(window_id) = existing {
         tmux_run(&["kill-window", "-t", &window_id])?;
@@ -105,6 +109,10 @@ pub(super) fn auxiliary_viewer(
         window_name: String::from(AUXILIARY_WINDOW_NAME),
         window_id: None,
     })
+}
+
+fn should_validate_registry_for_auxiliary(open: bool) -> bool {
+    !open
 }
 
 fn resolve_auxiliary_cwd(session_name: &str) -> Result<String, SessionError> {
@@ -240,6 +248,7 @@ fn is_executable_file(path: &Path) -> bool {
 mod tests {
     use super::{
         AUXILIARY_WINDOW_NAME, build_auxiliary_launch_command, discover_executable_in_path,
+        should_validate_registry_for_auxiliary,
     };
 
     #[test]
@@ -266,5 +275,11 @@ mod tests {
     fn discover_executable_returns_none_for_missing_binary_name() {
         let unlikely = format!("ezm-no-such-tool-{AUXILIARY_WINDOW_NAME}");
         assert!(discover_executable_in_path(&unlikely).is_none());
+    }
+
+    #[test]
+    fn auxiliary_open_skips_registry_validation_on_create_path() {
+        assert!(!should_validate_registry_for_auxiliary(true));
+        assert!(should_validate_registry_for_auxiliary(false));
     }
 }
