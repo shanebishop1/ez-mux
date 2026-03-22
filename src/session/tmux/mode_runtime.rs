@@ -61,6 +61,8 @@ fn switch_slot_mode_internal(
     shared_server: Option<&SharedServerAttachConfig>,
     prefer_assigned_worktree_cwd: bool,
 ) -> Result<(), SessionError> {
+    let startup_fast_path = use_startup_fast_path(prefer_assigned_worktree_cwd);
+
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
         return Err(SessionError::SlotRegistry(
             super::super::SlotRegistryError::InvalidSlotId { slot_id },
@@ -71,7 +73,10 @@ fn switch_slot_mode_internal(
         resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
     }
 
-    validate_canonical_slot_registry(session_name)?;
+    if !startup_fast_path {
+        validate_canonical_slot_registry(session_name)?;
+    }
+
     let slot_pane_key = format!("@ezm_slot_{slot_id}_pane");
     let slot_worktree_key = format!("@ezm_slot_{slot_id}_worktree");
     let slot_cwd_key = format!("@ezm_slot_{slot_id}_cwd");
@@ -82,21 +87,17 @@ fn switch_slot_mode_internal(
     let current_cwd = resolve_mode_switch_cwd(prefer_assigned_worktree_cwd, &worktree, || {
         capture_slot_cwd(session_name, slot_id, &pane_id, &slot_cwd_key, &worktree)
     })?;
-    let existing_mode = required_session_option(session_name, &slot_mode_key)?;
-    let existing_pane_cwd = required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_cwd")?;
-    let existing_pane_mode =
-        required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_mode")?;
-    let existing_pane_worktree =
-        required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_worktree")?;
-    let pane_slot_id = required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_id")?;
-    if pane_slot_id != slot_id.to_string() {
-        return Err(SessionError::TmuxCommandFailed {
-            command: format!("switch-slot-mode -t {session_name} --slot {slot_id}"),
-            stderr: format!(
-                "slot metadata mismatch: pane {pane_id} has @ezm_slot_id={pane_slot_id}"
-            ),
-        });
-    }
+    let previous = if startup_fast_path {
+        None
+    } else {
+        Some(load_previous_mode_metadata(
+            session_name,
+            slot_id,
+            &slot_cwd_key,
+            &slot_mode_key,
+            &pane_id,
+        )?)
+    };
 
     let contract = mode_launch_contract(mode);
     let launch_command = launch_command_for_mode(
@@ -110,13 +111,6 @@ fn switch_slot_mode_internal(
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
     respawn_slot_mode(&pane_id, &current_cwd, &launch_command)?;
 
-    let previous = ModeMetadataState {
-        session_cwd: required_session_option(session_name, &slot_cwd_key)?,
-        session_mode: existing_mode,
-        pane_cwd: existing_pane_cwd,
-        pane_mode: existing_pane_mode,
-        pane_worktree: existing_pane_worktree,
-    };
     let target = ModeMetadataState {
         session_cwd: current_cwd.clone(),
         session_mode: mode.label().to_owned(),
@@ -132,39 +126,87 @@ fn switch_slot_mode_internal(
         &pane_id,
         &target,
     ) {
-        return compensate_mode_metadata(
+        if let Some(previous) = previous.as_ref() {
+            return compensate_mode_metadata(
+                session_name,
+                slot_id,
+                &slot_cwd_key,
+                &slot_mode_key,
+                &pane_id,
+                previous,
+                error,
+            );
+        }
+
+        return Err(error);
+    }
+
+    if !startup_fast_path {
+        if let Err(error) = verify_mode_metadata(
             session_name,
             slot_id,
             &slot_cwd_key,
             &slot_mode_key,
             &pane_id,
-            &previous,
-            error,
-        );
+            &target,
+        ) {
+            let Some(previous) = previous.as_ref() else {
+                return Err(error);
+            };
+            return compensate_mode_metadata(
+                session_name,
+                slot_id,
+                &slot_cwd_key,
+                &slot_mode_key,
+                &pane_id,
+                previous,
+                error,
+            );
+        }
     }
 
-    if let Err(error) = verify_mode_metadata(
-        session_name,
-        slot_id,
-        &slot_cwd_key,
-        &slot_mode_key,
-        &pane_id,
-        &target,
-    ) {
-        return compensate_mode_metadata(
-            session_name,
-            slot_id,
-            &slot_cwd_key,
-            &slot_mode_key,
-            &pane_id,
-            &previous,
-            error,
-        );
+    if !startup_fast_path {
+        validate_canonical_slot_registry(session_name)?;
     }
 
-    validate_canonical_slot_registry(session_name)?;
     refresh_active_border_for_slot(session_name, slot_id)?;
     Ok(())
+}
+
+fn use_startup_fast_path(prefer_assigned_worktree_cwd: bool) -> bool {
+    prefer_assigned_worktree_cwd
+}
+
+fn load_previous_mode_metadata(
+    session_name: &str,
+    slot_id: u8,
+    slot_cwd_key: &str,
+    slot_mode_key: &str,
+    pane_id: &str,
+) -> Result<ModeMetadataState, SessionError> {
+    let existing_mode = required_session_option(session_name, slot_mode_key)?;
+    let existing_pane_cwd = required_pane_option(session_name, slot_id, pane_id, "@ezm_slot_cwd")?;
+    let existing_pane_mode =
+        required_pane_option(session_name, slot_id, pane_id, "@ezm_slot_mode")?;
+    let existing_pane_worktree =
+        required_pane_option(session_name, slot_id, pane_id, "@ezm_slot_worktree")?;
+    let pane_slot_id = required_pane_option(session_name, slot_id, pane_id, "@ezm_slot_id")?;
+    if pane_slot_id != slot_id.to_string() {
+        return Err(SessionError::TmuxCommandFailed {
+            command: format!("switch-slot-mode -t {session_name} --slot {slot_id}"),
+            stderr: format!(
+                "slot metadata mismatch: pane {pane_id} has @ezm_slot_id={pane_slot_id}"
+            ),
+        });
+    }
+
+    Ok(ModeMetadataState {
+        session_cwd: required_session_option(session_name, slot_cwd_key)?,
+        session_mode: existing_mode,
+        pane_cwd: existing_pane_cwd,
+        pane_mode: existing_pane_mode,
+        pane_worktree: existing_pane_worktree,
+    })
 }
 
 fn launch_command_for_mode(
