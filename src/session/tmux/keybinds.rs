@@ -255,7 +255,7 @@ fn toggle_mode_command(ezm_bin: &str) -> String {
 
 fn popup_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --client \"#{{client_tty}}\" </dev/null >/dev/null 2>&1"
     )
 }
 
@@ -364,15 +364,15 @@ mod tests {
     }
 
     #[test]
-    fn popup_command_does_not_force_client_target() {
+    fn popup_command_targets_client_tty_for_keybind_context() {
         let rendered = popup_command("'ezm'");
-        assert!(!rendered.contains("--client"));
+        assert!(rendered.contains("--client \"#{client_tty}\""));
     }
 
     #[test]
     fn popup_command_avoids_client_interpolation_and_closes_stdio() {
         let rendered = popup_command("'ezm'");
-        assert!(!rendered.contains("--client"));
+        assert!(rendered.contains("--client \"#{client_tty}\""));
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
     }
 
