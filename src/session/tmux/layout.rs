@@ -207,7 +207,7 @@ fn should_validate_registry_after_bootstrap() -> bool {
 }
 
 fn should_apply_runtime_styles_during_bootstrap() -> bool {
-    false
+    true
 }
 
 fn startup_mode_for_slot(_slot_id: u8, _populated_slots: usize) -> &'static str {
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_defers_runtime_style_application() {
-        assert!(!should_apply_runtime_styles_during_bootstrap());
+    fn bootstrap_applies_runtime_style_on_first_attach() {
+        assert!(should_apply_runtime_styles_during_bootstrap());
     }
 }
