@@ -288,8 +288,7 @@ mod tests {
             _: &str,
             _: u8,
             _: SlotMode,
-            _: Option<&str>,
-            _: Option<&str>,
+            _: crate::session::RemoteModeContext<'_>,
             _: Option<&crate::session::SharedServerAttachConfig>,
         ) -> Result<(), crate::session::SessionError> {
             Ok(())
@@ -299,6 +298,9 @@ mod tests {
             &self,
             _: &str,
             _: u8,
+            _: Option<&str>,
+            _: Option<&str>,
+            _: Option<&str>,
             _: Option<&str>,
         ) -> Result<PopupShellOutcome, crate::session::SessionError> {
             unreachable!()

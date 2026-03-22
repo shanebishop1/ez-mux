@@ -2,17 +2,25 @@ use super::SessionError;
 use super::command::{tmux_output, tmux_output_value, tmux_run};
 use super::options::{required_session_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
-use crate::session::{PopupShellAction, PopupShellOutcome};
+use crate::config::{EZM_REMOTE_SERVER_URL_ENV, OPERATOR_ENV};
+use crate::session::{
+    PopupShellAction, PopupShellOutcome, resolve_operator_identity_for_remote_prefix,
+    resolve_remote_path,
+};
 
 const POPUP_WIDTH_PCT: u8 = 70;
 const POPUP_HEIGHT_PCT: u8 = 70;
 const POPUP_PARENT_CLEANUP_HOOK_MARKER: &str = "EZM_POPUP_PARENT_CLEANUP_V2";
 const POPUP_PARENT_CLEANUP_LEGACY_INTERNAL_MARKER: &str = "__internal popup-parent-closed";
+const EZM_REMOTE_DIR_ENV: &str = "EZM_REMOTE_DIR";
 
 pub(super) fn toggle_popup_shell(
     session_name: &str,
     slot_id: u8,
     client_tty: Option<&str>,
+    operator: Option<&str>,
+    remote_prefix: Option<&str>,
+    remote_server_url: Option<&str>,
 ) -> Result<PopupShellOutcome, SessionError> {
     validate_canonical_slot_registry(session_name)?;
     reconcile_popup_parent_cleanup_hook()?;
@@ -20,6 +28,8 @@ pub(super) fn toggle_popup_shell(
     let origin_slot_pane =
         required_session_option(session_name, &format!("@ezm_slot_{slot_id}_pane"))?;
     let cwd = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_cwd"))?;
+    let remote_context =
+        resolve_popup_remote_context(&cwd, remote_prefix, operator, remote_server_url)?;
     let popup_session = popup_session_name(session_name, slot_id);
 
     if !session_exists(&popup_session)? {
@@ -37,6 +47,7 @@ pub(super) fn toggle_popup_shell(
     )?;
     set_session_option(&popup_session, "@ezm_popup_origin_pane", &origin_slot_pane)?;
     set_session_option(&popup_session, "@ezm_popup_cwd", &cwd)?;
+    apply_popup_remote_context_environment(&popup_session, remote_context.as_ref())?;
     disable_popup_session_auto_destroy(&popup_session)?;
     show_popup(&origin_slot_pane, &popup_session, &cwd, client_tty)?;
 
@@ -53,6 +64,68 @@ pub(super) fn toggle_popup_shell(
 
 fn popup_session_name(session_name: &str, slot_id: u8) -> String {
     format!("{session_name}__popup_slot_{slot_id}")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PopupRemoteContext {
+    remote_dir: String,
+    operator: String,
+    remote_server_url: Option<String>,
+}
+
+fn resolve_popup_remote_context(
+    cwd: &str,
+    remote_prefix: Option<&str>,
+    operator: Option<&str>,
+    remote_server_url: Option<&str>,
+) -> Result<Option<PopupRemoteContext>, SessionError> {
+    let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_prefix)?;
+    if !resolved.remapped {
+        return Ok(None);
+    }
+
+    let resolved_operator = resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
+    let resolved_operator =
+        resolved_operator.ok_or(SessionError::MissingOperatorForRemotePrefix)?;
+
+    Ok(Some(PopupRemoteContext {
+        remote_dir: resolved.effective_path.display().to_string(),
+        operator: resolved_operator,
+        remote_server_url: remote_server_url
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned),
+    }))
+}
+
+fn apply_popup_remote_context_environment(
+    popup_session: &str,
+    remote_context: Option<&PopupRemoteContext>,
+) -> Result<(), SessionError> {
+    if let Some(context) = remote_context {
+        set_session_environment(popup_session, EZM_REMOTE_DIR_ENV, &context.remote_dir)?;
+        set_session_environment(popup_session, OPERATOR_ENV, &context.operator)?;
+
+        if let Some(server_url) = context.remote_server_url.as_deref() {
+            set_session_environment(popup_session, EZM_REMOTE_SERVER_URL_ENV, server_url)?;
+        } else {
+            unset_session_environment(popup_session, EZM_REMOTE_SERVER_URL_ENV)?;
+        }
+    } else {
+        unset_session_environment(popup_session, EZM_REMOTE_DIR_ENV)?;
+        unset_session_environment(popup_session, OPERATOR_ENV)?;
+        unset_session_environment(popup_session, EZM_REMOTE_SERVER_URL_ENV)?;
+    }
+
+    Ok(())
+}
+
+fn set_session_environment(session_name: &str, key: &str, value: &str) -> Result<(), SessionError> {
+    tmux_run(&["set-environment", "-t", session_name, key, value])
+}
+
+fn unset_session_environment(session_name: &str, key: &str) -> Result<(), SessionError> {
+    tmux_run(&["set-environment", "-t", session_name, "-u", key])
 }
 
 pub(super) fn reconcile_popup_parent_cleanup_hook() -> Result<(), SessionError> {
@@ -243,7 +316,7 @@ mod tests {
     use super::{
         hooks_contain_popup_parent_cleanup, popup_attach_command, popup_cleanup_hook_names,
         popup_display_args, popup_new_session_args, popup_parent_cleanup_hook_command,
-        popup_persistence_args,
+        popup_persistence_args, resolve_popup_remote_context,
     };
 
     #[test]
@@ -353,6 +426,62 @@ mod tests {
         assert_eq!(
             popup_cleanup_hook_names(hooks),
             vec![String::from("session-closed[2]")]
+        );
+    }
+
+    #[test]
+    fn popup_remote_context_is_none_when_remote_remap_is_inactive() {
+        let context = resolve_popup_remote_context("/tmp/local", None, None, None)
+            .expect("context should resolve");
+        assert!(context.is_none());
+    }
+
+    #[test]
+    fn popup_remote_context_requires_operator_when_remote_remap_is_active() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("alpha");
+        std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+
+        let error = resolve_popup_remote_context(
+            &repo_root.display().to_string(),
+            Some("/srv/remotes"),
+            None,
+            None,
+        )
+        .expect_err("missing operator should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("remote-prefix routing requires OPERATOR")
+        );
+    }
+
+    #[test]
+    fn popup_remote_context_includes_optional_server_url_when_configured() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let repo_root = temp.path().join("alpha");
+        let nested = repo_root.join("feature");
+        std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+        std::fs::create_dir_all(&nested).expect("create nested");
+
+        let context = resolve_popup_remote_context(
+            &nested.display().to_string(),
+            Some("/srv/remotes"),
+            Some("alice"),
+            Some(" https://shell.remote.example:7443 "),
+        )
+        .expect("context should resolve")
+        .expect("context should be present");
+
+        assert_eq!(
+            context.remote_dir,
+            String::from("/srv/remotes/alpha/feature")
+        );
+        assert_eq!(context.operator, String::from("alice"));
+        assert_eq!(
+            context.remote_server_url,
+            Some(String::from("https://shell.remote.example:7443"))
         );
     }
 }

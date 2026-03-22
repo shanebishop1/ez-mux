@@ -10,7 +10,7 @@ use super::options::{
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::refresh_active_border_for_slot;
 use crate::session::{
-    SharedServerAttachConfig, TeardownHook, mode_launch_contract,
+    RemoteModeContext, SharedServerAttachConfig, TeardownHook, mode_launch_contract,
     resolve_operator_identity_for_remote_prefix, resolve_remote_path,
 };
 
@@ -18,8 +18,7 @@ pub(super) fn switch_slot_mode(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
-    operator: Option<&str>,
-    remote_prefix: Option<&str>,
+    remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
 ) -> Result<(), SessionError> {
     let startup = startup_mode_signal_present();
@@ -27,8 +26,7 @@ pub(super) fn switch_slot_mode(
         session_name,
         slot_id,
         mode,
-        operator,
-        remote_prefix,
+        remote_context,
         shared_server,
         startup,
     )
@@ -38,8 +36,7 @@ fn switch_slot_mode_internal(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
-    operator: Option<&str>,
-    remote_prefix: Option<&str>,
+    remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
     prefer_assigned_worktree_cwd: bool,
 ) -> Result<(), SessionError> {
@@ -52,7 +49,10 @@ fn switch_slot_mode_internal(
     }
 
     if matches!(mode, SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit) {
-        resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
+        resolve_operator_identity_for_remote_prefix(
+            remote_context.remote_prefix,
+            remote_context.operator,
+        )?;
     }
 
     if !startup_fast_path {
@@ -86,8 +86,7 @@ fn switch_slot_mode_internal(
         mode,
         &contract.launch_command,
         &current_cwd,
-        remote_prefix,
-        operator,
+        remote_context,
         shared_server,
     )?;
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
@@ -205,22 +204,16 @@ fn launch_command_for_mode(
     mode: SlotMode,
     launch_command: &str,
     cwd: &str,
-    remote_prefix: Option<&str>,
-    operator: Option<&str>,
+    remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
 ) -> Result<String, SessionError> {
     match mode {
         SlotMode::Agent => match shared_server {
-            Some(config) => launch_agent_attach_command(cwd, remote_prefix, config),
+            Some(config) => launch_agent_attach_command(cwd, remote_context.remote_prefix, config),
             None => Ok(launch_command.to_owned()),
         },
         SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit => {
-            launch_command_with_remote_dir_from_mapping(
-                launch_command,
-                cwd,
-                remote_prefix,
-                operator,
-            )
+            launch_command_with_remote_dir_from_mapping(launch_command, cwd, remote_context)
         }
     }
 }
@@ -268,24 +261,43 @@ fn launch_agent_attach_command(
 fn launch_command_with_remote_dir_from_mapping(
     launch_command: &str,
     cwd: &str,
-    remote_prefix: Option<&str>,
-    operator: Option<&str>,
+    remote_context: RemoteModeContext<'_>,
 ) -> Result<String, SessionError> {
-    let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_prefix)?;
+    let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_context.remote_prefix)?;
 
     if !resolved.remapped {
         return Ok(launch_command.to_owned());
     }
 
-    let resolved_operator = resolve_operator_identity_for_remote_prefix(remote_prefix, operator)?;
+    let resolved_operator = resolve_operator_identity_for_remote_prefix(
+        remote_context.remote_prefix,
+        remote_context.operator,
+    )?;
     let resolved_operator =
         resolved_operator.ok_or(SessionError::MissingOperatorForRemotePrefix)?;
 
-    Ok(format!(
-        "export EZM_REMOTE_DIR='{}'; export OPERATOR='{}'; {launch_command}",
-        escape_single_quotes(&resolved.effective_path.display().to_string()),
-        escape_single_quotes(&resolved_operator)
-    ))
+    let mut exports = vec![
+        format!(
+            "export EZM_REMOTE_DIR='{}'",
+            escape_single_quotes(&resolved.effective_path.display().to_string())
+        ),
+        format!(
+            "export OPERATOR='{}'",
+            escape_single_quotes(&resolved_operator)
+        ),
+    ];
+    if let Some(server_url) = remote_context
+        .remote_server_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        exports.push(format!(
+            "export EZM_REMOTE_SERVER_URL='{}'",
+            escape_single_quotes(server_url)
+        ));
+    }
+
+    Ok(format!("{}; {launch_command}", exports.join("; ")))
 }
 
 #[cfg(test)]

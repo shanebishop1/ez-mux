@@ -205,8 +205,7 @@ impl TmuxClient for InterruptingTmuxClient {
         _: &str,
         _: u8,
         _: SlotMode,
-        _: Option<&str>,
-        _: Option<&str>,
+        _: crate::session::RemoteModeContext<'_>,
         _: Option<&crate::session::SharedServerAttachConfig>,
     ) -> Result<(), SessionError> {
         Ok(())
@@ -216,6 +215,9 @@ impl TmuxClient for InterruptingTmuxClient {
         &self,
         _: &str,
         _: u8,
+        _: Option<&str>,
+        _: Option<&str>,
+        _: Option<&str>,
         _: Option<&str>,
     ) -> Result<PopupShellOutcome, SessionError> {
         Err(SessionError::TmuxCommandFailed {
@@ -321,6 +323,10 @@ fn remote_runtime_resolution(remote_prefix: Option<&str>) -> RemoteRuntimeResolu
         remote_dir_prefix: ResolvedValue {
             value: remote_prefix.map(String::from),
             source: remote_source,
+        },
+        remote_server_url: ResolvedValue {
+            value: Some(String::from("https://shell.remote.example:7443")),
+            source: ValueSource::Env,
         },
         shared_server: SharedServerRuntimeResolution {
             url: ResolvedValue {

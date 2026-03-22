@@ -144,6 +144,8 @@ fn remote_runtime_prefers_env_over_file_values() {
 
     let file = FileConfig {
         operator: None,
+        ezm_remote_dir_prefix: None,
+        ezm_remote_server_url: None,
         opencode_remote_dir_prefix: Some(String::from("/file/remotes")),
         opencode_server_url: Some(String::from("https://file.example:4096")),
         opencode_server_host: Some(String::from("file-host")),
@@ -181,10 +183,149 @@ fn remote_runtime_prefers_env_over_file_values() {
 }
 
 #[test]
+fn remote_runtime_prefers_ezm_env_remote_prefix_over_legacy_env_fallback() {
+    let mut env = HashMap::new();
+    env.insert(
+        String::from(EZM_REMOTE_DIR_PREFIX_ENV),
+        String::from("/ezm/env-remotes"),
+    );
+    env.insert(
+        String::from(OPENCODE_REMOTE_DIR_PREFIX_ENV),
+        String::from("/legacy/env-remotes"),
+    );
+
+    let file = FileConfig {
+        operator: None,
+        ezm_remote_dir_prefix: None,
+        ezm_remote_server_url: None,
+        opencode_remote_dir_prefix: Some(String::from("/legacy/file-remotes")),
+        opencode_server_url: None,
+        opencode_server_host: None,
+        opencode_server_port: None,
+        opencode_server_password: None,
+    };
+
+    let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.remote_dir_prefix,
+        ResolvedValue {
+            value: Some(String::from("/ezm/env-remotes")),
+            source: ValueSource::Env,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_prefers_ezm_file_remote_prefix_over_legacy_file_key() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        "ezm_remote_dir_prefix = '/ezm/file-remotes'\nopencode_remote_dir_prefix = '/legacy/file-remotes'\n",
+    )
+    .expect("write config");
+
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
+
+    let loaded = load_config(&env, OperatingSystem::Linux).expect("load should succeed");
+    let resolved = resolve_remote_runtime(&env, &loaded.values).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.remote_dir_prefix,
+        ResolvedValue {
+            value: Some(String::from("/ezm/file-remotes")),
+            source: ValueSource::File,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_prefers_ezm_remote_server_url_env_over_file() {
+    let mut env = HashMap::new();
+    env.insert(
+        String::from(EZM_REMOTE_SERVER_URL_ENV),
+        String::from("https://shell.env.example:7443"),
+    );
+
+    let file = FileConfig {
+        ezm_remote_server_url: Some(String::from("https://shell.file.example:8443")),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.remote_server_url,
+        ResolvedValue {
+            value: Some(String::from("https://shell.env.example:7443")),
+            source: ValueSource::Env,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_uses_ezm_remote_server_url_file_when_env_missing() {
+    let env = HashMap::<String, String>::new();
+    let file = FileConfig {
+        ezm_remote_server_url: Some(String::from("https://shell.file.example:8443")),
+        opencode_server_url: Some(String::from("https://shared.attach.example:4096")),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.remote_server_url,
+        ResolvedValue {
+            value: Some(String::from("https://shell.file.example:8443")),
+            source: ValueSource::File,
+        }
+    );
+    assert_eq!(
+        resolved.shared_server.url,
+        ResolvedValue {
+            value: Some(String::from("https://shared.attach.example:4096")),
+            source: ValueSource::File,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_does_not_reuse_opencode_server_url_as_shell_remote_server_url() {
+    let mut env = HashMap::new();
+    env.insert(
+        String::from(OPENCODE_SERVER_URL_ENV),
+        String::from("https://shared.attach.example:4096"),
+    );
+
+    let resolved =
+        resolve_remote_runtime(&env, &FileConfig::default()).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.remote_server_url,
+        ResolvedValue {
+            value: None,
+            source: ValueSource::Default,
+        }
+    );
+    assert_eq!(
+        resolved.shared_server.url,
+        ResolvedValue {
+            value: Some(String::from("https://shared.attach.example:4096")),
+            source: ValueSource::Env,
+        }
+    );
+}
+
+#[test]
 fn remote_runtime_uses_config_when_env_is_missing() {
     let env = HashMap::<String, String>::new();
     let file = FileConfig {
         operator: None,
+        ezm_remote_dir_prefix: None,
+        ezm_remote_server_url: None,
         opencode_remote_dir_prefix: Some(String::from("/file/remotes")),
         opencode_server_url: None,
         opencode_server_host: Some(String::from("server.internal")),
@@ -351,6 +492,8 @@ fn operator_env_constant_is_contract_stable() {
 
 #[test]
 fn remote_shared_server_env_constants_are_contract_stable() {
+    assert_eq!(EZM_REMOTE_DIR_PREFIX_ENV, "EZM_REMOTE_DIR_PREFIX");
+    assert_eq!(EZM_REMOTE_SERVER_URL_ENV, "EZM_REMOTE_SERVER_URL");
     assert_eq!(OPENCODE_REMOTE_DIR_PREFIX_ENV, "OPENCODE_REMOTE_DIR_PREFIX");
     assert_eq!(OPENCODE_SERVER_URL_ENV, "OPENCODE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_HOST_ENV, "OPENCODE_SERVER_HOST");

@@ -7,6 +7,7 @@ use super::DEFAULT_CENTER_WIDTH_PCT;
 use super::LayoutPreset;
 use super::PaneWidthSample;
 use super::PopupShellOutcome;
+use super::RemoteModeContext;
 use super::SessionError;
 use super::SharedServerAttachConfig;
 use super::SlotMode;
@@ -108,8 +109,7 @@ pub trait TmuxClient {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
-        operator: Option<&str>,
-        remote_prefix: Option<&str>,
+        remote_context: RemoteModeContext<'_>,
         shared_server: Option<&SharedServerAttachConfig>,
     ) -> Result<(), SessionError>;
 
@@ -123,6 +123,9 @@ pub trait TmuxClient {
         session_name: &str,
         slot_id: u8,
         client_tty: Option<&str>,
+        operator: Option<&str>,
+        remote_prefix: Option<&str>,
+        remote_server_url: Option<&str>,
     ) -> Result<PopupShellOutcome, SessionError>;
 
     /// Creates/reuses or closes the auxiliary viewer window.
@@ -246,18 +249,10 @@ impl TmuxClient for ProcessTmuxClient {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
-        operator: Option<&str>,
-        remote_prefix: Option<&str>,
+        remote_context: RemoteModeContext<'_>,
         shared_server: Option<&SharedServerAttachConfig>,
     ) -> Result<(), SessionError> {
-        mode_runtime::switch_slot_mode(
-            session_name,
-            slot_id,
-            mode,
-            operator,
-            remote_prefix,
-            shared_server,
-        )
+        mode_runtime::switch_slot_mode(session_name, slot_id, mode, remote_context, shared_server)
     }
 
     fn toggle_popup_shell(
@@ -265,8 +260,18 @@ impl TmuxClient for ProcessTmuxClient {
         session_name: &str,
         slot_id: u8,
         client_tty: Option<&str>,
+        operator: Option<&str>,
+        remote_prefix: Option<&str>,
+        remote_server_url: Option<&str>,
     ) -> Result<PopupShellOutcome, SessionError> {
-        popup::toggle_popup_shell(session_name, slot_id, client_tty)
+        popup::toggle_popup_shell(
+            session_name,
+            slot_id,
+            client_tty,
+            operator,
+            remote_prefix,
+            remote_server_url,
+        )
     }
 
     fn auxiliary_viewer(
