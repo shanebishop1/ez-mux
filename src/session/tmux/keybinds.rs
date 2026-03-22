@@ -182,7 +182,17 @@ fn install_popup_toggle_binding(ezm_bin: &str) -> Result<(), SessionError> {
 }
 
 fn install_popup_context_detach_binding() -> Result<(), SessionError> {
-    tmux_run(&["bind-key", "-T", "prefix", DETACH_KEY, "detach-client"])
+    tmux_run(&[
+        "bind-key",
+        "-T",
+        "prefix",
+        DETACH_KEY,
+        "if-shell",
+        "-F",
+        "#{@ezm_popup_origin_session}",
+        popup_hard_close_action(),
+        "detach-client",
+    ])
 }
 
 fn popup_toggle_open_action(ezm_bin: &str) -> String {
@@ -191,6 +201,10 @@ fn popup_toggle_open_action(ezm_bin: &str) -> String {
         "run-shell -b \"{}\"",
         shell_escape_double_quoted(&popup_open_command)
     )
+}
+
+fn popup_hard_close_action() -> &'static str {
+    "kill-session"
 }
 
 fn install_run_shell_binding(table: &str, key: &str, command: &str) -> Result<(), SessionError> {
@@ -345,8 +359,9 @@ mod tests {
 
     use super::{
         ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
-        popup_command, popup_toggle_open_action, resolve_ezm_bin, shell_command_token,
-        should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
+        popup_command, popup_hard_close_action, popup_toggle_open_action, resolve_ezm_bin,
+        shell_command_token, should_clear_existing_keybinds_before_install, swap_command,
+        toggle_mode_command,
     };
 
     #[test]
@@ -444,6 +459,11 @@ mod tests {
         assert!(rendered.contains("--session \\\"#{?#{@ezm_popup_origin_session}"));
         assert!(rendered.ends_with("2>&1\""));
         assert!(!rendered.contains("'\"'\"'"));
+    }
+
+    #[test]
+    fn popup_hard_close_action_targets_current_popup_session() {
+        assert_eq!(popup_hard_close_action(), "kill-session");
     }
 
     #[test]

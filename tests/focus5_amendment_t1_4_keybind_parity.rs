@@ -410,7 +410,10 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         && swap_slot_binding.contains("run-shell -b")
         && mode_binding.contains("run-shell -b")
         && popup_binding.contains("run-shell -b");
-    let popup_detach_shell_safe = popup_detach_binding.contains("detach-client")
+    let popup_detach_shell_safe = popup_detach_binding
+        .contains("if-shell -F \"#{@ezm_popup_origin_session}\"")
+        && popup_detach_binding.contains("kill-session")
+        && popup_detach_binding.contains("detach-client")
         && !popup_detach_binding.contains("run-shell -b")
         && !popup_detach_binding.contains("'\"'\"'")
         && !popup_detach_binding.contains("\"'")

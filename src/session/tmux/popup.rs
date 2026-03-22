@@ -2,7 +2,6 @@ use super::SessionError;
 use super::command::{tmux_output, tmux_output_value, tmux_run};
 use super::options::{required_session_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
-use super::style::refresh_active_border_for_slot;
 use crate::session::{PopupShellAction, PopupShellOutcome};
 
 const POPUP_WIDTH_PCT: u8 = 70;
@@ -21,24 +20,11 @@ pub(super) fn toggle_popup_shell(
     let cwd = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_cwd"))?;
     let popup_session = popup_session_name(session_name, slot_id);
 
-    if session_exists(&popup_session)? {
-        tmux_run(&["kill-session", "-t", &popup_session])?;
-        let _ = refresh_active_border_for_slot(session_name, slot_id);
-        let _ = tmux_run(&["select-pane", "-t", &origin_slot_pane]);
-        persist_popup_defaults(session_name)?;
-        return Ok(PopupShellOutcome {
-            session_name: session_name.to_owned(),
-            slot_id,
-            action: PopupShellAction::Closed,
-            cwd,
-            width_pct: POPUP_WIDTH_PCT,
-            height_pct: POPUP_HEIGHT_PCT,
-        });
+    if !session_exists(&popup_session)? {
+        let create_args = popup_new_session_args(&popup_session, &cwd);
+        let create_args_ref = create_args.iter().map(String::as_str).collect::<Vec<_>>();
+        tmux_run(&create_args_ref)?;
     }
-
-    let create_args = popup_new_session_args(&popup_session, &cwd);
-    let create_args_ref = create_args.iter().map(String::as_str).collect::<Vec<_>>();
-    tmux_run(&create_args_ref)?;
 
     persist_popup_defaults(session_name)?;
     set_session_option(&popup_session, "@ezm_popup_origin_session", session_name)?;
@@ -49,8 +35,8 @@ pub(super) fn toggle_popup_shell(
     )?;
     set_session_option(&popup_session, "@ezm_popup_origin_pane", &origin_slot_pane)?;
     set_session_option(&popup_session, "@ezm_popup_cwd", &cwd)?;
+    disable_popup_session_auto_destroy(&popup_session)?;
     show_popup(&origin_slot_pane, &popup_session, &cwd, client_tty)?;
-    enable_popup_session_auto_destroy(&popup_session)?;
 
     validate_canonical_slot_registry(session_name)?;
     Ok(PopupShellOutcome {
@@ -140,19 +126,19 @@ fn popup_attach_command(popup_session: &str) -> String {
     )
 }
 
-fn enable_popup_session_auto_destroy(popup_session: &str) -> Result<(), SessionError> {
-    let args = popup_destroy_unattached_args(popup_session);
+fn disable_popup_session_auto_destroy(popup_session: &str) -> Result<(), SessionError> {
+    let args = popup_persistence_args(popup_session);
     let args_ref = args.iter().map(String::as_str).collect::<Vec<_>>();
     tmux_run(&args_ref)
 }
 
-fn popup_destroy_unattached_args(popup_session: &str) -> Vec<String> {
+fn popup_persistence_args(popup_session: &str) -> Vec<String> {
     vec![
         String::from("set-option"),
         String::from("-t"),
         popup_session.to_owned(),
         String::from("destroy-unattached"),
-        String::from("on"),
+        String::from("off"),
     ]
 }
 
@@ -213,8 +199,8 @@ fn persist_popup_defaults(session_name: &str) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        popup_attach_command, popup_cleanup_hook_names, popup_destroy_unattached_args,
-        popup_display_args, popup_new_session_args,
+        popup_attach_command, popup_cleanup_hook_names, popup_display_args, popup_new_session_args,
+        popup_persistence_args,
     };
 
     #[test]
@@ -257,8 +243,8 @@ mod tests {
     }
 
     #[test]
-    fn popup_helper_sessions_enable_destroy_unattached() {
-        let args = popup_destroy_unattached_args("ezm-s100__popup_slot_4");
+    fn popup_helper_sessions_disable_destroy_unattached_for_reopen_toggle() {
+        let args = popup_persistence_args("ezm-s100__popup_slot_4");
         assert_eq!(
             args,
             vec![
@@ -266,7 +252,7 @@ mod tests {
                 String::from("-t"),
                 String::from("ezm-s100__popup_slot_4"),
                 String::from("destroy-unattached"),
-                String::from("on"),
+                String::from("off"),
             ]
         );
     }
