@@ -167,8 +167,7 @@ fn install_mode_bindings(ezm_bin: &str) -> Result<(), SessionError> {
 }
 
 fn install_popup_context_detach_binding(ezm_bin: &str) -> Result<(), SessionError> {
-    let popup_close_command = popup_close_from_popup_context_command(ezm_bin);
-    let popup_close_action = format!("run-shell -b {popup_close_command}");
+    let popup_close_action = popup_context_detach_action(ezm_bin);
     tmux_run(&[
         "bind-key",
         "-T",
@@ -180,6 +179,11 @@ fn install_popup_context_detach_binding(ezm_bin: &str) -> Result<(), SessionErro
         &popup_close_action,
         "detach-client",
     ])
+}
+
+fn popup_context_detach_action(ezm_bin: &str) -> String {
+    let popup_close_command = popup_close_from_popup_context_command(ezm_bin);
+    format!("run-shell -b {}", shell_single_quote(&popup_close_command))
 }
 
 fn install_run_shell_binding(table: &str, key: &str, command: &str) -> Result<(), SessionError> {
@@ -323,8 +327,9 @@ mod tests {
 
     use super::{
         ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
-        popup_close_from_popup_context_command, popup_command, resolve_ezm_bin, shell_single_quote,
-        should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
+        popup_close_from_popup_context_command, popup_command, popup_context_detach_action,
+        resolve_ezm_bin, shell_single_quote, should_clear_existing_keybinds_before_install,
+        swap_command, toggle_mode_command,
     };
 
     #[test]
@@ -421,6 +426,14 @@ mod tests {
         assert!(rendered.contains("--slot \"#{@ezm_popup_origin_slot}\""));
         assert!(rendered.contains("--client \"#{client_tty}\""));
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn popup_detach_action_quotes_internal_popup_command_as_single_argument() {
+        let rendered = popup_context_detach_action("'ezm'");
+        assert!(rendered.starts_with("run-shell -b '"));
+        assert!(rendered.contains("__internal popup"));
+        assert!(rendered.ends_with("2>&1'"));
     }
 
     #[test]
