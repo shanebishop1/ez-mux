@@ -274,6 +274,8 @@ fn attach_visibility_label() -> &'static str {
 fn shared_server_attach_config(
     remote_runtime: &config::RemoteRuntimeResolution,
 ) -> Option<session::SharedServerAttachConfig> {
+    remote_runtime.remote_dir_prefix.value.as_ref()?;
+
     let explicit = remote_runtime.shared_server.url.source != ValueSource::Default
         || remote_runtime.shared_server.host.source != ValueSource::Default
         || remote_runtime.shared_server.port.source != ValueSource::Default
