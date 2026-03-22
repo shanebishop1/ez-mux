@@ -1,0 +1,162 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to release (for example: v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve package tag
+        id: meta
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v ]]; then
+            echo "Tag must start with 'v' but got '$TAG'" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked --bin ezm --target "${{ matrix.target }}"
+
+      - name: Package archive
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/ezm" "dist/ezm"
+          tar -czf "dist/ezm-${{ steps.meta.outputs.tag }}-${{ matrix.target }}.tar.gz" -C dist ezm
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezm-${{ steps.meta.outputs.tag }}-${{ matrix.target }}
+          path: dist/ezm-${{ steps.meta.outputs.tag }}-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v ]]; then
+            echo "Tag must start with 'v' but got '$TAG'" >&2
+            exit 1
+          fi
+          SHA="$(git rev-list -n 1 "$TAG")"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "tag=$TAG"
+            echo "sha=$SHA"
+            echo "run_url=$RUN_URL"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ezm-${{ steps.meta.outputs.tag }}-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          MANIFEST="ezm-${TAG}-checksums.txt"
+          (
+            cd dist
+            sha256sum "ezm-${TAG}-"*.tar.gz | LC_ALL=C sort > "$MANIFEST"
+          )
+
+      - name: Record SBOM status
+        id: sbom
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          STATUS_FILE="dist/ezm-${TAG}-sbom-status.txt"
+          echo "SBOM: skipped for this run (emission not configured in release workflow)." > "$STATUS_FILE"
+          echo "status=skipped" >> "$GITHUB_OUTPUT"
+
+      - name: Render release notes from template
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_SHA: ${{ steps.meta.outputs.sha }}
+          RELEASE_RUN_URL: ${{ steps.meta.outputs.run_url }}
+          RELEASE_SBOM_STATUS: ${{ steps.sbom.outputs.status }}
+          RELEASE_COLLAB_INSTALL_DOC_URL: https://github.com/${{ github.repository }}/blob/${{ steps.meta.outputs.tag }}/docs/testing/github-release-install.md
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          template_path = Path('.github/release-notes-template.md')
+          output_path = Path('dist/release-notes.md')
+
+          replacements = {
+              '__TAG__': os.environ['RELEASE_TAG'],
+              '__COMMIT_SHA__': os.environ['RELEASE_SHA'],
+              '__WORKFLOW_RUN_URL__': os.environ['RELEASE_RUN_URL'],
+              '__SBOM_STATUS__': os.environ['RELEASE_SBOM_STATUS'],
+              '__COLLAB_INSTALL_DOC_URL__': os.environ['RELEASE_COLLAB_INSTALL_DOC_URL'],
+          }
+
+          content = template_path.read_text(encoding='utf-8')
+          for key, value in replacements.items():
+              content = content.replace(key, value)
+
+          output_path.write_text(content, encoding='utf-8')
+          PY
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ steps.meta.outputs.sha }}
+          files: |
+            dist/ezm-${{ steps.meta.outputs.tag }}-*.tar.gz
+            dist/ezm-${{ steps.meta.outputs.tag }}-checksums.txt
+            dist/ezm-${{ steps.meta.outputs.tag }}-sbom-status.txt
+          fail_on_unmatched_files: true
+          body_path: dist/release-notes.md
