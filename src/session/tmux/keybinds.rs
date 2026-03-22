@@ -154,38 +154,42 @@ fn install_mode_bindings(ezm_bin: &str) -> Result<(), SessionError> {
         (SHELL_MODE_KEY, mode_command(ezm_bin, "shell")),
         (NEOVIM_MODE_KEY, mode_command(ezm_bin, "neovim")),
         (LAZYGIT_MODE_KEY, mode_command(ezm_bin, "lazygit")),
-        (POPUP_KEY, popup_command(ezm_bin)),
     ];
 
     for (key, command) in mode_bindings {
         install_run_shell_binding("prefix", key, &command)?;
     }
 
-    install_popup_context_detach_binding(ezm_bin)?;
+    install_popup_toggle_binding(ezm_bin)?;
+    install_popup_context_detach_binding()?;
 
     Ok(())
 }
 
-fn install_popup_context_detach_binding(ezm_bin: &str) -> Result<(), SessionError> {
-    let popup_close_action = popup_context_detach_action(ezm_bin);
+fn install_popup_toggle_binding(ezm_bin: &str) -> Result<(), SessionError> {
+    let popup_open_action = popup_toggle_open_action(ezm_bin);
     tmux_run(&[
         "bind-key",
         "-T",
         "prefix",
-        DETACH_KEY,
+        POPUP_KEY,
         "if-shell",
         "-F",
         "#{@ezm_popup_origin_session}",
-        &popup_close_action,
         "detach-client",
+        &popup_open_action,
     ])
 }
 
-fn popup_context_detach_action(ezm_bin: &str) -> String {
-    let popup_close_command = popup_close_from_popup_context_command(ezm_bin);
+fn install_popup_context_detach_binding() -> Result<(), SessionError> {
+    tmux_run(&["bind-key", "-T", "prefix", DETACH_KEY, "detach-client"])
+}
+
+fn popup_toggle_open_action(ezm_bin: &str) -> String {
+    let popup_open_command = popup_command(ezm_bin);
     format!(
         "run-shell -b \"{}\"",
-        shell_escape_double_quoted(&popup_close_command)
+        shell_escape_double_quoted(&popup_open_command)
     )
 }
 
@@ -292,12 +296,6 @@ fn popup_command(ezm_bin: &str) -> String {
     )
 }
 
-fn popup_close_from_popup_context_command(ezm_bin: &str) -> String {
-    format!(
-        "{ezm_bin} __internal popup --session \"#{{@ezm_popup_origin_session}}\" --slot \"#{{@ezm_popup_origin_slot}}\" --client \"#{{client_tty}}\" </dev/null >/dev/null 2>&1"
-    )
-}
-
 fn resolved_ezm_bin_shell_token() -> String {
     let env_ezm_bin = std::env::var(EZM_BIN_ENV)
         .ok()
@@ -347,9 +345,8 @@ mod tests {
 
     use super::{
         ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
-        popup_close_from_popup_context_command, popup_command, popup_context_detach_action,
-        resolve_ezm_bin, shell_command_token, should_clear_existing_keybinds_before_install,
-        swap_command, toggle_mode_command,
+        popup_command, popup_toggle_open_action, resolve_ezm_bin, shell_command_token,
+        should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
     };
 
     #[test]
@@ -440,20 +437,11 @@ mod tests {
     }
 
     #[test]
-    fn popup_context_close_command_uses_origin_session_and_slot() {
-        let rendered = popup_close_from_popup_context_command("'ezm'");
-        assert!(rendered.contains("--session \"#{@ezm_popup_origin_session}\""));
-        assert!(rendered.contains("--slot \"#{@ezm_popup_origin_slot}\""));
-        assert!(rendered.contains("--client \"#{client_tty}\""));
-        assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
-    }
-
-    #[test]
-    fn popup_detach_action_quotes_internal_popup_command_as_single_argument() {
-        let rendered = popup_context_detach_action("'ezm'");
+    fn popup_toggle_open_action_quotes_internal_popup_command_as_single_argument() {
+        let rendered = popup_toggle_open_action("'ezm'");
         assert!(rendered.starts_with("run-shell -b \""));
         assert!(rendered.contains("__internal popup"));
-        assert!(rendered.contains("--session \\\"#{@ezm_popup_origin_session}\\\""));
+        assert!(rendered.contains("--session \\\"#{?#{@ezm_popup_origin_session}"));
         assert!(rendered.ends_with("2>&1\""));
         assert!(!rendered.contains("'\"'\"'"));
     }
