@@ -68,9 +68,16 @@ fn popup_session_name(session_name: &str, slot_id: u8) -> String {
 }
 
 fn ensure_popup_cleanup_hook() -> Result<(), SessionError> {
-    let hook_script = popup_cleanup_hook_command();
-    let hook_command = format!("run-shell -b {}", shell_single_quote(&hook_script));
+    let hook_command = popup_cleanup_hook_invocation_command();
     tmux_run(&["set-hook", "-g", "session-closed", &hook_command])
+}
+
+fn popup_cleanup_hook_invocation_command() -> String {
+    let hook_script = popup_cleanup_hook_command();
+    format!(
+        "run-shell -b \"{}\"",
+        shell_escape_double_quoted(&hook_script)
+    )
 }
 
 fn popup_cleanup_hook_command() -> String {
@@ -170,6 +177,14 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
+fn shell_escape_double_quoted(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`")
+}
+
 fn session_exists(session_name: &str) -> Result<bool, SessionError> {
     let output = tmux_output(&["-q", "has-session", "-t", session_name])?;
     if output.status.success() {
@@ -212,8 +227,8 @@ fn persist_popup_defaults(session_name: &str) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        popup_attach_command, popup_cleanup_hook_command, popup_destroy_unattached_args,
-        popup_display_args, popup_new_session_args,
+        popup_attach_command, popup_cleanup_hook_command, popup_cleanup_hook_invocation_command,
+        popup_destroy_unattached_args, popup_display_args, popup_new_session_args,
     };
 
     #[test]
@@ -274,5 +289,13 @@ mod tests {
 
         assert!(rendered.starts_with("new-session -d -s ezm-s100__popup_slot_4 -c /tmp/popup-cwd"));
         assert!(!rendered.contains("sh -lc"));
+    }
+
+    #[test]
+    fn popup_cleanup_hook_invocation_avoids_single_quote_wrapping() {
+        let rendered = popup_cleanup_hook_invocation_command();
+        assert!(rendered.starts_with("run-shell -b \""));
+        assert!(rendered.contains("tmux kill-session -t"));
+        assert!(!rendered.starts_with("run-shell -b '"));
     }
 }
