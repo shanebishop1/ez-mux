@@ -3,7 +3,6 @@ use std::path::Path;
 use super::DEFAULT_CENTER_WIDTH_PCT;
 use super::LayoutPreset;
 use super::SessionError;
-use super::SlotMode;
 use super::SlotRegistry;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
@@ -13,6 +12,7 @@ use super::options::{set_or_verify_pane_option, set_or_verify_session_option, se
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::apply_runtime_style_defaults;
 use super::worktree::discover_worktrees_for_slots;
+use crate::config::EZM_BIN_ENV;
 
 mod preset;
 
@@ -78,7 +78,7 @@ pub(super) fn bootstrap_default_layout(
         set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_FIVE_PANE)?;
         install_runtime_keybinds()?;
         apply_runtime_style_defaults(session_name)?;
-        launch_startup_slot_modes(session_name, populated_slots)?;
+        launch_startup_slot_modes(session_name)?;
 
         validate_canonical_slot_registry(session_name)?;
         tmux_run(&["select-pane", "-t", &canonical_pane_ids[0]])
@@ -141,11 +141,7 @@ fn persist_registry(
     populated_slots: usize,
 ) -> Result<(), SessionError> {
     for binding in registry.bindings() {
-        let mode = if usize::from(binding.slot_id) <= populated_slots {
-            "agent"
-        } else {
-            "shell"
-        };
+        let mode = startup_mode_for_slot(binding.slot_id, populated_slots);
         let slot_pane_key = format!("@ezm_slot_{}_pane", binding.slot_id);
         let slot_worktree_key = format!("@ezm_slot_{}_worktree", binding.slot_id);
         let slot_cwd_key = format!("@ezm_slot_{}_cwd", binding.slot_id);
@@ -172,6 +168,10 @@ fn persist_registry(
     Ok(())
 }
 
+fn startup_mode_for_slot(_slot_id: u8, _populated_slots: usize) -> &'static str {
+    "agent"
+}
+
 fn kill_created_panes(created_panes: &[String]) -> Result<(), SessionError> {
     for pane_id in created_panes.iter().rev() {
         tmux_run(&["kill-pane", "-t", pane_id])?;
@@ -180,24 +180,64 @@ fn kill_created_panes(created_panes: &[String]) -> Result<(), SessionError> {
     Ok(())
 }
 
-fn launch_startup_slot_modes(
-    session_name: &str,
-    populated_slots: usize,
-) -> Result<(), SessionError> {
-    let limit = populated_slots.min(5);
+fn launch_startup_slot_modes(session_name: &str) -> Result<(), SessionError> {
+    let ezm_bin = resolved_ezm_bin_shell_token();
+
     for slot_id in 1_u8..=5 {
-        if usize::from(slot_id) > limit {
-            break;
-        }
-        super::mode_runtime::switch_slot_mode_for_startup(
-            session_name,
-            slot_id,
-            SlotMode::Agent,
-            None,
-            None,
-            None,
-        )?;
+        let command = startup_mode_schedule_command(&ezm_bin, session_name, slot_id);
+        tmux_run(&["run-shell", "-b", &command])?;
     }
 
     Ok(())
+}
+
+fn startup_mode_schedule_command(ezm_bin: &str, session_name: &str, slot_id: u8) -> String {
+    format!(
+        "{ezm_bin} __internal mode --session {} --slot {slot_id} --mode agent </dev/null >/dev/null 2>&1",
+        shell_single_quote(session_name)
+    )
+}
+
+fn resolved_ezm_bin_shell_token() -> String {
+    let env_ezm_bin = std::env::var(EZM_BIN_ENV)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let current_exe = std::env::current_exe()
+        .ok()
+        .map(|path| path.display().to_string());
+
+    shell_single_quote(
+        &env_ezm_bin
+            .or(current_exe)
+            .unwrap_or_else(|| String::from("ezm")),
+    )
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{startup_mode_for_slot, startup_mode_schedule_command};
+
+    #[test]
+    fn startup_mode_defaults_visible_slots_to_agent_when_worktree_candidates_are_underfilled() {
+        let modes = (1_u8..=5)
+            .map(|slot_id| startup_mode_for_slot(slot_id, 1))
+            .collect::<Vec<_>>();
+
+        assert_eq!(modes, vec!["agent", "agent", "agent", "agent", "agent"]);
+    }
+
+    #[test]
+    fn startup_mode_schedule_command_runs_internal_mode_in_background() {
+        let rendered = startup_mode_schedule_command("'ezm'", "ezm-demo", 3);
+        assert!(rendered.contains("__internal mode"));
+        assert!(rendered.contains("--session 'ezm-demo'"));
+        assert!(rendered.contains("--slot 3"));
+        assert!(rendered.contains("--mode agent"));
+        assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
+    }
 }
