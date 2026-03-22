@@ -14,7 +14,7 @@ pub(super) fn toggle_popup_shell(
     client_tty: Option<&str>,
 ) -> Result<PopupShellOutcome, SessionError> {
     validate_canonical_slot_registry(session_name)?;
-    ensure_popup_cleanup_hook()?;
+    clear_popup_cleanup_hooks()?;
 
     let origin_slot_pane =
         required_session_option(session_name, &format!("@ezm_slot_{slot_id}_pane"))?;
@@ -67,45 +67,22 @@ fn popup_session_name(session_name: &str, slot_id: u8) -> String {
     format!("{session_name}__popup_slot_{slot_id}")
 }
 
-fn ensure_popup_cleanup_hook() -> Result<(), SessionError> {
-    if popup_cleanup_hook_installed()? {
-        return Ok(());
+pub(super) fn clear_popup_cleanup_hooks() -> Result<(), SessionError> {
+    let hooks = tmux_output_value(&["show-hooks", "-g", "session-closed"])?;
+    for hook_name in popup_cleanup_hook_names(&hooks) {
+        tmux_run(&["set-hook", "-gu", &hook_name])?;
     }
 
-    let hook_command = popup_cleanup_hook_invocation_command();
-    tmux_run(&["set-hook", "-g", "session-closed", &hook_command])
+    Ok(())
 }
 
-fn popup_cleanup_hook_installed() -> Result<bool, SessionError> {
-    let hooks = tmux_output_value(&["show-hooks", "-g", "session-closed"])?;
-    Ok(hook_output_has_popup_cleanup(&hooks))
-}
-
-fn hook_output_has_popup_cleanup(hooks: &str) -> bool {
-    hooks.contains("#{hook_session_name}__popup_slot_1")
-        && hooks.contains("#{hook_session_name}__popup_slot_2")
-        && hooks.contains("#{hook_session_name}__popup_slot_3")
-        && hooks.contains("#{hook_session_name}__popup_slot_4")
-        && hooks.contains("#{hook_session_name}__popup_slot_5")
-}
-
-fn popup_cleanup_hook_invocation_command() -> String {
-    let hook_script = popup_cleanup_hook_command();
-    format!(
-        "run-shell -b \"{}\"",
-        shell_escape_double_quoted(&hook_script)
-    )
-}
-
-fn popup_cleanup_hook_command() -> String {
-    (1_u8..=5)
-        .map(|slot_id| {
-            format!(
-                "tmux kill-session -t \"#{{hook_session_name}}__popup_slot_{slot_id}\" >/dev/null 2>&1"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("; ")
+fn popup_cleanup_hook_names(hooks: &str) -> Vec<String> {
+    hooks
+        .lines()
+        .filter(|line| line.contains("#{hook_session_name}__popup_slot_"))
+        .filter_map(|line| line.split_whitespace().next())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn show_popup(
@@ -194,14 +171,6 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
-fn shell_escape_double_quoted(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('$', "\\$")
-        .replace('`', "\\`")
-}
-
 fn session_exists(session_name: &str) -> Result<bool, SessionError> {
     let output = tmux_output(&["-q", "has-session", "-t", session_name])?;
     if output.status.success() {
@@ -244,9 +213,8 @@ fn persist_popup_defaults(session_name: &str) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        hook_output_has_popup_cleanup, popup_attach_command, popup_cleanup_hook_command,
-        popup_cleanup_hook_invocation_command, popup_destroy_unattached_args, popup_display_args,
-        popup_new_session_args,
+        popup_attach_command, popup_cleanup_hook_names, popup_destroy_unattached_args,
+        popup_display_args, popup_new_session_args,
     };
 
     #[test]
@@ -256,17 +224,20 @@ mod tests {
     }
 
     #[test]
-    fn popup_cleanup_hook_command_targets_all_popup_helper_slots() {
-        let command = popup_cleanup_hook_command();
+    fn popup_cleanup_hook_names_match_popup_cleanup_entries_only() {
+        let hooks = concat!(
+            "session-closed[0] run-shell -b \"tmux kill-session -t \\\"#{hook_session_name}__popup_slot_1\\\"\"\n",
+            "session-closed[1] display-message keep-me\n",
+            "session-closed[2] run-shell -b \"tmux kill-session -t \\\"#{hook_session_name}__popup_slot_5\\\"\"\n"
+        );
 
-        assert!(command.contains("#{hook_session_name}__popup_slot_1"));
-        assert!(command.contains("#{hook_session_name}__popup_slot_2"));
-        assert!(command.contains("#{hook_session_name}__popup_slot_3"));
-        assert!(command.contains("#{hook_session_name}__popup_slot_4"));
-        assert!(command.contains("#{hook_session_name}__popup_slot_5"));
-        assert!(command.contains(">/dev/null 2>&1"));
-        assert!(!command.contains("-t '#{hook_session_name}"));
-        assert!(command.contains("-t \"#{hook_session_name}__popup_slot_1\""));
+        assert_eq!(
+            popup_cleanup_hook_names(hooks),
+            vec![
+                String::from("session-closed[0]"),
+                String::from("session-closed[2]"),
+            ]
+        );
     }
 
     #[test]
@@ -310,19 +281,13 @@ mod tests {
     }
 
     #[test]
-    fn popup_cleanup_hook_invocation_avoids_single_quote_wrapping() {
-        let rendered = popup_cleanup_hook_invocation_command();
-        assert!(rendered.starts_with("run-shell -b \""));
-        assert!(rendered.contains("tmux kill-session -t"));
-        assert!(!rendered.starts_with("run-shell -b '"));
-    }
+    fn popup_cleanup_hook_names_ignore_non_popup_cleanup_hooks() {
+        let hooks = concat!(
+            "session-closed\n",
+            "session-closed[0] display-message keep-me\n",
+            "pane-died[0] run-shell -b \"echo other\"\n"
+        );
 
-    #[test]
-    fn popup_cleanup_hook_install_detection_requires_all_slots() {
-        let all_slots = "session-closed[0] run-shell -b \"tmux kill-session -t \\\"#{hook_session_name}__popup_slot_1\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_2\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_3\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_4\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_5\\\"\"";
-        let missing_slot = "session-closed[0] run-shell -b \"tmux kill-session -t \\\"#{hook_session_name}__popup_slot_1\\\"\"";
-
-        assert!(hook_output_has_popup_cleanup(all_slots));
-        assert!(!hook_output_has_popup_cleanup(missing_slot));
+        assert!(popup_cleanup_hook_names(hooks).is_empty());
     }
 }
