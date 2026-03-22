@@ -2,6 +2,10 @@
 mod red_support;
 mod support;
 
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
 use red_support::{
     center_pane_id, create_worktree_fixture, extract_stdout_field, paths_equivalent,
     read_pane_widths, read_slot_snapshot, write_cluster_evidence,
@@ -81,7 +85,7 @@ fn t1_2_startup_attach_visibility_reports_non_interactive_and_observes_interacti
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn t1_2_startup_populated_slots_launch_agent_and_unpopulated_slots_fallback_shell() {
+fn t1_2_startup_slots_launch_agent_including_fallback_worktree_slots() {
     let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-2")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
 
@@ -127,17 +131,8 @@ fn t1_2_startup_populated_slots_launch_agent_and_unpopulated_slots_fallback_shel
                     slot.pane_id
                 )
             });
-        let should_be_agent = slot_id <= 3;
-        let mode_matches = if should_be_agent {
-            mode == "agent"
-        } else {
-            mode == "shell"
-        };
-        let command_matches = if should_be_agent {
-            pane_start_command.contains("opencode")
-        } else {
-            !pane_start_command.contains("opencode")
-        };
+        let mode_matches = mode == "agent";
+        let command_matches = pane_start_command.contains("opencode");
 
         per_slot.push((
             slot_id,
@@ -191,6 +186,76 @@ fn t1_2_startup_populated_slots_launch_agent_and_unpopulated_slots_fallback_shel
     assert!(
         pass,
         "T-1.2 startup mode launch contract failed:\n{}",
+        evidence.join("\n")
+    );
+}
+
+#[test]
+fn t1_2_startup_single_worktree_fallback_slots_launch_agent_mode() {
+    let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-2")
+        .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
+
+    let project_dir = create_single_worktree_fixture(&harness)
+        .unwrap_or_else(|error| panic!("single-worktree fixture setup failed: {error}"));
+    let launch = harness
+        .run_ezm_in_dir(&project_dir, &[], &[], 0)
+        .unwrap_or_else(|error| panic!("single-worktree startup launch failed: {error}"));
+    let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
+    let slots = read_slot_snapshot(&harness, &session)
+        .unwrap_or_else(|error| panic!("failed reading single-worktree slot snapshot: {error}"));
+
+    let mut per_slot = Vec::new();
+    for slot_id in 1_u8..=5 {
+        let slot = slots
+            .iter()
+            .find(|slot| slot.slot_id == slot_id)
+            .unwrap_or_else(|| panic!("missing single-worktree slot snapshot for slot {slot_id}"));
+        let mode = read_slot_mode(&harness, &session, slot_id).unwrap_or_else(|error| {
+            panic!("failed reading single-worktree slot mode for slot {slot_id}: {error}")
+        });
+        let pane_start_command = read_pane_start_command(&harness, &slot.pane_id).unwrap_or_else(|error| {
+            panic!(
+                "failed reading single-worktree pane_start_command for slot {slot_id} pane {}: {error}",
+                slot.pane_id
+            )
+        });
+
+        per_slot.push((slot_id, mode, pane_start_command));
+    }
+
+    let all_slots_agent_mode = per_slot.iter().all(|(_, mode, _)| mode == "agent");
+    let all_slots_agent_command = per_slot
+        .iter()
+        .all(|(_, _, command)| command.contains("opencode"));
+    let fallback_slots_agent = per_slot
+        .iter()
+        .filter(|(slot_id, _, _)| *slot_id != 1)
+        .all(|(_, mode, command)| mode == "agent" && command.contains("opencode"));
+
+    let mut evidence = vec![
+        format!("exit_code={} session={session}", launch.exit_code),
+        format!("all_slots_agent_mode={all_slots_agent_mode}"),
+        format!("all_slots_agent_command={all_slots_agent_command}"),
+        format!("fallback_slots_agent={fallback_slots_agent}"),
+    ];
+    for (slot_id, mode, command) in &per_slot {
+        evidence.push(format!("slot{slot_id}_mode={mode}"));
+        evidence.push(format!("slot{slot_id}_pane_start_command={command}"));
+    }
+    write_cluster_evidence(
+        &harness,
+        "t1-2-single-worktree-startup-mode-launch",
+        &evidence,
+    )
+    .unwrap_or_else(|error| panic!("failed writing single-worktree T-1.2 evidence: {error}"));
+
+    assert!(
+        launch.exit_code == 0
+            && !session.is_empty()
+            && all_slots_agent_mode
+            && all_slots_agent_command
+            && fallback_slots_agent,
+        "T-1.2 single-worktree startup mode launch contract failed:\n{}",
         evidence.join("\n")
     );
 }
@@ -255,6 +320,93 @@ fn t1_2_startup_worktree_assignment_stays_deterministic_across_restart_without_n
     );
 }
 
+#[test]
+fn t1_2_startup_mode_launch_uses_slot_specific_assigned_worktree_cwd_for_five_worktrees() {
+    let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-2")
+        .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
+
+    let fixture = create_five_worktree_numbered_fixture(&harness)
+        .unwrap_or_else(|error| panic!("five-worktree fixture setup failed: {error}"));
+    let launch = harness
+        .run_ezm_in_dir(&fixture.project_dir, &[], &[], 0)
+        .unwrap_or_else(|error| panic!("five-worktree startup launch failed: {error}"));
+    let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
+
+    let slots = read_slot_snapshot(&harness, &session)
+        .unwrap_or_else(|error| panic!("failed reading slot snapshot: {error}"));
+
+    let mut evidence = vec![
+        format!("exit_code={} session={session}", launch.exit_code),
+        format!(
+            "expected_slot_worktrees={:?}",
+            fixture.expected_slot_worktrees
+        ),
+    ];
+
+    let mut mapping_matches = true;
+    let mut session_cwd_matches = true;
+    let mut pane_cwd_matches = true;
+    for slot_id in 1_u8..=5 {
+        let index = usize::from(slot_id - 1);
+        let expected_worktree = fixture.expected_slot_worktrees[index].display().to_string();
+        let slot = slots
+            .iter()
+            .find(|slot| slot.slot_id == slot_id)
+            .unwrap_or_else(|| panic!("missing slot snapshot for slot {slot_id}"));
+        let session_cwd = read_slot_cwd(&harness, &session, slot_id)
+            .unwrap_or_else(|error| panic!("failed reading slot cwd for slot {slot_id}: {error}"));
+        let pane_cwd = read_pane_slot_cwd(&harness, &slot.pane_id).unwrap_or_else(|error| {
+            panic!(
+                "failed reading pane slot cwd for slot {slot_id} pane {}: {error}",
+                slot.pane_id
+            )
+        });
+
+        let slot_mapping_match = paths_equivalent(&slot.worktree, &expected_worktree);
+        let slot_session_cwd_match = paths_equivalent(&session_cwd, &expected_worktree);
+        let slot_pane_cwd_match = paths_equivalent(&pane_cwd, &expected_worktree);
+
+        mapping_matches &= slot_mapping_match;
+        session_cwd_matches &= slot_session_cwd_match;
+        pane_cwd_matches &= slot_pane_cwd_match;
+
+        evidence.push(format!(
+            "slot{slot_id}_expected_worktree={expected_worktree}"
+        ));
+        evidence.push(format!("slot{slot_id}_worktree={}", slot.worktree));
+        evidence.push(format!("slot{slot_id}_session_cwd={session_cwd}"));
+        evidence.push(format!("slot{slot_id}_pane_cwd={pane_cwd}"));
+        evidence.push(format!("slot{slot_id}_mapping_match={slot_mapping_match}"));
+        evidence.push(format!(
+            "slot{slot_id}_session_cwd_match={slot_session_cwd_match}"
+        ));
+        evidence.push(format!(
+            "slot{slot_id}_pane_cwd_match={slot_pane_cwd_match}"
+        ));
+    }
+
+    evidence.push(format!("mapping_matches={mapping_matches}"));
+    evidence.push(format!("session_cwd_matches={session_cwd_matches}"));
+    evidence.push(format!("pane_cwd_matches={pane_cwd_matches}"));
+
+    write_cluster_evidence(
+        &harness,
+        "t1-2-startup-five-worktree-assigned-cwd",
+        &evidence,
+    )
+    .unwrap_or_else(|error| panic!("failed writing five-worktree T-1.2 evidence: {error}"));
+
+    assert!(
+        launch.exit_code == 0
+            && !session.is_empty()
+            && mapping_matches
+            && session_cwd_matches
+            && pane_cwd_matches,
+        "T-1.2 startup assigned cwd for five-worktree launch failed:\n{}",
+        evidence.join("\n")
+    );
+}
+
 fn read_slot_mode(
     harness: &FoundationHarness,
     session: &str,
@@ -280,6 +432,28 @@ fn read_pane_start_command(harness: &FoundationHarness, pane_id: &str) -> Result
             pane_id,
             "#{pane_start_command}",
         ])
+        .map(|value| value.trim().to_owned())
+}
+
+fn read_slot_cwd(
+    harness: &FoundationHarness,
+    session: &str,
+    slot_id: u8,
+) -> Result<String, String> {
+    harness
+        .tmux_capture(&[
+            "show-options",
+            "-v",
+            "-t",
+            session,
+            &format!("@ezm_slot_{slot_id}_cwd"),
+        ])
+        .map(|value| value.trim().to_owned())
+}
+
+fn read_pane_slot_cwd(harness: &FoundationHarness, pane_id: &str) -> Result<String, String> {
+    harness
+        .tmux_capture(&["show-options", "-pv", "-t", pane_id, "@ezm_slot_cwd"])
         .map(|value| value.trim().to_owned())
 }
 
@@ -326,4 +500,114 @@ fn run_attach_probe_with_retries(
         observed_attached_client,
         attempts: history,
     })
+}
+
+struct FiveWorktreeFixture {
+    project_dir: PathBuf,
+    expected_slot_worktrees: [PathBuf; 5],
+}
+
+fn create_five_worktree_numbered_fixture(
+    harness: &FoundationHarness,
+) -> Result<FiveWorktreeFixture, String> {
+    let fixture_root = harness.work_dir().join("t12-five-worktree-numbered");
+    let wt_1 = fixture_root.join("ez-mux-1");
+    let wt_2 = fixture_root.join("ez-mux-2");
+    let wt_3 = fixture_root.join("ez-mux-3");
+    let wt_4 = fixture_root.join("ez-mux-4");
+    let wt_5 = fixture_root.join("ez-mux-5");
+
+    if fixture_root.exists() {
+        fs::remove_dir_all(&fixture_root).map_err(|error| {
+            format!(
+                "failed resetting five-worktree fixture root {}: {error}",
+                fixture_root.display()
+            )
+        })?;
+    }
+
+    fs::create_dir_all(&wt_1)
+        .map_err(|error| format!("failed creating five-worktree fixture project: {error}"))?;
+
+    run_git(&wt_1, &["init", "--initial-branch", "main"])?;
+    run_git(&wt_1, &["config", "user.email", "e2e@example.invalid"])?;
+    run_git(&wt_1, &["config", "user.name", "E2E Harness"])?;
+    fs::write(wt_1.join("README.md"), "# five worktree fixture\n")
+        .map_err(|error| format!("failed writing five-worktree fixture README: {error}"))?;
+    run_git(&wt_1, &["add", "README.md"])?;
+    run_git(&wt_1, &["commit", "-m", "fixture init"])?;
+
+    let wt_2_arg = wt_2.display().to_string();
+    let wt_3_arg = wt_3.display().to_string();
+    let wt_4_arg = wt_4.display().to_string();
+    let wt_5_arg = wt_5.display().to_string();
+
+    run_git(
+        &wt_1,
+        &["worktree", "add", "--detach", wt_2_arg.as_str(), "HEAD"],
+    )?;
+    run_git(
+        &wt_1,
+        &["worktree", "add", "--detach", wt_3_arg.as_str(), "HEAD"],
+    )?;
+    run_git(
+        &wt_1,
+        &["worktree", "add", "--detach", wt_4_arg.as_str(), "HEAD"],
+    )?;
+    run_git(
+        &wt_1,
+        &["worktree", "add", "--detach", wt_5_arg.as_str(), "HEAD"],
+    )?;
+
+    Ok(FiveWorktreeFixture {
+        project_dir: wt_1.clone(),
+        expected_slot_worktrees: [wt_1, wt_2, wt_3, wt_4, wt_5],
+    })
+}
+
+fn create_single_worktree_fixture(harness: &FoundationHarness) -> Result<PathBuf, String> {
+    let fixture_root = harness.work_dir().join("t12-single-worktree");
+    let project_dir = fixture_root.join("project");
+
+    if fixture_root.exists() {
+        fs::remove_dir_all(&fixture_root).map_err(|error| {
+            format!(
+                "failed resetting single-worktree fixture root {}: {error}",
+                fixture_root.display()
+            )
+        })?;
+    }
+
+    fs::create_dir_all(&project_dir)
+        .map_err(|error| format!("failed creating single-worktree fixture project: {error}"))?;
+
+    run_git(&project_dir, &["init", "--initial-branch", "main"])?;
+    run_git(
+        &project_dir,
+        &["config", "user.email", "e2e@example.invalid"],
+    )?;
+    run_git(&project_dir, &["config", "user.name", "E2E Harness"])?;
+    fs::write(project_dir.join("README.md"), "# single worktree fixture\n")
+        .map_err(|error| format!("failed writing single-worktree fixture README: {error}"))?;
+    run_git(&project_dir, &["add", "README.md"])?;
+    run_git(&project_dir, &["commit", "-m", "fixture init"])?;
+
+    Ok(project_dir)
+}
+
+fn run_git(repo_dir: &Path, args: &[&str]) -> Result<(), String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo_dir)
+        .output()
+        .map_err(|error| format!("failed running git {args:?}: {error}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
 }
