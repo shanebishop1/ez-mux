@@ -9,6 +9,8 @@ use super::AppError;
 use super::execute_default_session_flow_for_project_dir;
 use super::execute_with_opener;
 use super::format_repair_message;
+use super::internal_focus_success_message;
+use super::internal_swap_success_message;
 use crate::cli::{Cli, Command, LogsCommand};
 use crate::config::OperatingSystem;
 use crate::logging::LogOpener;
@@ -206,7 +208,12 @@ impl TmuxClient for InterruptingTmuxClient {
         Ok(())
     }
 
-    fn toggle_popup_shell(&self, _: &str, _: u8) -> Result<PopupShellOutcome, SessionError> {
+    fn toggle_popup_shell(
+        &self,
+        _: &str,
+        _: u8,
+        _: Option<&str>,
+    ) -> Result<PopupShellOutcome, SessionError> {
         Err(SessionError::TmuxCommandFailed {
             command: String::from("toggle-popup"),
             stderr: String::from("not used in this test"),
@@ -271,4 +278,14 @@ fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
 
     assert!(matches!(error, AppError::Interrupted));
     assert_eq!(tmux.teardown_calls(), vec![expected_session]);
+}
+
+#[test]
+fn internal_focus_completion_message_is_suppressed_for_keybind_invocations() {
+    assert!(internal_focus_success_message("ezm-test-session", 3).is_empty());
+}
+
+#[test]
+fn internal_swap_completion_message_is_suppressed_for_keybind_invocations() {
+    assert!(internal_swap_success_message("ezm-test-session", 2).is_empty());
 }

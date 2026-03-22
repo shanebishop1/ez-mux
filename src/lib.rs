@@ -80,8 +80,10 @@ where
     match cli::Cli::try_parse_from(args) {
         Ok(cli) => match app::execute_with_opener(cli, env, os, &launch_log.root, opener) {
             Ok(message) => {
-                if let Err(code) = checked_write(writeln!(stdout, "{message}"), stderr) {
-                    return code;
+                if !message.is_empty() {
+                    if let Err(code) = checked_write(writeln!(stdout, "{message}"), stderr) {
+                        return code;
+                    }
                 }
                 ExitCode::Success.as_i32()
             }
