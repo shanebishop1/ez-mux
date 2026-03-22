@@ -388,7 +388,13 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         && popup_binding.contains("run-shell -b");
     let popup_detach_shell_safe = popup_detach_binding.contains("run-shell -b")
         && popup_detach_binding.contains("__internal popup")
-        && !popup_detach_binding.contains("'\"'\"'");
+        && !popup_detach_binding.contains("'\"'\"'")
+        && !popup_detach_binding.contains("\"'")
+        && !popup_detach_binding.contains("''/projects");
+    let popup_toggle_shell_safe = popup_binding.contains("run-shell -b")
+        && popup_binding.contains("__internal popup")
+        && !popup_binding.contains("\"'")
+        && !popup_binding.contains("''/projects");
 
     let core_checks = [
         ("prefix", "g", "ezm-swap"),
@@ -405,7 +411,7 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
             .tmux_capture(&["list-keys", "-T", table, key])
             .unwrap_or_default()
             .contains(marker)
-    });
+    }) && popup_toggle_shell_safe;
     let pane_nav_routes_present = [
         (nav_left_binding.as_str(), "select-pane -L"),
         (nav_down_binding.as_str(), "select-pane -D"),

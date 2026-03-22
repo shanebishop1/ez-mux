@@ -308,7 +308,7 @@ fn resolved_ezm_bin_shell_token() -> String {
         .map(|path| path.display().to_string());
     let ezm_bin = resolve_ezm_bin(env_ezm_bin, current_exe);
 
-    shell_single_quote(&ezm_bin)
+    shell_command_token(&ezm_bin)
 }
 
 fn resolve_ezm_bin(env_ezm_bin: Option<String>, current_exe: Option<String>) -> String {
@@ -317,8 +317,17 @@ fn resolve_ezm_bin(env_ezm_bin: Option<String>, current_exe: Option<String>) -> 
         .unwrap_or_else(|| String::from("ezm"))
 }
 
-fn shell_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
+fn shell_command_token(value: &str) -> String {
+    if value.as_bytes().iter().all(|byte| {
+        matches!(
+            byte,
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-'
+        )
+    }) {
+        return value.to_owned();
+    }
+
+    format!("\"{}\"", shell_escape_double_quoted(value))
 }
 
 fn shell_escape_double_quoted(value: &str) -> String {
@@ -339,7 +348,7 @@ mod tests {
     use super::{
         ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
         popup_close_from_popup_context_command, popup_command, popup_context_detach_action,
-        resolve_ezm_bin, shell_single_quote, should_clear_existing_keybinds_before_install,
+        resolve_ezm_bin, shell_command_token, should_clear_existing_keybinds_before_install,
         swap_command, toggle_mode_command,
     };
 
@@ -471,9 +480,15 @@ mod tests {
     }
 
     #[test]
-    fn shell_single_quote_escapes_apostrophes_for_run_shell() {
-        let rendered = shell_single_quote("/tmp/it's ezm");
-        assert_eq!(rendered, String::from("'/tmp/it'\"'\"'s ezm'"));
+    fn shell_command_token_leaves_shell_safe_paths_unquoted() {
+        let rendered = shell_command_token("/tmp/ezm-bin");
+        assert_eq!(rendered, String::from("/tmp/ezm-bin"));
+    }
+
+    #[test]
+    fn shell_command_token_double_quotes_paths_with_spaces() {
+        let rendered = shell_command_token("/tmp/ezm bin");
+        assert_eq!(rendered, String::from("\"/tmp/ezm bin\""));
     }
 
     #[test]
