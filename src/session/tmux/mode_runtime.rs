@@ -33,25 +33,6 @@ pub(super) fn switch_slot_mode(
     )
 }
 
-pub(super) fn switch_slot_mode_for_startup(
-    session_name: &str,
-    slot_id: u8,
-    mode: SlotMode,
-    operator: Option<&str>,
-    remote_prefix: Option<&str>,
-    shared_server: Option<&SharedServerAttachConfig>,
-) -> Result<(), SessionError> {
-    switch_slot_mode_internal(
-        session_name,
-        slot_id,
-        mode,
-        operator,
-        remote_prefix,
-        shared_server,
-        true,
-    )
-}
-
 fn switch_slot_mode_internal(
     session_name: &str,
     slot_id: u8,
