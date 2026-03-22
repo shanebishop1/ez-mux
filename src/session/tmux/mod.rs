@@ -211,7 +211,7 @@ impl TmuxClient for ProcessTmuxClient {
 
     fn validate_session_invariants(&self, session_name: &str) -> Result<(), SessionError> {
         slot_swap::validate_canonical_slot_registry(session_name)?;
-        popup::clear_popup_cleanup_hooks()?;
+        popup::reconcile_popup_parent_cleanup_hook()?;
         keybinds::install_runtime_keybinds()?;
         style::apply_runtime_style_defaults(session_name)
     }
@@ -221,7 +221,8 @@ impl TmuxClient for ProcessTmuxClient {
         session_name: &str,
         project_dir: &Path,
     ) -> Result<(), SessionError> {
-        layout::bootstrap_default_layout(session_name, project_dir)
+        layout::bootstrap_default_layout(session_name, project_dir)?;
+        popup::reconcile_popup_parent_cleanup_hook()
     }
 
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError> {
