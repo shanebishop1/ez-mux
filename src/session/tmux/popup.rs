@@ -68,8 +68,25 @@ fn popup_session_name(session_name: &str, slot_id: u8) -> String {
 }
 
 fn ensure_popup_cleanup_hook() -> Result<(), SessionError> {
+    if popup_cleanup_hook_installed()? {
+        return Ok(());
+    }
+
     let hook_command = popup_cleanup_hook_invocation_command();
     tmux_run(&["set-hook", "-g", "session-closed", &hook_command])
+}
+
+fn popup_cleanup_hook_installed() -> Result<bool, SessionError> {
+    let hooks = tmux_output_value(&["show-hooks", "-g", "session-closed"])?;
+    Ok(hook_output_has_popup_cleanup(&hooks))
+}
+
+fn hook_output_has_popup_cleanup(hooks: &str) -> bool {
+    hooks.contains("#{hook_session_name}__popup_slot_1")
+        && hooks.contains("#{hook_session_name}__popup_slot_2")
+        && hooks.contains("#{hook_session_name}__popup_slot_3")
+        && hooks.contains("#{hook_session_name}__popup_slot_4")
+        && hooks.contains("#{hook_session_name}__popup_slot_5")
 }
 
 fn popup_cleanup_hook_invocation_command() -> String {
@@ -227,8 +244,9 @@ fn persist_popup_defaults(session_name: &str) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        popup_attach_command, popup_cleanup_hook_command, popup_cleanup_hook_invocation_command,
-        popup_destroy_unattached_args, popup_display_args, popup_new_session_args,
+        hook_output_has_popup_cleanup, popup_attach_command, popup_cleanup_hook_command,
+        popup_cleanup_hook_invocation_command, popup_destroy_unattached_args, popup_display_args,
+        popup_new_session_args,
     };
 
     #[test]
@@ -297,5 +315,14 @@ mod tests {
         assert!(rendered.starts_with("run-shell -b \""));
         assert!(rendered.contains("tmux kill-session -t"));
         assert!(!rendered.starts_with("run-shell -b '"));
+    }
+
+    #[test]
+    fn popup_cleanup_hook_install_detection_requires_all_slots() {
+        let all_slots = "session-closed[0] run-shell -b \"tmux kill-session -t \\\"#{hook_session_name}__popup_slot_1\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_2\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_3\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_4\\\"; tmux kill-session -t \\\"#{hook_session_name}__popup_slot_5\\\"\"";
+        let missing_slot = "session-closed[0] run-shell -b \"tmux kill-session -t \\\"#{hook_session_name}__popup_slot_1\\\"\"";
+
+        assert!(hook_output_has_popup_cleanup(all_slots));
+        assert!(!hook_output_has_popup_cleanup(missing_slot));
     }
 }
