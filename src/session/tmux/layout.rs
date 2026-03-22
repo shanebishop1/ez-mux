@@ -235,7 +235,7 @@ fn launch_startup_slot_modes(session_name: &str) -> Result<(), SessionError> {
 
 fn startup_mode_schedule_command(ezm_bin: &str, session_name: &str, slot_id: u8) -> String {
     format!(
-        "sleep 0.05; {ezm_bin} __internal mode --session {} --slot {slot_id} --mode agent </dev/null >/dev/null 2>&1",
+        "sleep 0.05; EZM_STARTUP_SLOT_MODE=1 {ezm_bin} __internal mode --session {} --slot {slot_id} --mode agent </dev/null >/dev/null 2>&1",
         shell_single_quote(session_name)
     )
 }
@@ -285,6 +285,7 @@ mod tests {
         assert!(rendered.contains("--session 'ezm-demo'"));
         assert!(rendered.contains("--slot 3"));
         assert!(rendered.contains("--mode agent"));
+        assert!(rendered.contains("EZM_STARTUP_SLOT_MODE=1"));
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
     }
 

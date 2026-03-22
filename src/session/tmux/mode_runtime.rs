@@ -22,6 +22,7 @@ pub(super) fn switch_slot_mode(
     remote_prefix: Option<&str>,
     shared_server: Option<&SharedServerAttachConfig>,
 ) -> Result<(), SessionError> {
+    let startup = startup_mode_signal_present();
     switch_slot_mode_internal(
         session_name,
         slot_id,
@@ -29,7 +30,7 @@ pub(super) fn switch_slot_mode(
         operator,
         remote_prefix,
         shared_server,
-        false,
+        startup,
     )
 }
 
@@ -156,6 +157,16 @@ fn switch_slot_mode_internal(
 
 fn use_startup_fast_path(prefer_assigned_worktree_cwd: bool) -> bool {
     prefer_assigned_worktree_cwd
+}
+
+fn startup_mode_signal_present() -> bool {
+    startup_mode_signal_enabled(std::env::var("EZM_STARTUP_SLOT_MODE").ok().as_deref())
+}
+
+fn startup_mode_signal_enabled(value: Option<&str>) -> bool {
+    value
+        .map(str::trim)
+        .is_some_and(|value| matches!(value, "1" | "true" | "yes" | "on"))
 }
 
 fn load_previous_mode_metadata(
