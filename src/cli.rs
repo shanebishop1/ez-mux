@@ -78,6 +78,8 @@ pub enum InternalCommand {
         session: String,
         #[arg(long)]
         slot: u8,
+        #[arg(long)]
+        client: Option<String>,
     },
     #[command(name = "auxiliary")]
     Auxiliary {
@@ -235,6 +237,33 @@ mod tests {
                 command: InternalCommand::Popup {
                     session: String::from("ezm-test-session"),
                     slot: 4,
+                    client: None,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_internal_popup_subcommand_with_client_target() {
+        let parsed = Cli::try_parse_from([
+            "ezm",
+            "__internal",
+            "popup",
+            "--session",
+            "ezm-test-session",
+            "--slot",
+            "4",
+            "--client",
+            "/dev/pts/10",
+        ])
+        .expect("parse should succeed");
+        assert_eq!(
+            parsed.command,
+            Some(Command::Internal {
+                command: InternalCommand::Popup {
+                    session: String::from("ezm-test-session"),
+                    slot: 4,
+                    client: Some(String::from("/dev/pts/10")),
                 },
             })
         );

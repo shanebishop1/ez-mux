@@ -172,6 +172,7 @@ impl TmuxClient for FakeTmux {
         &self,
         session_name: &str,
         slot_id: u8,
+        _client_tty: Option<&str>,
     ) -> Result<ez_mux::session::PopupShellOutcome, ez_mux::session::SessionError> {
         self.popup_toggles
             .borrow_mut()
@@ -674,8 +675,8 @@ fn popup_toggle_routes_to_tmux_client_and_toggles_open_then_close() {
         ..FakeTmux::default()
     };
 
-    let first = toggle_popup_shell("ezm-session-88", 2, &tmux).expect("first toggle");
-    let second = toggle_popup_shell("ezm-session-88", 2, &tmux).expect("second toggle");
+    let first = toggle_popup_shell("ezm-session-88", 2, None, &tmux).expect("first toggle");
+    let second = toggle_popup_shell("ezm-session-88", 2, None, &tmux).expect("second toggle");
 
     assert_eq!(first.action, ez_mux::session::PopupShellAction::Opened);
     assert_eq!(second.action, ez_mux::session::PopupShellAction::Closed);
@@ -698,7 +699,8 @@ fn popup_toggle_surfaces_tmux_failures() {
         ..FakeTmux::default()
     };
 
-    let error = toggle_popup_shell("ezm-session-88", 2, &tmux).expect_err("popup should fail");
+    let error =
+        toggle_popup_shell("ezm-session-88", 2, None, &tmux).expect_err("popup should fail");
 
     assert!(error.to_string().contains("display-popup failed"));
     assert_eq!(tmux.popup_toggles.borrow().len(), 1);

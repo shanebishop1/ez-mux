@@ -168,16 +168,14 @@ fn execute_internal(
         InternalCommand::Swap { session, slot } => {
             let tmux = session::ProcessTmuxClient;
             session::TmuxClient::swap_slot_with_center(&tmux, &session, slot)?;
-            Ok(format!(
-                "internal swap complete: session={session}; slot={slot}"
-            ))
+            Ok(internal_swap_success_message(&session, slot))
         }
         InternalCommand::Focus { session, slot } => {
             let tmux = session::ProcessTmuxClient;
             let outcome = session::focus_slot(&session, slot, &tmux)?;
-            Ok(format!(
-                "internal focus complete: session={}; slot={}",
-                outcome.session_name, outcome.slot_id
+            Ok(internal_focus_success_message(
+                &outcome.session_name,
+                outcome.slot_id,
             ))
         }
         InternalCommand::Mode {
@@ -203,9 +201,13 @@ fn execute_internal(
                 outcome.mode.label()
             ))
         }
-        InternalCommand::Popup { session, slot } => {
+        InternalCommand::Popup {
+            session,
+            slot,
+            client,
+        } => {
             let tmux = session::ProcessTmuxClient;
-            let outcome = session::toggle_popup_shell(&session, slot, &tmux)?;
+            let outcome = session::toggle_popup_shell(&session, slot, client.as_deref(), &tmux)?;
             Ok(format!(
                 "internal popup complete: session={}; slot={}; action={}; cwd={}; width_pct={}; height_pct={}",
                 outcome.session_name,
@@ -249,6 +251,16 @@ fn execute_internal(
             ))
         }
     }
+}
+
+fn internal_swap_success_message(session_name: &str, slot_id: u8) -> String {
+    let _ = (session_name, slot_id);
+    String::new()
+}
+
+fn internal_focus_success_message(session_name: &str, slot_id: u8) -> String {
+    let _ = (session_name, slot_id);
+    String::new()
 }
 
 fn attach_visibility_label() -> &'static str {

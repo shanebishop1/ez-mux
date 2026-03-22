@@ -299,6 +299,7 @@ mod tests {
             &self,
             _: &str,
             _: u8,
+            _: Option<&str>,
         ) -> Result<PopupShellOutcome, crate::session::SessionError> {
             unreachable!()
         }

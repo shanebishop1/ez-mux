@@ -36,6 +36,7 @@ pub struct PopupShellOutcome {
 pub fn toggle_popup_shell(
     session_name: &str,
     slot_id: u8,
+    client_tty: Option<&str>,
     tmux: &impl TmuxClient,
 ) -> Result<PopupShellOutcome, SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -44,5 +45,5 @@ pub fn toggle_popup_shell(
         ));
     }
 
-    tmux.toggle_popup_shell(session_name, slot_id)
+    tmux.toggle_popup_shell(session_name, slot_id, client_tty)
 }
