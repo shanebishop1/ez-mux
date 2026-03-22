@@ -61,7 +61,7 @@ pub(crate) fn execute_with_opener(
 
             if outcome.remote_routing_active {
                 format!(
-                    "ezm v1 contract locked; operator source={}. session={}; session_action={}; routing_mode=remote; remote_routing_active=true; attach_visibility={}; remote_project_dir={}; remote_dir_prefix={}; remote_dir_prefix_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_host={}; opencode_server_host_source={}; opencode_server_port={}; opencode_server_port_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
+                    "ezm v1 contract locked; operator source={}. session={}; session_action={}; routing_mode=remote; remote_routing_active=true; attach_visibility={}; remote_project_dir={}; remote_dir_prefix={}; remote_dir_prefix_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
                     source_label(resolved_operator.source),
                     outcome.identity.session_name,
                     outcome.action.label(),
@@ -71,12 +71,14 @@ pub(crate) fn execute_with_opener(
                         resolved_remote_runtime.remote_dir_prefix.value.as_deref()
                     ),
                     source_label(resolved_remote_runtime.remote_dir_prefix.source),
-                    resolved_remote_runtime.shared_server.attach_url,
+                    optional_value_label(
+                        resolved_remote_runtime.remote_server_url.value.as_deref()
+                    ),
+                    source_label(resolved_remote_runtime.remote_server_url.source),
+                    optional_value_label(
+                        resolved_remote_runtime.shared_server.url.value.as_deref()
+                    ),
                     source_label(resolved_remote_runtime.shared_server.url.source),
-                    resolved_remote_runtime.shared_server.host.value,
-                    source_label(resolved_remote_runtime.shared_server.host.source),
-                    resolved_remote_runtime.shared_server.port.value,
-                    source_label(resolved_remote_runtime.shared_server.port.source),
                     resolved_remote_runtime
                         .shared_server
                         .password
@@ -288,13 +290,13 @@ fn shared_server_attach_config(
 ) -> Option<session::SharedServerAttachConfig> {
     remote_runtime.remote_dir_prefix.value.as_ref()?;
 
-    let explicit = remote_runtime.shared_server.url.source != ValueSource::Default
-        || remote_runtime.shared_server.host.source != ValueSource::Default
-        || remote_runtime.shared_server.port.source != ValueSource::Default
-        || remote_runtime.shared_server.password.source != ValueSource::Default;
+    if remote_runtime.shared_server.url.source == ValueSource::Default {
+        return None;
+    }
 
-    explicit.then(|| session::SharedServerAttachConfig {
-        url: remote_runtime.shared_server.attach_url.clone(),
+    let url = remote_runtime.shared_server.url.value.clone()?;
+    Some(session::SharedServerAttachConfig {
+        url,
         password: remote_runtime.shared_server.password.value.clone(),
     })
 }

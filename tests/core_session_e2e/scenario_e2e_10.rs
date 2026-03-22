@@ -25,7 +25,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             &fixture.project_dir,
             &[],
             &[
-                ("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix),
+                ("EZM_REMOTE_DIR_PREFIX", &remote_prefix),
                 ("OPERATOR", &expected_operator),
             ],
             0,
@@ -45,30 +45,18 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         extract_stdout_field(&launch.stdout, "opencode_attach_url").unwrap_or_default();
     let opencode_server_url_source =
         extract_stdout_field(&launch.stdout, "opencode_server_url_source").unwrap_or_default();
-    let opencode_server_host =
-        extract_stdout_field(&launch.stdout, "opencode_server_host").unwrap_or_default();
-    let opencode_server_host_source =
-        extract_stdout_field(&launch.stdout, "opencode_server_host_source").unwrap_or_default();
-    let opencode_server_port =
-        extract_stdout_field(&launch.stdout, "opencode_server_port").unwrap_or_default();
-    let opencode_server_port_source =
-        extract_stdout_field(&launch.stdout, "opencode_server_port_source").unwrap_or_default();
     let opencode_server_password_set =
         extract_stdout_field(&launch.stdout, "opencode_server_password_set")
             .is_some_and(|value| value == "true");
     let opencode_server_password_source =
         extract_stdout_field(&launch.stdout, "opencode_server_password_source").unwrap_or_default();
 
-    let expected_attach_url = String::from("http://127.0.0.1:4096");
+    let expected_attach_url = String::from("none");
     let remap_applied = effective_mapped_path == expected_mapped_path;
     let remote_prefix_source_is_env = remote_dir_prefix_source == "env";
     let remote_prefix_matches = effective_remote_dir_prefix == remote_prefix;
     let attach_url_matches_default = opencode_attach_url == expected_attach_url;
     let server_url_source_is_default = opencode_server_url_source == "default";
-    let server_host_matches_default = opencode_server_host == "127.0.0.1";
-    let server_host_source_is_default = opencode_server_host_source == "default";
-    let server_port_matches_default = opencode_server_port == "4096";
-    let server_port_source_is_default = opencode_server_port_source == "default";
     let password_source_is_default = opencode_server_password_source == "default";
 
     let shell_switch_args = vec![
@@ -86,7 +74,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             &fixture.project_dir,
             &shell_switch_args,
             &[
-                ("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix),
+                ("EZM_REMOTE_DIR_PREFIX", &remote_prefix),
                 ("OPERATOR", &expected_operator),
             ],
             0,
@@ -126,7 +114,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .run_ezm_in_dir(
             &fixture.project_dir,
             &agent_switch_args,
-            &[("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix)],
+            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-10 agent switch failed to execute: {error}"));
@@ -154,7 +142,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .run_ezm_in_dir(
             &fixture.project_dir,
             &shell_switch_args,
-            &[("OPENCODE_REMOTE_DIR_PREFIX", &remote_prefix)],
+            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
             0,
         )
         .unwrap_or_else(|error| {
@@ -168,9 +156,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .contains("remote-prefix routing requires OPERATOR to be set");
     let shell_operator_matches = pane_start_command.contains(&expected_operator);
     let shell_remote_dir_matches = pane_start_command.contains(&expected_mapped_path);
-    let agent_attach_url_matches = agent_pane_start_command.contains(&expected_attach_url);
-    let agent_attach_dir_matches = agent_pane_start_command.contains(&expected_mapped_path);
-    let agent_attach_uses_opencode = agent_pane_start_command.contains("opencode attach");
+    let agent_attach_url_matches = !agent_pane_start_command.contains("opencode attach");
+    let agent_launch_omits_attach_dir_flag = !agent_pane_start_command.contains("--dir");
+    let agent_mode_avoids_opencode_attach = !agent_pane_start_command.contains("opencode attach");
     let agent_password_flag_absent = !agent_pane_start_command.contains("--password");
 
     assertions.push(format!("launch action = {launch_action}"));
@@ -183,12 +171,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     ));
     assertions.push(format!(
         "launch attach url = {opencode_attach_url} (url_source={opencode_server_url_source})"
-    ));
-    assertions.push(format!(
-        "launch server host = {opencode_server_host} (source={opencode_server_host_source})"
-    ));
-    assertions.push(format!(
-        "launch server port = {opencode_server_port} (source={opencode_server_port_source})"
     ));
     assertions.push(format!(
         "launch password configured flag = {opencode_server_password_set} (source={opencode_server_password_source})"
@@ -225,13 +207,13 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         agent_pane_start_command.trim()
     ));
     assertions.push(format!(
-        "agent success branch includes opencode attach invocation = {agent_attach_uses_opencode}"
+        "agent success branch avoids opencode attach invocation when shared server URL is unset = {agent_mode_avoids_opencode_attach}"
     ));
     assertions.push(format!(
         "agent success branch effective attach url matches default resolution = {agent_attach_url_matches}"
     ));
     assertions.push(format!(
-        "agent success branch effective attach dir matches mapped path = {agent_attach_dir_matches}"
+        "agent success branch omits attach dir flag when shared server URL is unset = {agent_launch_omits_attach_dir_flag}"
     ));
     assertions.push(format!(
         "agent success branch omits password flag when password is unset = {agent_password_flag_absent}"
@@ -255,19 +237,15 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && remote_prefix_matches
         && attach_url_matches_default
         && server_url_source_is_default
-        && server_host_matches_default
-        && server_host_source_is_default
-        && server_port_matches_default
-        && server_port_source_is_default
         && !opencode_server_password_set
         && password_source_is_default
         && shell_switch_success.exit_code == 0
         && shell_operator_matches
         && shell_remote_dir_matches
         && agent_switch_success.exit_code == 0
-        && agent_attach_uses_opencode
+        && agent_mode_avoids_opencode_attach
         && agent_attach_url_matches
-        && agent_attach_dir_matches
+        && agent_launch_omits_attach_dir_flag
         && agent_password_flag_absent
         && fail_fast_non_zero
         && fail_fast_diagnostic
@@ -295,10 +273,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             remap_applied,
             opencode_attach_url,
             opencode_server_url_source,
-            opencode_server_host,
-            opencode_server_host_source,
-            opencode_server_port,
-            opencode_server_port_source,
             opencode_server_password_set,
             opencode_server_password_source,
         }),

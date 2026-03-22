@@ -82,9 +82,7 @@ fn sanitize_tool_environment(binary_name: &str, launch_invocation: &str) -> Stri
         return launch_invocation.to_owned();
     }
 
-    format!(
-        "unset OPENCODE_SERVER_URL OPENCODE_SERVER_HOST OPENCODE_SERVER_PORT OPENCODE_SERVER_PASSWORD; {launch_invocation}"
-    )
+    format!("unset OPENCODE_SERVER_URL OPENCODE_SERVER_PASSWORD; {launch_invocation}")
 }
 
 #[cfg(test)]
@@ -99,7 +97,7 @@ mod tests {
             ModeToolFailurePolicy::ContinueToShell,
         );
 
-        assert!(command.contains("unset OPENCODE_SERVER_URL OPENCODE_SERVER_HOST OPENCODE_SERVER_PORT OPENCODE_SERVER_PASSWORD;"));
+        assert!(command.contains("unset OPENCODE_SERVER_URL OPENCODE_SERVER_PASSWORD;"));
         assert!(command.contains("opencode attach 'http://127.0.0.1:4096' --dir '/repo'"));
     }
 

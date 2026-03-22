@@ -2,8 +2,6 @@ use std::path::{Path, PathBuf};
 
 use super::SessionError;
 
-pub const OPENCODE_REMOTE_DIR_PREFIX_ENV: &str = "OPENCODE_REMOTE_DIR_PREFIX";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemotePathResolution {
     pub effective_path: PathBuf,

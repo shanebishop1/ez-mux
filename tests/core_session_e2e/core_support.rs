@@ -125,10 +125,6 @@ pub(super) struct RemotePathEvidence {
     pub(super) remap_applied: bool,
     pub(super) opencode_attach_url: String,
     pub(super) opencode_server_url_source: String,
-    pub(super) opencode_server_host: String,
-    pub(super) opencode_server_host_source: String,
-    pub(super) opencode_server_port: String,
-    pub(super) opencode_server_port_source: String,
     pub(super) opencode_server_password_set: bool,
     pub(super) opencode_server_password_source: String,
 }
