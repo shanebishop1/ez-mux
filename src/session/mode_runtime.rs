@@ -9,6 +9,13 @@ pub struct SharedServerAttachConfig {
     pub password: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RemoteModeContext<'a> {
+    pub operator: Option<&'a str>,
+    pub remote_prefix: Option<&'a str>,
+    pub remote_server_url: Option<&'a str>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlotModeSwitchOutcome {
     pub session_name: String,
@@ -24,8 +31,7 @@ pub fn switch_slot_mode(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
-    operator: Option<&str>,
-    remote_prefix: Option<&str>,
+    remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
     tmux: &impl TmuxClient,
 ) -> Result<SlotModeSwitchOutcome, SessionError> {
@@ -35,14 +41,7 @@ pub fn switch_slot_mode(
         ));
     }
 
-    tmux.switch_slot_mode(
-        session_name,
-        slot_id,
-        mode,
-        operator,
-        remote_prefix,
-        shared_server,
-    )?;
+    tmux.switch_slot_mode(session_name, slot_id, mode, remote_context, shared_server)?;
 
     Ok(SlotModeSwitchOutcome {
         session_name: session_name.to_owned(),

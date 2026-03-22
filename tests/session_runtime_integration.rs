@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use ez_mux::session::LayoutPreset;
+use ez_mux::session::RemoteModeContext;
 use ez_mux::session::SessionAction;
 use ez_mux::session::SessionDamageAnalysis;
 use ez_mux::session::SessionRepairOutcome;
@@ -86,8 +87,7 @@ impl TmuxClient for FakeTmux {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
-        _operator: Option<&str>,
-        _remote_prefix: Option<&str>,
+        _remote_context: ez_mux::session::RemoteModeContext<'_>,
         _shared_server: Option<&ez_mux::session::SharedServerAttachConfig>,
     ) -> Result<(), ez_mux::session::SessionError> {
         self.mode_switches
@@ -173,6 +173,9 @@ impl TmuxClient for FakeTmux {
         session_name: &str,
         slot_id: u8,
         _client_tty: Option<&str>,
+        _operator: Option<&str>,
+        _remote_prefix: Option<&str>,
+        _remote_server_url: Option<&str>,
     ) -> Result<ez_mux::session::PopupShellOutcome, ez_mux::session::SessionError> {
         self.popup_toggles
             .borrow_mut()
@@ -515,8 +518,7 @@ fn slot_targeted_mode_switch_routes_to_tmux_client() {
         "ezm-session-42",
         3,
         SlotMode::Neovim,
-        None,
-        None,
+        RemoteModeContext::default(),
         None,
         &tmux,
     )
@@ -544,8 +546,7 @@ fn slot_targeted_mode_switch_surfaces_tmux_failures() {
         "ezm-session-77",
         4,
         SlotMode::Agent,
-        None,
-        None,
+        RemoteModeContext::default(),
         None,
         &tmux,
     )
@@ -567,8 +568,7 @@ fn slot_targeted_mode_switch_rejects_non_canonical_slot_id_at_runtime_boundary()
         "ezm-session-77",
         9,
         SlotMode::Agent,
-        None,
-        None,
+        RemoteModeContext::default(),
         None,
         &tmux,
     )
@@ -675,8 +675,10 @@ fn popup_toggle_routes_to_tmux_client_and_toggles_open_then_close() {
         ..FakeTmux::default()
     };
 
-    let first = toggle_popup_shell("ezm-session-88", 2, None, &tmux).expect("first toggle");
-    let second = toggle_popup_shell("ezm-session-88", 2, None, &tmux).expect("second toggle");
+    let first = toggle_popup_shell("ezm-session-88", 2, None, None, None, None, &tmux)
+        .expect("first toggle");
+    let second = toggle_popup_shell("ezm-session-88", 2, None, None, None, None, &tmux)
+        .expect("second toggle");
 
     assert_eq!(first.action, ez_mux::session::PopupShellAction::Opened);
     assert_eq!(second.action, ez_mux::session::PopupShellAction::Closed);
@@ -699,8 +701,8 @@ fn popup_toggle_surfaces_tmux_failures() {
         ..FakeTmux::default()
     };
 
-    let error =
-        toggle_popup_shell("ezm-session-88", 2, None, &tmux).expect_err("popup should fail");
+    let error = toggle_popup_shell("ezm-session-88", 2, None, None, None, None, &tmux)
+        .expect_err("popup should fail");
 
     assert!(error.to_string().contains("display-popup failed"));
     assert_eq!(tmux.popup_toggles.borrow().len(), 1);

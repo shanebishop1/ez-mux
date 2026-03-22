@@ -3,7 +3,19 @@ use super::{
     launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd,
     startup_mode_signal_enabled, use_startup_fast_path,
 };
-use crate::session::{SharedServerAttachConfig, SlotMode};
+use crate::session::{RemoteModeContext, SharedServerAttachConfig, SlotMode};
+
+fn remote_context<'a>(
+    remote_prefix: Option<&'a str>,
+    operator: Option<&'a str>,
+    remote_server_url: Option<&'a str>,
+) -> RemoteModeContext<'a> {
+    RemoteModeContext {
+        operator,
+        remote_prefix,
+        remote_server_url,
+    }
+}
 
 #[test]
 fn remote_prefix_injects_ezm_remote_dir_export() {
@@ -16,8 +28,7 @@ fn remote_prefix_injects_ezm_remote_dir_export() {
     let command = launch_command_with_remote_dir_from_mapping(
         "exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
-        Some("/srv/remotes"),
-        Some("alice"),
+        remote_context(Some("/srv/remotes"), Some("alice"), None),
     )
     .expect("command should resolve");
 
@@ -26,12 +37,53 @@ fn remote_prefix_injects_ezm_remote_dir_export() {
 }
 
 #[test]
+fn remote_prefix_injects_ezm_remote_server_url_export_when_configured() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo_root = temp.path().join("alpha");
+    let nested = repo_root.join("worktrees").join("feature-x");
+    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+    std::fs::create_dir_all(&nested).expect("create nested");
+
+    let command = launch_command_with_remote_dir_from_mapping(
+        "exec \"${SHELL:-/bin/sh}\" -l",
+        &nested.display().to_string(),
+        remote_context(
+            Some("/srv/remotes"),
+            Some("alice"),
+            Some("https://shell.remote.example:7443"),
+        ),
+    )
+    .expect("command should resolve");
+
+    assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
+    assert!(command.contains("OPERATOR='alice'"));
+    assert!(command.contains("EZM_REMOTE_SERVER_URL='https://shell.remote.example:7443'"));
+}
+
+#[test]
+fn remote_prefix_omits_ezm_remote_server_url_export_when_unconfigured() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo_root = temp.path().join("alpha");
+    let nested = repo_root.join("worktrees").join("feature-x");
+    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+    std::fs::create_dir_all(&nested).expect("create nested");
+
+    let command = launch_command_with_remote_dir_from_mapping(
+        "exec \"${SHELL:-/bin/sh}\" -l",
+        &nested.display().to_string(),
+        remote_context(Some("/srv/remotes"), Some("alice"), Some("   ")),
+    )
+    .expect("command should resolve");
+
+    assert!(!command.contains("EZM_REMOTE_SERVER_URL='"));
+}
+
+#[test]
 fn missing_remote_mapping_keeps_original_launch_command() {
     let command = launch_command_with_remote_dir_from_mapping(
         "exec \"${SHELL:-/bin/sh}\" -l",
         "/tmp/local-only",
-        None,
-        None,
+        RemoteModeContext::default(),
     )
     .expect("command should resolve");
 
@@ -47,8 +99,7 @@ fn remote_prefix_without_operator_fails_fast() {
     let error = launch_command_with_remote_dir_from_mapping(
         "exec \"${SHELL:-/bin/sh}\" -l",
         &repo_root.display().to_string(),
-        Some("/srv/remotes"),
-        None,
+        remote_context(Some("/srv/remotes"), None, None),
     )
     .expect_err("missing operator should fail");
 
@@ -121,8 +172,7 @@ fn agent_mode_without_shared_server_uses_local_launch_contract() {
         SlotMode::Agent,
         "exec opencode || exec \"${SHELL:-/bin/sh}\" -l",
         "/tmp/local-only",
-        None,
-        None,
+        RemoteModeContext::default(),
         None,
     )
     .expect("agent local launch should resolve");
@@ -140,8 +190,7 @@ fn agent_mode_does_not_require_operator_for_remote_prefix_mapping() {
         SlotMode::Agent,
         "placeholder",
         &repo_root.display().to_string(),
-        Some("/srv/remotes"),
-        None,
+        remote_context(Some("/srv/remotes"), None, None),
         Some(&SharedServerAttachConfig {
             url: String::from("http://127.0.0.1:4096"),
             password: None,

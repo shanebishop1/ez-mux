@@ -37,6 +37,9 @@ pub fn toggle_popup_shell(
     session_name: &str,
     slot_id: u8,
     client_tty: Option<&str>,
+    operator: Option<&str>,
+    remote_prefix: Option<&str>,
+    remote_server_url: Option<&str>,
     tmux: &impl TmuxClient,
 ) -> Result<PopupShellOutcome, SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -45,5 +48,12 @@ pub fn toggle_popup_shell(
         ));
     }
 
-    tmux.toggle_popup_shell(session_name, slot_id, client_tty)
+    tmux.toggle_popup_shell(
+        session_name,
+        slot_id,
+        client_tty,
+        operator,
+        remote_prefix,
+        remote_server_url,
+    )
 }

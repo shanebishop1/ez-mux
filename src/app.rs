@@ -185,12 +185,16 @@ fn execute_internal(
         } => {
             let tmux = session::ProcessTmuxClient;
             let shared_server = shared_server_attach_config(remote_runtime);
+            let remote_context = session::RemoteModeContext {
+                operator,
+                remote_prefix: remote_runtime.remote_dir_prefix.value.as_deref(),
+                remote_server_url: remote_runtime.remote_server_url.value.as_deref(),
+            };
             let outcome = session::switch_slot_mode(
                 &session,
                 slot,
                 mode,
-                operator,
-                remote_runtime.remote_dir_prefix.value.as_deref(),
+                remote_context,
                 shared_server.as_ref(),
                 &tmux,
             )?;
@@ -207,7 +211,15 @@ fn execute_internal(
             client,
         } => {
             let tmux = session::ProcessTmuxClient;
-            let outcome = session::toggle_popup_shell(&session, slot, client.as_deref(), &tmux)?;
+            let outcome = session::toggle_popup_shell(
+                &session,
+                slot,
+                client.as_deref(),
+                operator,
+                remote_runtime.remote_dir_prefix.value.as_deref(),
+                remote_runtime.remote_server_url.value.as_deref(),
+                &tmux,
+            )?;
             Ok(format!(
                 "internal popup complete: session={}; slot={}; action={}; cwd={}; width_pct={}; height_pct={}",
                 outcome.session_name,
