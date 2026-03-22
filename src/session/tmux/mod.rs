@@ -122,6 +122,7 @@ pub trait TmuxClient {
         &self,
         session_name: &str,
         slot_id: u8,
+        client_tty: Option<&str>,
     ) -> Result<PopupShellOutcome, SessionError>;
 
     /// Creates/reuses or closes the auxiliary viewer window.
@@ -261,8 +262,9 @@ impl TmuxClient for ProcessTmuxClient {
         &self,
         session_name: &str,
         slot_id: u8,
+        client_tty: Option<&str>,
     ) -> Result<PopupShellOutcome, SessionError> {
-        popup::toggle_popup_shell(session_name, slot_id)
+        popup::toggle_popup_shell(session_name, slot_id, client_tty)
     }
 
     fn auxiliary_viewer(

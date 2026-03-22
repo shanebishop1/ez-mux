@@ -230,28 +230,32 @@ fn preset_command(ezm_bin: &str) -> String {
 }
 
 fn swap_command(ezm_bin: &str, slot_id: u8) -> String {
-    format!("{ezm_bin} __internal swap --session \"#{{session_name}}\" --slot {slot_id}")
+    format!(
+        "{ezm_bin} __internal swap --session \"#{{session_name}}\" --slot {slot_id} </dev/null >/dev/null 2>&1"
+    )
 }
 
 fn focus_command(ezm_bin: &str, slot_id: u8) -> String {
-    format!("{ezm_bin} __internal focus --session \"#{{session_name}}\" --slot {slot_id}")
+    format!(
+        "{ezm_bin} __internal focus --session \"#{{session_name}}\" --slot {slot_id} </dev/null >/dev/null 2>&1"
+    )
 }
 
 fn mode_command(ezm_bin: &str, mode: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode}"
+        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode} >/dev/null"
     )
 }
 
 fn toggle_mode_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode \"#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}\""
+        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode \"#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}\" >/dev/null"
     )
 }
 
 fn popup_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\""
+        "{ezm_bin} __internal popup --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --client \"#{{client_name}}\" >/dev/null 2>&1"
     )
 }
 
@@ -296,6 +300,7 @@ mod tests {
         assert!(rendered.contains("__internal swap"));
         assert!(rendered.contains("--slot 4"));
         assert!(rendered.contains("#{session_name}"));
+        assert!(rendered.contains(">/dev/null 2>&1"));
         assert!(!rendered.contains("${EZM_BIN:-ezm}"));
     }
 
@@ -305,9 +310,19 @@ mod tests {
         assert!(rendered.contains("__internal focus"));
         assert!(rendered.contains("--slot 2"));
         assert!(rendered.contains("#{session_name}"));
+        assert!(rendered.contains(">/dev/null 2>&1"));
         assert!(rendered.starts_with("'ezm' __internal focus"));
         assert!(!rendered.contains("'#{session_name}'"));
         assert!(!rendered.contains("${EZM_BIN:-ezm}"));
+    }
+
+    #[test]
+    fn focus_and_swap_commands_close_stdin_and_suppress_output() {
+        let focus_rendered = focus_command("'ezm'", 1);
+        let swap_rendered = swap_command("'ezm'", 1);
+
+        assert!(focus_rendered.contains("</dev/null >/dev/null 2>&1"));
+        assert!(swap_rendered.contains("</dev/null >/dev/null 2>&1"));
     }
 
     #[test]
@@ -316,6 +331,7 @@ mod tests {
         assert!(rendered.contains("__internal mode"));
         assert!(rendered.contains("--mode neovim"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
+        assert!(rendered.contains(">/dev/null"));
         assert!(rendered.starts_with("'ezm' __internal mode"));
         assert!(!rendered.contains("'#{session_name}'"));
         assert!(!rendered.contains("'#{@ezm_slot_id}'"));
@@ -327,6 +343,7 @@ mod tests {
         let rendered = toggle_mode_command("'ezm'");
         assert!(rendered.contains("__internal mode"));
         assert!(rendered.contains("#{?#{==:#{@ezm_slot_mode},agent},shell,agent}"));
+        assert!(rendered.contains(">/dev/null"));
         assert!(rendered.starts_with("'ezm' __internal mode"));
         assert!(!rendered.contains("'#{session_name}'"));
         assert!(!rendered.contains("'#{@ezm_slot_id}'"));
@@ -339,10 +356,17 @@ mod tests {
         let rendered = popup_command("'ezm'");
         assert!(rendered.contains("__internal popup"));
         assert!(rendered.contains("#{@ezm_slot_id}"));
+        assert!(rendered.contains("--client \"#{client_name}\""));
         assert!(rendered.starts_with("'ezm' __internal popup"));
         assert!(!rendered.contains("'#{session_name}'"));
         assert!(!rendered.contains("'#{@ezm_slot_id}'"));
         assert!(!rendered.contains("${EZM_BIN:-ezm}"));
+    }
+
+    #[test]
+    fn popup_command_targets_tmux_client_name() {
+        let rendered = popup_command("'ezm'");
+        assert!(rendered.contains("--client \"#{client_name}\""));
     }
 
     #[test]
