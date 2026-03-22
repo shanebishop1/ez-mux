@@ -85,8 +85,7 @@ fn popup_cleanup_hook_command() -> String {
     (1_u8..=5)
         .map(|slot_id| {
             format!(
-                "tmux kill-session -t {} >/dev/null 2>&1",
-                shell_single_quote(&format!("#{{hook_session_name}}__popup_slot_{slot_id}"))
+                "tmux kill-session -t \"#{{hook_session_name}}__popup_slot_{slot_id}\" >/dev/null 2>&1"
             )
         })
         .collect::<Vec<_>>()
@@ -230,6 +229,8 @@ mod tests {
         assert!(command.contains("#{hook_session_name}__popup_slot_4"));
         assert!(command.contains("#{hook_session_name}__popup_slot_5"));
         assert!(command.contains(">/dev/null 2>&1"));
+        assert!(!command.contains("-t '#{hook_session_name}"));
+        assert!(command.contains("-t \"#{hook_session_name}__popup_slot_1\""));
     }
 
     #[test]
