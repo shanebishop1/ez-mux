@@ -1,6 +1,6 @@
 use super::{
     launch_agent_attach_command, launch_command_for_mode,
-    launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd,
+    launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd, use_startup_fast_path,
 };
 use crate::session::{SharedServerAttachConfig, SlotMode};
 
@@ -182,4 +182,10 @@ fn non_startup_mode_switch_uses_captured_pane_cwd() {
         .expect("captured cwd should resolve");
 
     assert_eq!(captured, "/repo-2/src");
+}
+
+#[test]
+fn startup_mode_switch_enables_fast_path() {
+    assert!(use_startup_fast_path(true));
+    assert!(!use_startup_fast_path(false));
 }
