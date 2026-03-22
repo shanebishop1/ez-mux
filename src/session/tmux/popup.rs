@@ -36,18 +36,9 @@ pub(super) fn toggle_popup_shell(
         });
     }
 
-    tmux_run(&[
-        "new-session",
-        "-d",
-        "-s",
-        &popup_session,
-        "-c",
-        &cwd,
-        "sh",
-        "-lc",
-        "exec \"${SHELL:-/bin/sh}\" -l",
-    ])?;
-    enable_popup_session_auto_destroy(&popup_session)?;
+    let create_args = popup_new_session_args(&popup_session, &cwd);
+    let create_args_ref = create_args.iter().map(String::as_str).collect::<Vec<_>>();
+    tmux_run(&create_args_ref)?;
 
     persist_popup_defaults(session_name)?;
     set_session_option(&popup_session, "@ezm_popup_origin_session", session_name)?;
@@ -59,6 +50,7 @@ pub(super) fn toggle_popup_shell(
     set_session_option(&popup_session, "@ezm_popup_origin_pane", &origin_slot_pane)?;
     set_session_option(&popup_session, "@ezm_popup_cwd", &cwd)?;
     show_popup(&origin_slot_pane, &popup_session, &cwd, client_tty)?;
+    enable_popup_session_auto_destroy(&popup_session)?;
 
     validate_canonical_slot_registry(session_name)?;
     Ok(PopupShellOutcome {
@@ -163,6 +155,17 @@ fn popup_destroy_unattached_args(popup_session: &str) -> Vec<String> {
     ]
 }
 
+fn popup_new_session_args(popup_session: &str, cwd: &str) -> Vec<String> {
+    vec![
+        String::from("new-session"),
+        String::from("-d"),
+        String::from("-s"),
+        popup_session.to_owned(),
+        String::from("-c"),
+        cwd.to_owned(),
+    ]
+}
+
 fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
@@ -210,7 +213,7 @@ fn persist_popup_defaults(session_name: &str) -> Result<(), SessionError> {
 mod tests {
     use super::{
         popup_attach_command, popup_cleanup_hook_command, popup_destroy_unattached_args,
-        popup_display_args,
+        popup_display_args, popup_new_session_args,
     };
 
     #[test]
@@ -262,5 +265,14 @@ mod tests {
                 String::from("on"),
             ]
         );
+    }
+
+    #[test]
+    fn popup_new_session_uses_default_shell_without_lc_wrapper() {
+        let args = popup_new_session_args("ezm-s100__popup_slot_4", "/tmp/popup-cwd");
+        let rendered = args.join(" ");
+
+        assert!(rendered.starts_with("new-session -d -s ezm-s100__popup_slot_4 -c /tmp/popup-cwd"));
+        assert!(!rendered.contains("sh -lc"));
     }
 }
