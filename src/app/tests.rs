@@ -11,8 +11,12 @@ use super::execute_with_opener;
 use super::format_repair_message;
 use super::internal_focus_success_message;
 use super::internal_swap_success_message;
+use super::shared_server_attach_config;
 use crate::cli::{Cli, Command, LogsCommand};
-use crate::config::OperatingSystem;
+use crate::config::{
+    OperatingSystem, RemoteRuntimeResolution, ResolvedValue, SharedServerRuntimeResolution,
+    ValueSource,
+};
 use crate::logging::LogOpener;
 use crate::session::{
     AuxiliaryViewerOutcome, LayoutPreset, PopupShellOutcome, SessionError, SlotMode,
@@ -288,4 +292,54 @@ fn internal_focus_completion_message_is_suppressed_for_keybind_invocations() {
 #[test]
 fn internal_swap_completion_message_is_suppressed_for_keybind_invocations() {
     assert!(internal_swap_success_message("ezm-test-session", 2).is_empty());
+}
+
+#[test]
+fn shared_server_attach_config_is_disabled_for_local_mode() {
+    let runtime = remote_runtime_resolution(None);
+
+    assert!(shared_server_attach_config(&runtime).is_none());
+}
+
+#[test]
+fn shared_server_attach_config_is_enabled_for_remote_mode_when_explicit() {
+    let runtime = remote_runtime_resolution(Some("/srv/remotes"));
+
+    let attach = shared_server_attach_config(&runtime).expect("attach config");
+    assert_eq!(attach.url, "http://devbox-ez-1:4096");
+    assert_eq!(attach.password.as_deref(), Some("secret"));
+}
+
+fn remote_runtime_resolution(remote_prefix: Option<&str>) -> RemoteRuntimeResolution {
+    let remote_source = if remote_prefix.is_some() {
+        ValueSource::Env
+    } else {
+        ValueSource::Default
+    };
+
+    RemoteRuntimeResolution {
+        remote_dir_prefix: ResolvedValue {
+            value: remote_prefix.map(String::from),
+            source: remote_source,
+        },
+        shared_server: SharedServerRuntimeResolution {
+            url: ResolvedValue {
+                value: Some(String::from("http://devbox-ez-1:4096")),
+                source: ValueSource::Env,
+            },
+            host: ResolvedValue {
+                value: String::from("127.0.0.1"),
+                source: ValueSource::Default,
+            },
+            port: ResolvedValue {
+                value: 4096,
+                source: ValueSource::Default,
+            },
+            password: ResolvedValue {
+                value: Some(String::from("secret")),
+                source: ValueSource::Env,
+            },
+            attach_url: String::from("http://devbox-ez-1:4096"),
+        },
+    }
 }
