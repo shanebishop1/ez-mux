@@ -23,8 +23,10 @@ const ACTIVE_SLOT_BORDER_STYLE_FORMAT: &str = "fg=#{?#{==:#{@ezm_slot_id},1},#5a
 pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     let ezm_bin = resolved_ezm_bin_shell_token();
 
-    for (table, key) in clear_specs() {
-        unbind_key_if_present(table, &key)?;
+    if should_clear_existing_keybinds_before_install() {
+        for (table, key) in clear_specs() {
+            unbind_key_if_present(table, &key)?;
+        }
     }
 
     install_prefix_routing_bindings(&ezm_bin)?;
@@ -34,6 +36,10 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     install_mode_bindings(&ezm_bin)?;
 
     Ok(())
+}
+
+fn should_clear_existing_keybinds_before_install() -> bool {
+    false
 }
 
 fn install_prefix_routing_bindings(ezm_bin: &str) -> Result<(), SessionError> {
@@ -318,7 +324,7 @@ mod tests {
     use super::{
         ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
         popup_close_from_popup_context_command, popup_command, resolve_ezm_bin, shell_single_quote,
-        swap_command, toggle_mode_command,
+        should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
     };
 
     #[test]
@@ -415,6 +421,11 @@ mod tests {
         assert!(rendered.contains("--slot \"#{@ezm_popup_origin_slot}\""));
         assert!(rendered.contains("--client \"#{client_tty}\""));
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
+    }
+
+    #[test]
+    fn startup_keybind_install_skips_unbind_clear_phase() {
+        assert!(!should_clear_existing_keybinds_before_install());
     }
 
     #[test]
