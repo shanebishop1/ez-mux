@@ -24,7 +24,7 @@ fn t1_5_default_startup_is_local_first_and_omits_remote_only_diagnostics() {
 
     let remote_only_fields_suppressed = extract_stdout_field(&launch.stdout, "remote_project_dir")
         .is_none()
-        && extract_stdout_field(&launch.stdout, "remote_dir_prefix").is_none()
+        && extract_stdout_field(&launch.stdout, "remote_path").is_none()
         && extract_stdout_field(&launch.stdout, "opencode_attach_url").is_none();
 
     let slots = read_slot_snapshot(&harness, &session)
@@ -79,7 +79,10 @@ fn t1_5_remote_diagnostics_emit_only_when_remote_routing_is_active() {
         .run_ezm_in_dir(
             &fixture.project_dir,
             &[],
-            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
+            &[
+                ("EZM_REMOTE_PATH", &remote_prefix),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
+            ],
             0,
         )
         .unwrap_or_else(|error| panic!("remote routing launch failed: {error}"));
@@ -91,12 +94,11 @@ fn t1_5_remote_diagnostics_emit_only_when_remote_routing_is_active() {
         extract_stdout_field(&launch.stdout, "remote_routing_active").unwrap_or_default();
     let remote_project_dir =
         extract_stdout_field(&launch.stdout, "remote_project_dir").unwrap_or_default();
-    let remote_dir_prefix =
-        extract_stdout_field(&launch.stdout, "remote_dir_prefix").unwrap_or_default();
-    let remote_dir_prefix_source =
-        extract_stdout_field(&launch.stdout, "remote_dir_prefix_source").unwrap_or_default();
+    let remote_path = extract_stdout_field(&launch.stdout, "remote_path").unwrap_or_default();
+    let remote_path_source =
+        extract_stdout_field(&launch.stdout, "remote_path_source").unwrap_or_default();
     let remote_fields_present = !remote_project_dir.is_empty()
-        && !remote_dir_prefix.is_empty()
+        && !remote_path.is_empty()
         && extract_stdout_field(&launch.stdout, "opencode_attach_url").is_some();
     let mapped_path_matches_expected = paths_equivalent(
         &remote_project_dir,
@@ -114,8 +116,8 @@ fn t1_5_remote_diagnostics_emit_only_when_remote_routing_is_active() {
             "expected_remote_project_dir={}",
             fixture.expected_mapped_path.display()
         ),
-        format!("remote_dir_prefix={remote_dir_prefix}"),
-        format!("remote_dir_prefix_source={remote_dir_prefix_source}"),
+        format!("remote_path={remote_path}"),
+        format!("remote_path_source={remote_path_source}"),
         format!("remote_fields_present={remote_fields_present}"),
         format!("mapped_path_matches_expected={mapped_path_matches_expected}"),
     ];
@@ -130,7 +132,7 @@ fn t1_5_remote_diagnostics_emit_only_when_remote_routing_is_active() {
         && remote_routing_active == "true"
         && remote_fields_present
         && mapped_path_matches_expected
-        && remote_dir_prefix_source == "env";
+        && remote_path_source == "env";
 
     assert!(
         pass,
@@ -156,7 +158,7 @@ fn t1_5_routing_failures_surface_explicit_stderr_and_log_evidence() {
         "shell",
     ];
     let fail = harness
-        .run_ezm(&args, &[("EZM_REMOTE_DIR_PREFIX", "/srv/remotes")], 0)
+        .run_ezm(&args, &[("EZM_REMOTE_PATH", "/srv/remotes")], 0)
         .unwrap_or_else(|error| panic!("routing failure launch failed: {error}"));
 
     let active_log = extract_active_log_path(&fail.stderr).unwrap_or_default();
@@ -167,21 +169,18 @@ fn t1_5_routing_failures_surface_explicit_stderr_and_log_evidence() {
             .unwrap_or_else(|error| panic!("failed reading launch log {active_log}: {error}"))
     };
 
-    let stderr_has_explicit_routing_diagnostic = fail
-        .stderr
-        .contains("remote-prefix routing requires OPERATOR to be set");
+    let stderr_omits_operator_requirement = !fail.stderr.contains("OPERATOR");
     let log_has_failure_event = log_content.contains("event=launch-failure");
-    let log_has_routing_diagnostic =
-        log_content.contains("remote-prefix routing requires OPERATOR to be set");
+    let log_omits_operator_requirement = !log_content.contains("OPERATOR");
 
     let evidence = vec![
         format!("exit_code={}", fail.exit_code),
         format!("stdout={}", fail.stdout.trim()),
         format!("stderr={}", fail.stderr.trim()),
         format!("active_log={active_log}"),
-        format!("stderr_has_explicit_routing_diagnostic={stderr_has_explicit_routing_diagnostic}"),
+        format!("stderr_omits_operator_requirement={stderr_omits_operator_requirement}"),
         format!("log_has_failure_event={log_has_failure_event}"),
-        format!("log_has_routing_diagnostic={log_has_routing_diagnostic}"),
+        format!("log_omits_operator_requirement={log_omits_operator_requirement}"),
     ];
     write_green_cluster_evidence(&harness, "t1-5-routing-failure-surfacing", &evidence)
         .unwrap_or_else(|error| panic!("failed writing T-1.5 routing-failure evidence: {error}"));
@@ -189,10 +188,10 @@ fn t1_5_routing_failures_surface_explicit_stderr_and_log_evidence() {
     let pass = fail.exit_code != 0
         && fail.stdout.trim().is_empty()
         && fail.stderr.contains("active log file:")
-        && stderr_has_explicit_routing_diagnostic
+        && stderr_omits_operator_requirement
         && !active_log.is_empty()
         && log_has_failure_event
-        && log_has_routing_diagnostic;
+        && log_omits_operator_requirement;
 
     assert!(
         pass,

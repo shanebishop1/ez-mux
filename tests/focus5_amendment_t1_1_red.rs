@@ -336,7 +336,7 @@ fn red_local_vs_remote_diagnostics_and_failure_surfacing() {
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
 
     let local_output_is_remote_clean = !launch.stdout.contains("remote_project_dir=")
-        && !launch.stdout.contains("remote_dir_prefix=")
+        && !launch.stdout.contains("remote_path=")
         && !launch.stdout.contains("opencode_attach_url=");
     let local_mode_diagnostic_present = launch.stdout.contains("routing_mode=local")
         || launch.stdout.contains("remote_routing_active=false");

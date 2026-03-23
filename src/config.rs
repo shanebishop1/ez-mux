@@ -11,8 +11,7 @@ pub use load::{load_config, resolve_config_path};
 
 pub const EZM_CONFIG_ENV: &str = "EZM_CONFIG";
 pub const EZM_BIN_ENV: &str = "EZM_BIN";
-pub const OPERATOR_ENV: &str = "OPERATOR";
-pub const EZM_REMOTE_DIR_PREFIX_ENV: &str = "EZM_REMOTE_DIR_PREFIX";
+pub const EZM_REMOTE_PATH_ENV: &str = "EZM_REMOTE_PATH";
 pub const EZM_REMOTE_SERVER_URL_ENV: &str = "EZM_REMOTE_SERVER_URL";
 pub const OPENCODE_SERVER_URL_ENV: &str = "OPENCODE_SERVER_URL";
 pub const OPENCODE_SERVER_PASSWORD_ENV: &str = "OPENCODE_SERVER_PASSWORD";
@@ -88,8 +87,7 @@ pub enum ConfigError {
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct FileConfig {
-    pub operator: Option<String>,
-    pub ezm_remote_dir_prefix: Option<String>,
+    pub ezm_remote_path: Option<String>,
     pub ezm_remote_server_url: Option<String>,
     pub opencode_server_url: Option<String>,
     pub opencode_server_password: Option<String>,
@@ -135,45 +133,12 @@ pub struct SharedServerRuntimeResolution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteRuntimeResolution {
-    pub remote_dir_prefix: ResolvedValue<Option<String>>,
+    pub remote_path: ResolvedValue<Option<String>>,
     pub remote_server_url: ResolvedValue<Option<String>>,
     pub shared_server: SharedServerRuntimeResolution,
 }
 
-#[must_use]
-pub fn resolve_operator(
-    cli_operator: Option<String>,
-    env_operator: Option<String>,
-    file_operator: Option<String>,
-) -> ResolvedValue<Option<String>> {
-    if let Some(operator) = normalize_optional_value(cli_operator) {
-        return ResolvedValue {
-            value: Some(operator),
-            source: ValueSource::Cli,
-        };
-    }
-
-    if let Some(operator) = normalize_optional_value(env_operator) {
-        return ResolvedValue {
-            value: Some(operator),
-            source: ValueSource::Env,
-        };
-    }
-
-    if let Some(operator) = normalize_optional_value(file_operator) {
-        return ResolvedValue {
-            value: Some(operator),
-            source: ValueSource::File,
-        };
-    }
-
-    ResolvedValue {
-        value: None,
-        source: ValueSource::Default,
-    }
-}
-
-/// Resolves remote-prefix and shared-server runtime values from env/config.
+/// Resolves remote-path and shared-server runtime values from env/config.
 ///
 /// Precedence for each setting in this slice is `env > config > defaults`.
 ///
@@ -184,7 +149,7 @@ pub fn resolve_remote_runtime(
     env: &impl EnvProvider,
     file_config: &FileConfig,
 ) -> Result<RemoteRuntimeResolution, ConfigError> {
-    let remote_dir_prefix = resolve_remote_dir_prefix(env, file_config);
+    let remote_path = resolve_remote_path(env, file_config);
     let remote_server_url = resolve_optional_setting(
         None,
         env.get_var(EZM_REMOTE_SERVER_URL_ENV),
@@ -213,7 +178,7 @@ pub fn resolve_remote_runtime(
     );
 
     Ok(RemoteRuntimeResolution {
-        remote_dir_prefix,
+        remote_path,
         remote_server_url,
         shared_server: SharedServerRuntimeResolution {
             url: server_url,
@@ -222,18 +187,18 @@ pub fn resolve_remote_runtime(
     })
 }
 
-fn resolve_remote_dir_prefix(
+fn resolve_remote_path(
     env: &impl EnvProvider,
     file_config: &FileConfig,
 ) -> ResolvedValue<Option<String>> {
-    if let Some(value) = normalize_optional_value(env.get_var(EZM_REMOTE_DIR_PREFIX_ENV)) {
+    if let Some(value) = normalize_optional_value(env.get_var(EZM_REMOTE_PATH_ENV)) {
         return ResolvedValue {
             value: Some(value),
             source: ValueSource::Env,
         };
     }
 
-    if let Some(value) = normalize_optional_value(file_config.ezm_remote_dir_prefix.clone()) {
+    if let Some(value) = normalize_optional_value(file_config.ezm_remote_path.clone()) {
         return ResolvedValue {
             value: Some(value),
             source: ValueSource::File,

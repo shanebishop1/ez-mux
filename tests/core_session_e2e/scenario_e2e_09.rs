@@ -13,7 +13,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let fixture = create_remote_remap_fixture(harness)
         .unwrap_or_else(|error| panic!("E2E-09 remote fixture setup failed: {error}"));
-    let remote_prefix = fixture.remote_prefix.display().to_string();
+    let remote_path = fixture.remote_prefix.display().to_string();
     let expected_mapped_path = fixture.expected_mapped_path.display().to_string();
 
     let expected_session = prepare_fresh_create_path(harness, &fixture.project_dir)
@@ -23,7 +23,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .run_ezm_in_dir(
             &fixture.project_dir,
             &[],
-            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
+            &[
+                ("EZM_REMOTE_PATH", &remote_path),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
+            ],
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-09 launch failed: {error}"));
@@ -33,10 +36,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
     let effective_mapped_path =
         extract_stdout_field(&launch.stdout, "remote_project_dir").unwrap_or_default();
-    let effective_remote_dir_prefix =
-        extract_stdout_field(&launch.stdout, "remote_dir_prefix").unwrap_or_default();
-    let remote_dir_prefix_source =
-        extract_stdout_field(&launch.stdout, "remote_dir_prefix_source").unwrap_or_default();
+    let effective_remote_path =
+        extract_stdout_field(&launch.stdout, "remote_path").unwrap_or_default();
+    let remote_path_source =
+        extract_stdout_field(&launch.stdout, "remote_path_source").unwrap_or_default();
     let opencode_attach_url =
         extract_stdout_field(&launch.stdout, "opencode_attach_url").unwrap_or_default();
     let opencode_server_url_source =
@@ -48,8 +51,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         extract_stdout_field(&launch.stdout, "opencode_server_password_source").unwrap_or_default();
 
     let expected_attach_url = String::from("none");
-    let remote_prefix_source_is_env = remote_dir_prefix_source == "env";
-    let remote_prefix_matches = effective_remote_dir_prefix == remote_prefix;
+    let remote_path_source_is_env = remote_path_source == "env";
+    let remote_path_matches = effective_remote_path == remote_path;
     let attach_url_matches_default = opencode_attach_url == expected_attach_url;
     let server_url_source_is_default = opencode_server_url_source == "default";
     let password_source_is_default = opencode_server_password_source == "default";
@@ -63,7 +66,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     assertions.push(format!("effective mapped path = {effective_mapped_path}"));
     assertions.push(format!("expected mapped path = {expected_mapped_path}"));
     assertions.push(format!(
-        "effective remote prefix = {effective_remote_dir_prefix} (source={remote_dir_prefix_source})"
+        "effective remote path = {effective_remote_path} (source={remote_path_source})"
     ));
     assertions.push(format!("effective attach url = {opencode_attach_url}"));
     assertions.push(format!(
@@ -81,8 +84,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && launch_action == "create"
         && session == expected_session
         && remap_applied
-        && remote_prefix_source_is_env
-        && remote_prefix_matches
+        && remote_path_source_is_env
+        && remote_path_matches
         && attach_url_matches_default
         && server_url_source_is_default
         && !opencode_server_password_set
@@ -105,8 +108,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         slots: Some(slot_snapshot),
         remote_path: Some(RemotePathEvidence {
             local_project_dir: fixture.project_dir.display().to_string(),
-            remote_prefix,
-            remote_dir_prefix_source,
+            remote_path,
+            remote_path_source,
             expected_mapped_path,
             effective_mapped_path,
             remap_applied,

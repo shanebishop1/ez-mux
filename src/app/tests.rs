@@ -49,7 +49,6 @@ fn open_latest_succeeds_and_reports_opened_path() {
 
     let message = execute_with_opener(
         Cli {
-            operator: None,
             verbose: 0,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
@@ -72,7 +71,6 @@ fn open_latest_errors_when_no_logs_exist() {
 
     let error = execute_with_opener(
         Cli {
-            operator: None,
             verbose: 0,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
@@ -95,7 +93,6 @@ fn open_latest_missing_logs_is_typed_logging_error() {
 
     let error = execute_with_opener(
         Cli {
-            operator: None,
             verbose: 0,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
@@ -121,7 +118,6 @@ fn open_latest_errors_when_open_command_fails() {
 
     let error = execute_with_opener(
         Cli {
-            operator: None,
             verbose: 0,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
@@ -222,7 +218,6 @@ impl TmuxClient for InterruptingTmuxClient {
         _: Option<&str>,
         _: Option<&str>,
         _: Option<&str>,
-        _: Option<&str>,
     ) -> Result<PopupShellOutcome, SessionError> {
         Err(SessionError::TmuxCommandFailed {
             command: String::from("toggle-popup"),
@@ -283,7 +278,7 @@ fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
         .session_name;
 
     let tmux = InterruptingTmuxClient::new();
-    let error = execute_default_session_flow_for_project_dir(&project_dir, None, &tmux)
+    let error = execute_default_session_flow_for_project_dir(&project_dir, None, None, &tmux)
         .expect_err("interrupt should map to app error");
 
     assert!(matches!(error, AppError::Interrupted));
@@ -316,16 +311,16 @@ fn shared_server_attach_config_is_enabled_for_remote_mode_when_explicit() {
     assert_eq!(attach.password.as_deref(), Some("secret"));
 }
 
-fn remote_runtime_resolution(remote_prefix: Option<&str>) -> RemoteRuntimeResolution {
-    let remote_source = if remote_prefix.is_some() {
+fn remote_runtime_resolution(remote_path: Option<&str>) -> RemoteRuntimeResolution {
+    let remote_source = if remote_path.is_some() {
         ValueSource::Env
     } else {
         ValueSource::Default
     };
 
     RemoteRuntimeResolution {
-        remote_dir_prefix: ResolvedValue {
-            value: remote_prefix.map(String::from),
+        remote_path: ResolvedValue {
+            value: remote_path.map(String::from),
             source: remote_source,
         },
         remote_server_url: ResolvedValue {

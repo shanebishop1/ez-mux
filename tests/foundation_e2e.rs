@@ -313,24 +313,22 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
     let mut samples = Vec::new();
 
     let config_file = harness.work_dir().join("precedence").join("config.toml");
-    FoundationHarness::write_file(&config_file, "operator = \"file-operator\"\n")
+    FoundationHarness::write_file(
+        &config_file,
+        "ezm_remote_path = \"/srv/file-remotes\"\nezm_remote_server_url = \"https://shell.file.example:7443\"\n",
+    )
         .unwrap_or_else(|error| panic!("E2E-17 failed preparing config file: {error}"));
 
     let config_path = config_file.display().to_string();
 
-    let cli_over_env = harness
-        .run_ezm(
-            &["--operator", "cli-operator"],
-            &[("EZM_CONFIG", &config_path), ("OPERATOR", "env-operator")],
-            0,
-        )
-        .unwrap_or_else(|error| panic!("E2E-17 cli-over-env invocation failed: {error}"));
-    samples.push(sample(&["--operator", "cli-operator"], &cli_over_env));
-
     let env_over_file = harness
         .run_ezm(
             &[],
-            &[("EZM_CONFIG", &config_path), ("OPERATOR", "env-operator")],
+            &[
+                ("EZM_CONFIG", &config_path),
+                ("EZM_REMOTE_PATH", "/srv/env-remotes"),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.env.example:7443"),
+            ],
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-17 env-over-file invocation failed: {error}"));
@@ -346,12 +344,10 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
         .unwrap_or_else(|error| panic!("E2E-17 default invocation failed: {error}"));
     samples.push(sample(&[], &default_only));
 
-    let cli_source = extract_operator_source(&cli_over_env.stdout);
-    let env_source = extract_operator_source(&env_over_file.stdout);
-    let file_source = extract_operator_source(&file_over_default.stdout);
-    let default_source = extract_operator_source(&default_only.stdout);
+    let env_source = extract_remote_path_source(&env_over_file.stdout);
+    let file_source = extract_remote_path_source(&file_over_default.stdout);
+    let default_source = extract_remote_path_source(&default_only.stdout);
 
-    assertions.push(format!("CLI over env resolved source: {cli_source:?}"));
     assertions.push(format!("env over file resolved source: {env_source:?}"));
     assertions.push(format!(
         "file over default resolved source: {file_source:?}"
@@ -362,14 +358,12 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
         .settle_tmux_snapshot(Duration::from_millis(50), Duration::from_secs(2))
         .unwrap_or_else(|error| panic!("E2E-17 settle evidence failed: {error}"));
 
-    let pass = cli_over_env.exit_code == 0
-        && env_over_file.exit_code == 0
+    let pass = env_over_file.exit_code == 0
         && file_over_default.exit_code == 0
         && default_only.exit_code == 0
-        && cli_source.as_deref() == Some("cli")
         && env_source.as_deref() == Some("env")
         && file_source.as_deref() == Some("file")
-        && default_source.as_deref() == Some("default")
+        && default_source.is_none()
         && settle.stable;
 
     CaseEvidence {
@@ -534,11 +528,11 @@ fn has_expected_log_name_shape(name: &str) -> bool {
     base.as_bytes().get(15) == Some(&b'-')
 }
 
-fn extract_operator_source(stdout: &str) -> Option<String> {
+fn extract_remote_path_source(stdout: &str) -> Option<String> {
     stdout
         .lines()
-        .find_map(|line| line.split("operator source=").nth(1))
-        .and_then(|tail| tail.split('.').next())
+        .find_map(|line| line.split("remote_path_source=").nth(1))
+        .and_then(|tail| tail.split(';').next())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned)

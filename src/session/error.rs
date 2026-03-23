@@ -15,10 +15,8 @@ pub enum SessionError {
         #[source]
         source: io::Error,
     },
-    #[error("invalid remote path mapping prefix `{prefix}`: expected absolute path")]
+    #[error("invalid remote path `{prefix}`: expected absolute path")]
     InvalidRemotePathMappingPrefix { prefix: String },
-    #[error("remote-prefix routing requires OPERATOR to be set")]
-    MissingOperatorForRemotePrefix,
     #[error("agent mode requires shared-server attach configuration")]
     MissingSharedServerAttachConfig,
     #[error("tmux command `{command}` failed: {stderr}")]

@@ -11,9 +11,6 @@ use crate::session::{LayoutPreset, SlotMode};
     long_about = None
 )]
 pub struct Cli {
-    #[arg(long, global = true, value_name = "OPERATOR")]
-    pub operator: Option<String>,
-
     #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 

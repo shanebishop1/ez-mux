@@ -5,7 +5,7 @@ use super::SessionIdentity;
 use super::TmuxClient;
 use super::resolve_remote_path;
 use super::resolve_session_identity;
-use crate::config::EZM_REMOTE_DIR_PREFIX_ENV;
+use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionAction {
@@ -52,9 +52,15 @@ pub fn ensure_project_session(
     project_dir: &Path,
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
-    let remote_prefix = std::env::var(EZM_REMOTE_DIR_PREFIX_ENV).ok();
+    let remote_path = std::env::var(EZM_REMOTE_PATH_ENV).ok();
+    let remote_server_url = std::env::var(EZM_REMOTE_SERVER_URL_ENV).ok();
 
-    ensure_project_session_with_remote_prefix(project_dir, remote_prefix.as_deref(), tmux)
+    ensure_project_session_with_remote_path(
+        project_dir,
+        remote_path.as_deref(),
+        remote_server_url.as_deref(),
+        tmux,
+    )
 }
 
 /// Ensures a session exists for the provided project directory using an
@@ -63,14 +69,28 @@ pub fn ensure_project_session(
 /// # Errors
 /// Returns an error when session identity resolution fails or any tmux
 /// operation needed to create, validate, bootstrap, or attach fails.
-pub fn ensure_project_session_with_remote_prefix(
+pub fn ensure_project_session_with_remote_path(
     project_dir: &Path,
-    remote_prefix: Option<&str>,
+    remote_path: Option<&str>,
+    remote_server_url: Option<&str>,
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
     let identity = resolve_session_identity(project_dir)?;
-    let remote_path = resolve_remote_path(&identity.project_dir, remote_prefix)?;
-    let remote_project_dir = remote_path.effective_path;
+    let remote_routing_active = remote_path
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+        && remote_server_url
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+    let resolved_remote_path = resolve_remote_path(
+        &identity.project_dir,
+        if remote_routing_active {
+            remote_path
+        } else {
+            None
+        },
+    )?;
+    let remote_project_dir = resolved_remote_path.effective_path;
     let action = if tmux.session_exists(&identity.session_name)? {
         tmux.validate_session_invariants(&identity.session_name)?;
         SessionAction::Attach
@@ -85,7 +105,7 @@ pub fn ensure_project_session_with_remote_prefix(
     Ok(SessionLaunchOutcome {
         identity,
         remote_project_dir,
-        remote_routing_active: remote_path.remapped,
+        remote_routing_active: resolved_remote_path.remapped,
         action,
     })
 }

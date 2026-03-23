@@ -8,19 +8,16 @@ pub struct RemotePathResolution {
     pub remapped: bool,
 }
 
-/// Resolves an effective path for remote-prefixed launches.
+/// Resolves an effective path for remote launches.
 ///
 /// # Errors
-/// Returns an error when `remote_prefix` is provided but is not an absolute
-/// path prefix.
+/// Returns an error when `remote_path` is provided but is not an absolute
+/// path.
 pub fn resolve_remote_path(
     local_path: &Path,
-    remote_prefix: Option<&str>,
+    remote_path: Option<&str>,
 ) -> Result<RemotePathResolution, SessionError> {
-    let Some(prefix) = remote_prefix
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
+    let Some(prefix) = remote_path.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(RemotePathResolution {
             effective_path: local_path.to_path_buf(),
             remapped: false,
@@ -123,6 +120,6 @@ mod tests {
             resolve_remote_path(local, Some("relative/prefix")).expect_err("invalid should fail");
 
         let rendered = error.to_string();
-        assert!(rendered.contains("invalid remote path mapping prefix"));
+        assert!(rendered.contains("invalid remote path"));
     }
 }

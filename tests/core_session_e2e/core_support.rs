@@ -118,8 +118,8 @@ pub(super) struct RemoteRemapFixture {
 #[derive(Serialize)]
 pub(super) struct RemotePathEvidence {
     pub(super) local_project_dir: String,
-    pub(super) remote_prefix: String,
-    pub(super) remote_dir_prefix_source: String,
+    pub(super) remote_path: String,
+    pub(super) remote_path_source: String,
     pub(super) expected_mapped_path: String,
     pub(super) effective_mapped_path: String,
     pub(super) remap_applied: bool,
