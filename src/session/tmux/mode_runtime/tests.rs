@@ -6,13 +6,11 @@ use super::{
 use crate::session::{RemoteModeContext, SharedServerAttachConfig, SlotMode};
 
 fn remote_context<'a>(
-    remote_prefix: Option<&'a str>,
-    operator: Option<&'a str>,
+    remote_path: Option<&'a str>,
     remote_server_url: Option<&'a str>,
 ) -> RemoteModeContext<'a> {
     RemoteModeContext {
-        operator,
-        remote_prefix,
+        remote_path,
         remote_server_url,
     }
 }
@@ -28,12 +26,12 @@ fn remote_prefix_injects_ezm_remote_dir_export() {
     let command = launch_command_with_remote_dir_from_mapping(
         "exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
-        remote_context(Some("/srv/remotes"), Some("alice"), None),
+        remote_context(Some("/srv/remotes"), None),
     )
     .expect("command should resolve");
 
     assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
-    assert!(command.contains("OPERATOR='alice'"));
+    assert!(!command.contains("OPERATOR='"));
 }
 
 #[test]
@@ -49,14 +47,13 @@ fn remote_prefix_injects_ezm_remote_server_url_export_when_configured() {
         &nested.display().to_string(),
         remote_context(
             Some("/srv/remotes"),
-            Some("alice"),
             Some("https://shell.remote.example:7443"),
         ),
     )
     .expect("command should resolve");
 
     assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
-    assert!(command.contains("OPERATOR='alice'"));
+    assert!(!command.contains("OPERATOR='"));
     assert!(command.contains("EZM_REMOTE_SERVER_URL='https://shell.remote.example:7443'"));
 }
 
@@ -71,7 +68,7 @@ fn remote_prefix_omits_ezm_remote_server_url_export_when_unconfigured() {
     let command = launch_command_with_remote_dir_from_mapping(
         "exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
-        remote_context(Some("/srv/remotes"), Some("alice"), Some("   ")),
+        remote_context(Some("/srv/remotes"), Some("   ")),
     )
     .expect("command should resolve");
 
@@ -88,26 +85,6 @@ fn missing_remote_mapping_keeps_original_launch_command() {
     .expect("command should resolve");
 
     assert_eq!(command, "exec \"${SHELL:-/bin/sh}\" -l");
-}
-
-#[test]
-fn remote_prefix_without_operator_fails_fast() {
-    let temp = tempfile::tempdir().expect("tempdir");
-    let repo_root = temp.path().join("alpha");
-    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
-
-    let error = launch_command_with_remote_dir_from_mapping(
-        "exec \"${SHELL:-/bin/sh}\" -l",
-        &repo_root.display().to_string(),
-        remote_context(Some("/srv/remotes"), None, None),
-    )
-    .expect_err("missing operator should fail");
-
-    assert!(
-        error
-            .to_string()
-            .contains("remote-prefix routing requires OPERATOR")
-    );
 }
 
 #[test]
@@ -181,7 +158,7 @@ fn agent_mode_without_shared_server_uses_local_launch_contract() {
 }
 
 #[test]
-fn agent_mode_does_not_require_operator_for_remote_prefix_mapping() {
+fn agent_mode_uses_remote_path_mapping_without_operator() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
     std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
@@ -190,13 +167,13 @@ fn agent_mode_does_not_require_operator_for_remote_prefix_mapping() {
         SlotMode::Agent,
         "placeholder",
         &repo_root.display().to_string(),
-        remote_context(Some("/srv/remotes"), None, None),
+        remote_context(Some("/srv/remotes"), None),
         Some(&SharedServerAttachConfig {
             url: String::from("http://127.0.0.1:4096"),
             password: None,
         }),
     )
-    .expect("agent mode should not require operator");
+    .expect("agent mode should resolve");
 
     assert!(command.contains("opencode attach 'http://127.0.0.1:4096'"));
 }
@@ -213,9 +190,7 @@ fn startup_prefers_assigned_worktree_over_inherited_project_cwd() {
         .iter()
         .map(|worktree| {
             resolve_mode_switch_cwd(true, worktree, || {
-                Ok(String::from(
-                    "/Users/dev/projects/ez-mux/ez-mux-1",
-                ))
+                Ok(String::from("/Users/dev/projects/ez-mux/ez-mux-1"))
             })
             .expect("startup cwd should resolve")
         })

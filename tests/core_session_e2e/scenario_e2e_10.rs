@@ -13,9 +13,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let fixture = create_remote_remap_fixture(harness)
         .unwrap_or_else(|error| panic!("E2E-10 remote fixture setup failed: {error}"));
-    let remote_prefix = fixture.remote_prefix.display().to_string();
+    let remote_path = fixture.remote_prefix.display().to_string();
     let expected_mapped_path = fixture.expected_mapped_path.display().to_string();
-    let expected_operator = String::from("e2e-operator");
 
     let expected_session = prepare_fresh_create_path(harness, &fixture.project_dir)
         .unwrap_or_else(|error| panic!("E2E-10 setup failed: {error}"));
@@ -25,8 +24,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             &fixture.project_dir,
             &[],
             &[
-                ("EZM_REMOTE_DIR_PREFIX", &remote_prefix),
-                ("OPERATOR", &expected_operator),
+                ("EZM_REMOTE_PATH", &remote_path),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
             ],
             0,
         )
@@ -37,10 +36,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
     let effective_mapped_path =
         extract_stdout_field(&launch.stdout, "remote_project_dir").unwrap_or_default();
-    let effective_remote_dir_prefix =
-        extract_stdout_field(&launch.stdout, "remote_dir_prefix").unwrap_or_default();
-    let remote_dir_prefix_source =
-        extract_stdout_field(&launch.stdout, "remote_dir_prefix_source").unwrap_or_default();
+    let effective_remote_path =
+        extract_stdout_field(&launch.stdout, "remote_path").unwrap_or_default();
+    let remote_path_source =
+        extract_stdout_field(&launch.stdout, "remote_path_source").unwrap_or_default();
     let opencode_attach_url =
         extract_stdout_field(&launch.stdout, "opencode_attach_url").unwrap_or_default();
     let opencode_server_url_source =
@@ -53,8 +52,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let expected_attach_url = String::from("none");
     let remap_applied = effective_mapped_path == expected_mapped_path;
-    let remote_prefix_source_is_env = remote_dir_prefix_source == "env";
-    let remote_prefix_matches = effective_remote_dir_prefix == remote_prefix;
+    let remote_path_source_is_env = remote_path_source == "env";
+    let remote_path_matches = effective_remote_path == remote_path;
     let attach_url_matches_default = opencode_attach_url == expected_attach_url;
     let server_url_source_is_default = opencode_server_url_source == "default";
     let password_source_is_default = opencode_server_password_source == "default";
@@ -84,8 +83,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             &fixture.project_dir,
             &shell_switch_args,
             &[
-                ("EZM_REMOTE_DIR_PREFIX", &remote_prefix),
-                ("OPERATOR", &expected_operator),
+                ("EZM_REMOTE_PATH", &remote_path),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
             ],
             0,
         )
@@ -102,8 +101,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
                 &fixture.project_dir,
                 &shell_switch_args,
                 &[
-                    ("EZM_REMOTE_DIR_PREFIX", &remote_prefix),
-                    ("OPERATOR", &expected_operator),
+                    ("EZM_REMOTE_PATH", &remote_path),
+                    ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
                 ],
                 0,
             )
@@ -144,7 +143,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .run_ezm_in_dir(
             &fixture.project_dir,
             &agent_switch_args,
-            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
+            &[("EZM_REMOTE_PATH", &remote_path)],
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-10 agent switch failed to execute: {error}"));
@@ -168,23 +167,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         ])
         .unwrap_or_else(|error| panic!("E2E-10 failed reading agent pane start command: {error}"));
 
-    let switch_fail = harness
-        .run_ezm_in_dir(
-            &fixture.project_dir,
-            &shell_switch_args,
-            &[("EZM_REMOTE_DIR_PREFIX", &remote_prefix)],
-            0,
-        )
-        .unwrap_or_else(|error| {
-            panic!("E2E-10 missing-operator branch failed to execute: {error}")
-        });
-    samples.push(sample(&shell_switch_args, &switch_fail));
-
-    let fail_fast_non_zero = switch_fail.exit_code != 0;
-    let fail_fast_diagnostic = switch_fail
-        .stderr
-        .contains("remote-prefix routing requires OPERATOR to be set");
-    let shell_operator_matches = pane_start_command.contains(&expected_operator);
     let shell_remote_dir_matches = pane_start_command.contains(&expected_mapped_path);
     let agent_attach_url_matches = !agent_pane_start_command.contains("opencode attach");
     let agent_launch_omits_attach_dir_flag = !agent_pane_start_command.contains("--dir");
@@ -197,7 +179,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "launch effective mapped path = {effective_mapped_path}"
     ));
     assertions.push(format!(
-        "launch remote prefix = {effective_remote_dir_prefix} (source={remote_dir_prefix_source})"
+        "launch remote path = {effective_remote_path} (source={remote_path_source})"
     ));
     assertions.push(format!(
         "launch attach url = {opencode_attach_url} (url_source={opencode_server_url_source})"
@@ -217,16 +199,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         pane_start_command.trim()
     ));
     assertions.push(format!(
-        "shell success branch effective operator token present in pane start command = {shell_operator_matches}"
-    ));
-    assertions.push(format!(
         "shell success branch effective remote dir token present in pane start command = {shell_remote_dir_matches}"
     ));
     assertions.push(format!(
         "shell success branch expected remote dir = {expected_mapped_path}"
-    ));
-    assertions.push(format!(
-        "shell success branch effective operator matches configured operator = {shell_operator_matches}"
     ));
     assertions.push(format!(
         "shell success branch effective remote dir matches mapped path = {shell_remote_dir_matches}"
@@ -254,14 +230,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     assertions.push(format!(
         "agent success branch omits password flag when password is unset = {agent_password_flag_absent}"
     ));
-    assertions.push(format!(
-        "fail-fast branch exit_code={} non_zero={fail_fast_non_zero}",
-        switch_fail.exit_code
-    ));
-    assertions.push(format!(
-        "fail-fast branch stderr diagnostic surfaced = {fail_fast_diagnostic}"
-    ));
-
     let settle = settle_snapshot(harness, "E2E-10");
     let session_exists = !session.is_empty();
     let session_count = usize::from(session_exists);
@@ -269,22 +237,19 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && launch_action == "create"
         && session == expected_session
         && remap_applied
-        && remote_prefix_source_is_env
-        && remote_prefix_matches
+        && remote_path_source_is_env
+        && remote_path_matches
         && attach_url_matches_default
         && server_url_source_is_default
         && !opencode_server_password_set
         && password_source_is_default
         && shell_switch_success.exit_code == 0
-        && shell_operator_matches
         && shell_remote_dir_matches
         && agent_switch_success.exit_code == 0
         && agent_mode_avoids_opencode_attach
         && agent_attach_url_matches
         && agent_launch_omits_attach_dir_flag
         && agent_password_flag_absent
-        && fail_fast_non_zero
-        && fail_fast_diagnostic
         && settle.stable;
 
     CaseEvidence {
@@ -302,8 +267,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         slots: Some(slots_after_agent),
         remote_path: Some(RemotePathEvidence {
             local_project_dir: fixture.project_dir.display().to_string(),
-            remote_prefix,
-            remote_dir_prefix_source,
+            remote_path,
+            remote_path_source,
             expected_mapped_path,
             effective_mapped_path,
             remap_applied,

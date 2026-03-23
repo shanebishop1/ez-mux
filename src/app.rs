@@ -2,7 +2,6 @@ use std::io::IsTerminal;
 use thiserror::Error;
 
 use crate::cli::{AuxiliaryAction, Cli, Command, InternalCommand, LogsCommand};
-use crate::config::OPERATOR_ENV;
 use crate::config::{self, ConfigError, OperatingSystem, ValueSource};
 use crate::logging::{self, LogOpener, LoggingError};
 use crate::session::{self, SessionError};
@@ -44,33 +43,27 @@ pub(crate) fn execute_with_opener(
     opener: &impl LogOpener,
 ) -> Result<String, AppError> {
     let loaded = config::load_config(env, os)?;
-    let resolved_operator = config::resolve_operator(
-        cli.operator,
-        env.get_var(OPERATOR_ENV),
-        loaded.values.operator.clone(),
-    );
     let resolved_remote_runtime = config::resolve_remote_runtime(env, &loaded.values)?;
+    let remote_path = remote_path_for_routing(&resolved_remote_runtime);
 
     let message = match cli.command {
         None => {
             let outcome = execute_default_session_flow(
-                resolved_remote_runtime.remote_dir_prefix.value.as_deref(),
+                remote_path,
+                resolved_remote_runtime.remote_server_url.value.as_deref(),
                 &session::ProcessTmuxClient,
             )?;
             let attach_visibility = attach_visibility_label();
 
             if outcome.remote_routing_active {
                 format!(
-                    "ezm v1 contract locked; operator source={}. session={}; session_action={}; routing_mode=remote; remote_routing_active=true; attach_visibility={}; remote_project_dir={}; remote_dir_prefix={}; remote_dir_prefix_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
-                    source_label(resolved_operator.source),
+                    "ezm contract locked; session={}; session_action={}; routing_mode=remote; remote_routing_active=true; attach_visibility={}; remote_project_dir={}; remote_path={}; remote_path_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
                     outcome.identity.session_name,
                     outcome.action.label(),
                     attach_visibility,
                     outcome.remote_project_dir.display(),
-                    optional_value_label(
-                        resolved_remote_runtime.remote_dir_prefix.value.as_deref()
-                    ),
-                    source_label(resolved_remote_runtime.remote_dir_prefix.source),
+                    optional_value_label(resolved_remote_runtime.remote_path.value.as_deref()),
+                    source_label(resolved_remote_runtime.remote_path.source),
                     optional_value_label(
                         resolved_remote_runtime.remote_server_url.value.as_deref()
                     ),
@@ -88,8 +81,7 @@ pub(crate) fn execute_with_opener(
                 )
             } else {
                 format!(
-                    "ezm v1 contract locked; operator source={}. session={}; session_action={}; routing_mode=local; remote_routing_active=false; attach_visibility={}",
-                    source_label(resolved_operator.source),
+                    "ezm contract locked; session={}; session_action={}; routing_mode=local; remote_routing_active=false; attach_visibility={}",
                     outcome.identity.session_name,
                     outcome.action.label(),
                     attach_visibility,
@@ -106,7 +98,8 @@ pub(crate) fn execute_with_opener(
         Some(Command::Preset { preset }) => {
             let tmux = session::ProcessTmuxClient;
             let outcome = execute_default_session_flow(
-                resolved_remote_runtime.remote_dir_prefix.value.as_deref(),
+                remote_path,
+                resolved_remote_runtime.remote_server_url.value.as_deref(),
                 &tmux,
             )?;
             let preset_outcome =
@@ -117,32 +110,42 @@ pub(crate) fn execute_with_opener(
                 preset_outcome.preset.label()
             )
         }
-        Some(Command::Internal { command }) => execute_internal(
-            command,
-            resolved_operator.value.as_deref(),
-            &resolved_remote_runtime,
-        )?,
+        Some(Command::Internal { command }) => {
+            execute_internal(command, remote_path, &resolved_remote_runtime)?
+        }
     };
 
     Ok(message)
 }
 
 fn execute_default_session_flow(
-    remote_prefix: Option<&str>,
+    remote_path: Option<&str>,
+    remote_server_url: Option<&str>,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let project_dir = std::env::current_dir().map_err(session::SessionError::CurrentDir)?;
-    execute_default_session_flow_for_project_dir(&project_dir, remote_prefix, tmux)
+    execute_default_session_flow_for_project_dir(
+        project_dir.as_path(),
+        remote_path,
+        remote_server_url,
+        tmux,
+    )
 }
 
 fn execute_default_session_flow_for_project_dir(
     project_dir: &std::path::Path,
-    remote_prefix: Option<&str>,
+    remote_path: Option<&str>,
+    remote_server_url: Option<&str>,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let identity = session::resolve_session_identity(project_dir)?;
 
-    match session::ensure_project_session_with_remote_prefix(project_dir, remote_prefix, tmux) {
+    match session::ensure_project_session_with_remote_path(
+        project_dir,
+        remote_path,
+        remote_server_url,
+        tmux,
+    ) {
         Ok(outcome) => Ok(outcome),
         Err(session::SessionError::Interrupted) => {
             let _ = session::teardown_session(&identity.session_name, tmux);
@@ -163,7 +166,7 @@ fn execute_open_latest(
 
 fn execute_internal(
     command: InternalCommand,
-    operator: Option<&str>,
+    remote_path: Option<&str>,
     remote_runtime: &config::RemoteRuntimeResolution,
 ) -> Result<String, AppError> {
     match command {
@@ -188,8 +191,7 @@ fn execute_internal(
             let tmux = session::ProcessTmuxClient;
             let shared_server = shared_server_attach_config(remote_runtime);
             let remote_context = session::RemoteModeContext {
-                operator,
-                remote_prefix: remote_runtime.remote_dir_prefix.value.as_deref(),
+                remote_path,
                 remote_server_url: remote_runtime.remote_server_url.value.as_deref(),
             };
             let outcome = session::switch_slot_mode(
@@ -217,8 +219,7 @@ fn execute_internal(
                 &session,
                 slot,
                 client.as_deref(),
-                operator,
-                remote_runtime.remote_dir_prefix.value.as_deref(),
+                remote_path,
                 remote_runtime.remote_server_url.value.as_deref(),
                 &tmux,
             )?;
@@ -288,7 +289,7 @@ fn attach_visibility_label() -> &'static str {
 fn shared_server_attach_config(
     remote_runtime: &config::RemoteRuntimeResolution,
 ) -> Option<session::SharedServerAttachConfig> {
-    remote_runtime.remote_dir_prefix.value.as_ref()?;
+    remote_path_for_routing(remote_runtime)?;
 
     if remote_runtime.shared_server.url.source == ValueSource::Default {
         return None;
@@ -299,6 +300,21 @@ fn shared_server_attach_config(
         url,
         password: remote_runtime.shared_server.password.value.clone(),
     })
+}
+
+fn remote_path_for_routing(remote_runtime: &config::RemoteRuntimeResolution) -> Option<&str> {
+    remote_runtime
+        .remote_path
+        .value
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .filter(|_| {
+            remote_runtime
+                .remote_server_url
+                .value
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+        })
 }
 
 fn source_label(source: ValueSource) -> &'static str {

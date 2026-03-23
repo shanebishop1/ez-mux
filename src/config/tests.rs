@@ -94,7 +94,7 @@ fn missing_config_file_is_non_fatal() {
 fn invalid_toml_is_fatal() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("config.toml");
-    fs::write(&path, "operator = [").expect("write");
+    fs::write(&path, "ezm_remote_path = [").expect("write");
 
     let mut env = HashMap::new();
     env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
@@ -104,33 +104,10 @@ fn invalid_toml_is_fatal() {
 }
 
 #[test]
-fn precedence_is_cli_then_env_then_file_then_default() {
-    let resolved = resolve_operator(
-        Some(String::from("cli")),
-        Some(String::from("env")),
-        Some(String::from("file")),
-    );
-    assert_eq!(resolved.value, Some(String::from("cli")));
-    assert_eq!(resolved.source, ValueSource::Cli);
-
-    let resolved = resolve_operator(None, Some(String::from("env")), Some(String::from("file")));
-    assert_eq!(resolved.value, Some(String::from("env")));
-    assert_eq!(resolved.source, ValueSource::Env);
-
-    let resolved = resolve_operator(None, None, Some(String::from("file")));
-    assert_eq!(resolved.value, Some(String::from("file")));
-    assert_eq!(resolved.source, ValueSource::File);
-
-    let resolved = resolve_operator(None, None, None);
-    assert_eq!(resolved.value, None);
-    assert_eq!(resolved.source, ValueSource::Default);
-}
-
-#[test]
 fn remote_runtime_prefers_env_over_file_values() {
     let mut env = HashMap::new();
     env.insert(
-        String::from(EZM_REMOTE_DIR_PREFIX_ENV),
+        String::from(EZM_REMOTE_PATH_ENV),
         String::from("/env/remotes"),
     );
     env.insert(
@@ -143,8 +120,7 @@ fn remote_runtime_prefers_env_over_file_values() {
     );
 
     let file = FileConfig {
-        operator: None,
-        ezm_remote_dir_prefix: Some(String::from("/file/remotes")),
+        ezm_remote_path: Some(String::from("/file/remotes")),
         ezm_remote_server_url: None,
         opencode_server_url: Some(String::from("https://file.example:4096")),
         opencode_server_password: Some(String::from("file-secret")),
@@ -153,7 +129,7 @@ fn remote_runtime_prefers_env_over_file_values() {
     let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
 
     assert_eq!(
-        resolved.remote_dir_prefix,
+        resolved.remote_path,
         ResolvedValue {
             value: Some(String::from("/env/remotes")),
             source: ValueSource::Env,
@@ -176,16 +152,15 @@ fn remote_runtime_prefers_env_over_file_values() {
 }
 
 #[test]
-fn remote_runtime_prefers_ezm_env_remote_prefix_when_present() {
+fn remote_runtime_prefers_ezm_env_remote_path_when_present() {
     let mut env = HashMap::new();
     env.insert(
-        String::from(EZM_REMOTE_DIR_PREFIX_ENV),
+        String::from(EZM_REMOTE_PATH_ENV),
         String::from("/ezm/env-remotes"),
     );
 
     let file = FileConfig {
-        operator: None,
-        ezm_remote_dir_prefix: Some(String::from("/ezm/file-remotes")),
+        ezm_remote_path: Some(String::from("/ezm/file-remotes")),
         ezm_remote_server_url: None,
         opencode_server_url: None,
         opencode_server_password: None,
@@ -194,7 +169,7 @@ fn remote_runtime_prefers_ezm_env_remote_prefix_when_present() {
     let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
 
     assert_eq!(
-        resolved.remote_dir_prefix,
+        resolved.remote_path,
         ResolvedValue {
             value: Some(String::from("/ezm/env-remotes")),
             source: ValueSource::Env,
@@ -203,10 +178,10 @@ fn remote_runtime_prefers_ezm_env_remote_prefix_when_present() {
 }
 
 #[test]
-fn remote_runtime_uses_ezm_file_remote_prefix_when_env_missing() {
+fn remote_runtime_uses_ezm_file_remote_path_when_env_missing() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("config.toml");
-    fs::write(&path, "ezm_remote_dir_prefix = '/ezm/file-remotes'\n").expect("write config");
+    fs::write(&path, "ezm_remote_path = '/ezm/file-remotes'\n").expect("write config");
 
     let mut env = HashMap::new();
     env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
@@ -215,7 +190,7 @@ fn remote_runtime_uses_ezm_file_remote_prefix_when_env_missing() {
     let resolved = resolve_remote_runtime(&env, &loaded.values).expect("runtime should resolve");
 
     assert_eq!(
-        resolved.remote_dir_prefix,
+        resolved.remote_path,
         ResolvedValue {
             value: Some(String::from("/ezm/file-remotes")),
             source: ValueSource::File,
@@ -305,8 +280,7 @@ fn remote_runtime_does_not_reuse_opencode_server_url_as_shell_remote_server_url(
 fn remote_runtime_uses_config_when_env_is_missing() {
     let env = HashMap::<String, String>::new();
     let file = FileConfig {
-        operator: None,
-        ezm_remote_dir_prefix: Some(String::from("/file/remotes")),
+        ezm_remote_path: Some(String::from("/file/remotes")),
         ezm_remote_server_url: None,
         opencode_server_url: Some(String::from("https://shared.example:7443")),
         opencode_server_password: Some(String::from("file-secret")),
@@ -315,7 +289,7 @@ fn remote_runtime_uses_config_when_env_is_missing() {
     let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
 
     assert_eq!(
-        resolved.remote_dir_prefix,
+        resolved.remote_path,
         ResolvedValue {
             value: Some(String::from("/file/remotes")),
             source: ValueSource::File,
@@ -372,13 +346,8 @@ fn invalid_server_url_fails_fast() {
 }
 
 #[test]
-fn operator_env_constant_is_contract_stable() {
-    assert_eq!(OPERATOR_ENV, "OPERATOR");
-}
-
-#[test]
 fn remote_shared_server_env_constants_are_contract_stable() {
-    assert_eq!(EZM_REMOTE_DIR_PREFIX_ENV, "EZM_REMOTE_DIR_PREFIX");
+    assert_eq!(EZM_REMOTE_PATH_ENV, "EZM_REMOTE_PATH");
     assert_eq!(EZM_REMOTE_SERVER_URL_ENV, "EZM_REMOTE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_URL_ENV, "OPENCODE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_PASSWORD_ENV, "OPENCODE_SERVER_PASSWORD");

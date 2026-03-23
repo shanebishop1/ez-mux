@@ -12,7 +12,7 @@ use ez_mux::session::TmuxClient;
 use ez_mux::session::analyze_session_damage;
 use ez_mux::session::auxiliary_viewer;
 use ez_mux::session::ensure_project_session;
-use ez_mux::session::ensure_project_session_with_remote_prefix;
+use ez_mux::session::ensure_project_session_with_remote_path;
 use ez_mux::session::focus_slot;
 use ez_mux::session::mode_launch_contract;
 use ez_mux::session::reconcile_session_damage;
@@ -173,8 +173,7 @@ impl TmuxClient for FakeTmux {
         session_name: &str,
         slot_id: u8,
         _client_tty: Option<&str>,
-        _operator: Option<&str>,
-        _remote_prefix: Option<&str>,
+        _remote_path: Option<&str>,
         _remote_server_url: Option<&str>,
     ) -> Result<ez_mux::session::PopupShellOutcome, ez_mux::session::SessionError> {
         self.popup_toggles
@@ -466,7 +465,7 @@ fn runtime_bv_missing_skips_auxiliary_window_without_failing_startup() {
 }
 
 #[test]
-fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_prefix_active() {
+fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_path_is_active() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
     let project_dir = repo_root.join("worktrees").join("feature-x");
@@ -477,15 +476,17 @@ fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_prefix_active(
         ..FakeTmux::default()
     };
 
-    let first = ensure_project_session_with_remote_prefix(
+    let first = ensure_project_session_with_remote_path(
         project_dir.as_path(),
         Some("/srv/remotes"),
+        Some("https://shell.remote.example:7443"),
         &tmux,
     )
     .expect("first run");
-    let second = ensure_project_session_with_remote_prefix(
+    let second = ensure_project_session_with_remote_path(
         project_dir.as_path(),
         Some("/srv/remotes"),
+        Some("https://shell.remote.example:7443"),
         &tmux,
     )
     .expect("second run");
@@ -675,10 +676,10 @@ fn popup_toggle_routes_to_tmux_client_and_toggles_open_then_close() {
         ..FakeTmux::default()
     };
 
-    let first = toggle_popup_shell("ezm-session-88", 2, None, None, None, None, &tmux)
-        .expect("first toggle");
-    let second = toggle_popup_shell("ezm-session-88", 2, None, None, None, None, &tmux)
-        .expect("second toggle");
+    let first =
+        toggle_popup_shell("ezm-session-88", 2, None, None, None, &tmux).expect("first toggle");
+    let second =
+        toggle_popup_shell("ezm-session-88", 2, None, None, None, &tmux).expect("second toggle");
 
     assert_eq!(first.action, ez_mux::session::PopupShellAction::Opened);
     assert_eq!(second.action, ez_mux::session::PopupShellAction::Closed);
@@ -701,7 +702,7 @@ fn popup_toggle_surfaces_tmux_failures() {
         ..FakeTmux::default()
     };
 
-    let error = toggle_popup_shell("ezm-session-88", 2, None, None, None, None, &tmux)
+    let error = toggle_popup_shell("ezm-session-88", 2, None, None, None, &tmux)
         .expect_err("popup should fail");
 
     assert!(error.to_string().contains("display-popup failed"));

@@ -11,8 +11,7 @@ pub struct SharedServerAttachConfig {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RemoteModeContext<'a> {
-    pub operator: Option<&'a str>,
-    pub remote_prefix: Option<&'a str>,
+    pub remote_path: Option<&'a str>,
     pub remote_server_url: Option<&'a str>,
 }
 

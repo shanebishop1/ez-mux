@@ -389,10 +389,10 @@ mod tests {
     }
 
     #[test]
-    fn remote_prefix_without_operator_writes_clear_stderr_and_non_zero_exit() {
+    fn remote_path_without_remote_server_url_does_not_require_operator() {
         let (mut env, state) = TestEnv::with_temp_state();
         env.vars.insert(
-            String::from(crate::config::EZM_REMOTE_DIR_PREFIX_ENV),
+            String::from(crate::config::EZM_REMOTE_PATH_ENV),
             String::from("/srv/remotes"),
         );
         env.vars.insert(
@@ -425,12 +425,12 @@ mod tests {
         assert_eq!(String::from_utf8(stdout).expect("utf8"), "");
         let stderr = String::from_utf8(stderr).expect("utf8");
         assert!(stderr.contains("active log file:"));
-        assert!(stderr.contains("remote-prefix routing requires OPERATOR to be set"));
+        assert!(!stderr.contains("OPERATOR"));
 
         let active_log = extract_active_log_path(&stderr).expect("active log path");
         let content = std::fs::read_to_string(active_log).expect("read launch log");
         assert!(content.contains("event=launch-failure"));
-        assert!(content.contains("remote-prefix routing requires OPERATOR to be set"));
+        assert!(!content.contains("OPERATOR"));
     }
 
     #[test]

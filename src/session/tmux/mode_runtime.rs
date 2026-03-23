@@ -11,7 +11,7 @@ use super::slot_swap::validate_canonical_slot_registry;
 use super::style::refresh_active_border_for_slot;
 use crate::session::{
     RemoteModeContext, SharedServerAttachConfig, TeardownHook, mode_launch_contract,
-    resolve_operator_identity_for_remote_prefix, resolve_remote_path,
+    resolve_remote_path,
 };
 
 pub(super) fn switch_slot_mode(
@@ -46,13 +46,6 @@ fn switch_slot_mode_internal(
         return Err(SessionError::SlotRegistry(
             super::super::SlotRegistryError::InvalidSlotId { slot_id },
         ));
-    }
-
-    if matches!(mode, SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit) {
-        resolve_operator_identity_for_remote_prefix(
-            remote_context.remote_prefix,
-            remote_context.operator,
-        )?;
     }
 
     if !startup_fast_path {
@@ -209,7 +202,7 @@ fn launch_command_for_mode(
 ) -> Result<String, SessionError> {
     match mode {
         SlotMode::Agent => match shared_server {
-            Some(config) => launch_agent_attach_command(cwd, remote_context.remote_prefix, config),
+            Some(config) => launch_agent_attach_command(cwd, remote_context.remote_path, config),
             None => Ok(launch_command.to_owned()),
         },
         SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit => {
@@ -220,7 +213,7 @@ fn launch_command_for_mode(
 
 fn launch_agent_attach_command(
     cwd: &str,
-    remote_prefix: Option<&str>,
+    remote_path: Option<&str>,
     shared_server: &SharedServerAttachConfig,
 ) -> Result<String, SessionError> {
     let attach_url = shared_server.url.trim();
@@ -228,7 +221,7 @@ fn launch_agent_attach_command(
         return Err(SessionError::MissingSharedServerAttachConfig);
     }
 
-    let attach_dir = resolve_remote_path(std::path::Path::new(cwd), remote_prefix)?.effective_path;
+    let attach_dir = resolve_remote_path(std::path::Path::new(cwd), remote_path)?.effective_path;
     let attach_dir = attach_dir.display().to_string();
 
     let attach_invocation = if let Some(password) = shared_server
@@ -263,29 +256,16 @@ fn launch_command_with_remote_dir_from_mapping(
     cwd: &str,
     remote_context: RemoteModeContext<'_>,
 ) -> Result<String, SessionError> {
-    let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_context.remote_prefix)?;
+    let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_context.remote_path)?;
 
     if !resolved.remapped {
         return Ok(launch_command.to_owned());
     }
 
-    let resolved_operator = resolve_operator_identity_for_remote_prefix(
-        remote_context.remote_prefix,
-        remote_context.operator,
-    )?;
-    let resolved_operator =
-        resolved_operator.ok_or(SessionError::MissingOperatorForRemotePrefix)?;
-
-    let mut exports = vec![
-        format!(
-            "export EZM_REMOTE_DIR='{}'",
-            escape_single_quotes(&resolved.effective_path.display().to_string())
-        ),
-        format!(
-            "export OPERATOR='{}'",
-            escape_single_quotes(&resolved_operator)
-        ),
-    ];
+    let mut exports = vec![format!(
+        "export EZM_REMOTE_DIR='{}'",
+        escape_single_quotes(&resolved.effective_path.display().to_string())
+    )];
     if let Some(server_url) = remote_context
         .remote_server_url
         .map(str::trim)

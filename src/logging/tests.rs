@@ -258,13 +258,13 @@ fn appends_launch_event_lines_to_existing_log_file() {
     append_launch_log_event(
         &launch.file_path,
         "launch-failure",
-        "remote-prefix routing failed",
+        "remote-path routing failed",
     )
     .expect("event append should succeed");
 
     let content = fs::read_to_string(&launch.file_path).expect("read launch log");
     assert!(content.contains("event=launch-log-created"));
-    assert!(content.contains("event=launch-failure; detail=remote-prefix routing failed"));
+    assert!(content.contains("event=launch-failure; detail=remote-path routing failed"));
 }
 
 #[test]
