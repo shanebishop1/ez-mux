@@ -200,6 +200,97 @@ fn t1_5_routing_failures_surface_explicit_stderr_and_log_evidence() {
     );
 }
 
+#[test]
+fn t1_5_tmux_runtime_env_sync_is_available_to_internal_mode_routing() {
+    let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-5")
+        .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
+
+    let fixture = create_remote_fixture(&harness)
+        .unwrap_or_else(|error| panic!("failed creating remote fixture: {error}"));
+    let remote_prefix = fixture.remote_prefix.display().to_string();
+    let expected_attach_url = "http://devbox-ez-1:4096";
+    let expected_password = "tmux-secret";
+
+    let launch = harness
+        .run_ezm_in_dir(
+            &fixture.project_dir,
+            &[],
+            &[
+                ("EZM_REMOTE_PATH", &remote_prefix),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
+                ("OPENCODE_SERVER_URL", expected_attach_url),
+                ("OPENCODE_SERVER_PASSWORD", expected_password),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("runtime env sync launch failed: {error}"));
+
+    let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
+    let slots = read_slot_snapshot(&harness, &session)
+        .unwrap_or_else(|error| panic!("failed reading slot snapshot: {error}"));
+    let slot1_pane = slots
+        .iter()
+        .find(|slot| slot.slot_id == 1)
+        .map(|slot| slot.pane_id.clone())
+        .unwrap_or_default();
+
+    let tmux_remote_path = show_global_tmux_env_value(&harness, "EZM_REMOTE_PATH");
+    let tmux_remote_server_url = show_global_tmux_env_value(&harness, "EZM_REMOTE_SERVER_URL");
+    let tmux_server_url = show_global_tmux_env_value(&harness, "OPENCODE_SERVER_URL");
+    let tmux_server_password = show_global_tmux_env_value(&harness, "OPENCODE_SERVER_PASSWORD");
+
+    let ezm_bin = shell_single_quote(&harness.ezm_bin.display().to_string());
+    let internal_mode_command = format!(
+        "{ezm_bin} __internal mode --session {} --slot 1 --mode agent </dev/null >/dev/null 2>&1",
+        shell_single_quote(&session)
+    );
+    let run_shell_status = harness
+        .tmux_capture(&["run-shell", &internal_mode_command])
+        .unwrap_or_else(|error| {
+            panic!("failed running internal mode through tmux run-shell: {error}")
+        });
+
+    let slot1_start_command = read_pane_start_command(&harness, &slot1_pane)
+        .unwrap_or_else(|error| panic!("failed reading slot1 pane start command: {error}"));
+    let internal_routing_uses_synced_attach_url = slot1_start_command.contains("opencode attach")
+        && slot1_start_command.contains(expected_attach_url);
+    let internal_routing_uses_synced_password = slot1_start_command.contains("--password")
+        && slot1_start_command.contains(expected_password);
+
+    let evidence = vec![
+        format!("launch_exit_code={}", launch.exit_code),
+        format!("session={session}"),
+        format!("tmux_EZM_REMOTE_PATH={tmux_remote_path:?}"),
+        format!("tmux_EZM_REMOTE_SERVER_URL={tmux_remote_server_url:?}"),
+        format!("tmux_OPENCODE_SERVER_URL={tmux_server_url:?}"),
+        format!("tmux_OPENCODE_SERVER_PASSWORD={tmux_server_password:?}"),
+        format!("run_shell_status={run_shell_status:?}"),
+        format!("slot1_start_command={}", slot1_start_command.trim()),
+        format!(
+            "internal_routing_uses_synced_attach_url={internal_routing_uses_synced_attach_url}"
+        ),
+        format!("internal_routing_uses_synced_password={internal_routing_uses_synced_password}"),
+    ];
+    write_green_cluster_evidence(&harness, "t1-5-runtime-env-sync-routing", &evidence)
+        .unwrap_or_else(|error| panic!("failed writing T-1.5 runtime-env-sync evidence: {error}"));
+
+    let pass = launch.exit_code == 0
+        && !session.is_empty()
+        && tmux_remote_path.as_deref() == Some(remote_prefix.as_str())
+        && tmux_remote_server_url.as_deref() == Some("https://shell.remote.example:7443")
+        && tmux_server_url.as_deref() == Some(expected_attach_url)
+        && tmux_server_password.as_deref() == Some(expected_password)
+        && run_shell_status.trim().is_empty()
+        && internal_routing_uses_synced_attach_url
+        && internal_routing_uses_synced_password;
+
+    assert!(
+        pass,
+        "T-1.5 runtime tmux env sync routing contract failed:\n{}",
+        evidence.join("\n")
+    );
+}
+
 struct RemoteFixture {
     project_dir: PathBuf,
     remote_prefix: PathBuf,
@@ -275,6 +366,20 @@ fn read_pane_start_command(harness: &FoundationHarness, pane_id: &str) -> Result
             "#{pane_start_command}",
         ])
         .map(|value| value.trim().to_owned())
+}
+
+fn show_global_tmux_env_value(harness: &FoundationHarness, key: &str) -> Option<String> {
+    let raw = harness
+        .tmux_capture(&["show-environment", "-g", key])
+        .ok()?
+        .trim()
+        .to_owned();
+    let prefix = format!("{key}=");
+    raw.strip_prefix(&prefix).map(str::to_owned)
+}
+
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 fn extract_active_log_path(stderr: &str) -> Option<String> {

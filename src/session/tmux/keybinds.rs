@@ -1,5 +1,6 @@
 use super::SessionError;
 use super::command::{tmux_output, tmux_run};
+use super::remote_env::sync_runtime_env_into_tmux_server;
 use crate::config::EZM_BIN_ENV;
 
 const SWAP_TABLE: &str = "ezm-swap";
@@ -22,6 +23,7 @@ const ACTIVE_SLOT_BORDER_STYLE_FORMAT: &str = "fg=#{?#{==:#{@ezm_slot_id},1},#5a
 
 pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     let ezm_bin = resolved_ezm_bin_shell_token();
+    sync_runtime_env_into_tmux_server()?;
 
     if should_clear_existing_keybinds_before_install() {
         for (table, key) in clear_specs() {
