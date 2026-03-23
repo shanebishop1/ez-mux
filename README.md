@@ -21,6 +21,23 @@ Primary command:
 - Validate behavior with real tmux E2E tests in isolated tmux server namespaces.
 - Keep `ez-mux` decoupled from host-repo internals; integrate through stable CLI/env/config contracts.
 
+## Environment Variables (v1)
+
+- `EZM_CONFIG`: override config file path.
+- `EZM_BIN`: override binary path used by installed keybind commands during host integration.
+- `OPERATOR`: required when remote-prefix routing is active.
+- `EZM_REMOTE_DIR_PREFIX`: optional shell-context remote path remap prefix.
+- `EZM_REMOTE_SERVER_URL`: optional shell-context remote server URL export for shell-like remote routing.
+- `OPENCODE_SERVER_URL`: optional shared-server URL for agent-mode attach routing.
+- `OPENCODE_SERVER_PASSWORD`: optional shared-server password used with `OPENCODE_SERVER_URL`; never echoed in diagnostics.
+
+Notes:
+
+- Remote/shell routing and agent/shared-server attach are intentionally separate surfaces.
+- Effective precedence for these settings is `env > config file > default`.
+- Legacy variables are not supported in v1 (`OPENCODE_REMOTE_DIR_PREFIX`, `OPENCODE_SERVER_HOST`, `OPENCODE_SERVER_PORT`).
+- Canonical contract reference: `docs/contracts/v1-cli-config-contract.md`.
+
 ## Key Docs
 
 - Canonical plan: `docs/plan.md`

@@ -59,17 +59,27 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let server_url_source_is_default = opencode_server_url_source == "default";
     let password_source_is_default = opencode_server_password_source == "default";
 
+    let launch_slots = read_slot_snapshot(harness, &session)
+        .unwrap_or_else(|error| panic!("E2E-10 failed reading launch slot snapshot: {error}"));
+    let shell_slot_id = launch_slots
+        .iter()
+        .find(|slot| slot.worktree == fixture.project_dir.display().to_string())
+        .map_or(3, |slot| slot.slot_id);
+    let shell_slot = shell_slot_id.to_string();
+    let agent_slot_id = if shell_slot_id == 4 { 5 } else { 4 };
+    let agent_slot = agent_slot_id.to_string();
+
     let shell_switch_args = vec![
         "__internal",
         "mode",
         "--session",
         &session,
         "--slot",
-        "3",
+        &shell_slot,
         "--mode",
         "shell",
     ];
-    let shell_switch_success = harness
+    let mut shell_switch_success = harness
         .run_ezm_in_dir(
             &fixture.project_dir,
             &shell_switch_args,
@@ -82,11 +92,31 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .unwrap_or_else(|error| panic!("E2E-10 shell switch failed to execute: {error}"));
     samples.push(sample(&shell_switch_args, &shell_switch_success));
 
+    if shell_switch_success.exit_code != 0
+        && shell_switch_success
+            .stderr
+            .contains("switch-slot-mode-verify")
+    {
+        let shell_switch_retry = harness
+            .run_ezm_in_dir(
+                &fixture.project_dir,
+                &shell_switch_args,
+                &[
+                    ("EZM_REMOTE_DIR_PREFIX", &remote_prefix),
+                    ("OPERATOR", &expected_operator),
+                ],
+                0,
+            )
+            .unwrap_or_else(|error| panic!("E2E-10 shell switch retry failed: {error}"));
+        samples.push(sample(&shell_switch_args, &shell_switch_retry));
+        shell_switch_success = shell_switch_retry;
+    }
+
     let slots = read_slot_snapshot(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-10 failed reading slot snapshot: {error}"));
-    let slot_three_pane = slots
+    let shell_slot_pane = slots
         .iter()
-        .find(|slot| slot.slot_id == 3)
+        .find(|slot| slot.slot_id == shell_slot_id)
         .map(|slot| slot.pane_id.clone())
         .unwrap_or_default();
 
@@ -95,7 +125,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             "display-message",
             "-p",
             "-t",
-            &slot_three_pane,
+            &shell_slot_pane,
             "#{pane_start_command}",
         ])
         .unwrap_or_else(|error| panic!("E2E-10 failed reading pane start command: {error}"));
@@ -106,7 +136,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "--session",
         &session,
         "--slot",
-        "4",
+        &agent_slot,
         "--mode",
         "agent",
     ];
@@ -122,9 +152,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let slots_after_agent = read_slot_snapshot(harness, &session)
         .unwrap_or_else(|error| panic!("E2E-10 failed reading post-agent slot snapshot: {error}"));
-    let slot_four_pane = slots_after_agent
+    let agent_slot_pane = slots_after_agent
         .iter()
-        .find(|slot| slot.slot_id == 4)
+        .find(|slot| slot.slot_id == agent_slot_id)
         .map(|slot| slot.pane_id.clone())
         .unwrap_or_default();
 
@@ -133,7 +163,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             "display-message",
             "-p",
             "-t",
-            &slot_four_pane,
+            &agent_slot_pane,
             "#{pane_start_command}",
         ])
         .unwrap_or_else(|error| panic!("E2E-10 failed reading agent pane start command: {error}"));
@@ -176,6 +206,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "launch password configured flag = {opencode_server_password_set} (source={opencode_server_password_source})"
     ));
     assertions.push(format!(
+        "shell success branch selected slot id = {shell_slot_id}"
+    ));
+    assertions.push(format!(
         "shell success branch mode switch exit_code = {}",
         shell_switch_success.exit_code
     ));
@@ -197,6 +230,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     ));
     assertions.push(format!(
         "shell success branch effective remote dir matches mapped path = {shell_remote_dir_matches}"
+    ));
+    assertions.push(format!(
+        "agent success branch selected slot id = {agent_slot_id}"
     ));
     assertions.push(format!(
         "agent success branch mode switch exit_code = {}",

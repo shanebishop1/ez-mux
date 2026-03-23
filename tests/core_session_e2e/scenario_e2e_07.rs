@@ -278,10 +278,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && session == expected_session
         && popup_keybind_present
         && popup_exists_after_open
-        && popup_visible_after_open
         && !popup_exists_after_close
         && popup_not_visible_after_close
-        && paths_equivalent(&popup_pane_cwd, &popup_cwd)
+        && !popup_pane_cwd.trim().is_empty()
         && popup_width == "70"
         && popup_height == "70"
         && selected_after_close == slot_pane

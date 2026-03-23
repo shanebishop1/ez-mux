@@ -327,6 +327,7 @@ impl FoundationHarness {
     }
 
     #[allow(dead_code)]
+    #[allow(clippy::too_many_lines)]
     pub fn run_ezm_with_pty_interrupt(
         &self,
         project_dir: &Path,
@@ -391,18 +392,27 @@ impl FoundationHarness {
         let start = Instant::now();
         let timeout = Duration::from_secs(5);
         let poll_interval = Duration::from_millis(30);
+        let signal_fallback_delay = Duration::from_millis(500);
 
         loop {
-            if !observed_attached_client
-                && self
-                    .tmux_capture(&["list-clients", "-t", session_name, "-F", "#{client_tty}"])
+            if !observed_attached_client {
+                observed_attached_client = self
+                    .tmux_capture(&["list-clients", "-F", "#{session_name}|#{client_tty}"])
                     .ok()
-                    .is_some_and(|clients| clients.lines().any(|line| !line.trim().is_empty()))
-            {
-                observed_attached_client = true;
+                    .is_some_and(|clients| {
+                        clients.lines().any(|line| {
+                            let Some((attached_session, client_tty)) = line.split_once('|') else {
+                                return false;
+                            };
+
+                            attached_session.trim() == session_name && !client_tty.trim().is_empty()
+                        })
+                    });
             }
 
-            if observed_attached_client && !signal_sent {
+            if !signal_sent
+                && (observed_attached_client || start.elapsed() >= signal_fallback_delay)
+            {
                 if let Some(pid) = child.process_id() {
                     signal_sent = Command::new("kill")
                         .arg("-INT")

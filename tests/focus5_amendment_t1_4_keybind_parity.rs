@@ -68,8 +68,8 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             create_matrix.popup_detach_shell_safe
         ),
         format!(
-            "create_popup_cleanup_hook_absent={}",
-            create_matrix.popup_cleanup_hook_absent
+            "create_popup_cleanup_hook_present={}",
+            create_matrix.popup_cleanup_hook_present
         ),
         format!(
             "attach_focus_prefix_route_present={}",
@@ -100,8 +100,8 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
             attach_matrix.popup_detach_shell_safe
         ),
         format!(
-            "attach_popup_cleanup_hook_absent={}",
-            attach_matrix.popup_cleanup_hook_absent
+            "attach_popup_cleanup_hook_present={}",
+            attach_matrix.popup_cleanup_hook_present
         ),
         format!("create_prefix_f_binding={}", create_matrix.prefix_f_binding),
         format!("create_prefix_h_binding={}", create_matrix.nav_left_binding),
@@ -172,7 +172,7 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         && create_matrix.internal_route_shell_safe
         && create_matrix.non_blocking_internal_routes
         && create_matrix.popup_detach_shell_safe
-        && create_matrix.popup_cleanup_hook_absent
+        && create_matrix.popup_cleanup_hook_present
         && attach_matrix.focus_prefix_route_present
         && attach_matrix.focus_slot_route_present
         && attach_matrix.core_runtime_routes_present
@@ -180,7 +180,7 @@ fn t1_4_restores_focus_and_core_runtime_keybind_matrix_on_create_and_attach_path
         && attach_matrix.internal_route_shell_safe
         && attach_matrix.non_blocking_internal_routes
         && attach_matrix.popup_detach_shell_safe
-        && attach_matrix.popup_cleanup_hook_absent;
+        && attach_matrix.popup_cleanup_hook_present;
 
     assert!(
         pass,
@@ -336,7 +336,7 @@ struct KeybindMatrix {
     internal_route_shell_safe: bool,
     non_blocking_internal_routes: bool,
     popup_detach_shell_safe: bool,
-    popup_cleanup_hook_absent: bool,
+    popup_cleanup_hook_present: bool,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -425,8 +425,9 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         && popup_binding.contains("__internal popup")
         && !popup_binding.contains("\"'")
         && !popup_binding.contains("''/projects");
-    let popup_cleanup_hook_absent =
-        !session_closed_hook.contains("#{hook_session_name}__popup_slot_");
+    let popup_cleanup_hook_present = session_closed_hook
+        .contains("#{hook_session_name}__popup_slot_")
+        && session_closed_hook.contains("EZM_POPUP_PARENT_CLEANUP_V2");
 
     let core_checks = [
         ("prefix", "g", "ezm-swap"),
@@ -474,7 +475,7 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         internal_route_shell_safe,
         non_blocking_internal_routes,
         popup_detach_shell_safe,
-        popup_cleanup_hook_absent,
+        popup_cleanup_hook_present,
     })
 }
 
