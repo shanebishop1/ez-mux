@@ -6,9 +6,10 @@ Automated release artifacts for `__TAG__`.
 
 ## Artifacts
 
-- `ezm-__TAG__-x86_64-unknown-linux-gnu.tar.gz`
-- `ezm-__TAG__-x86_64-apple-darwin.tar.gz`
-- `ezm-__TAG__-aarch64-apple-darwin.tar.gz`
+- `ezm-__TAG__-linux-x64.tar.gz`
+- `ezm-__TAG__-linux-arm64.tar.gz`
+- `ezm-__TAG__-macos-x64.tar.gz`
+- `ezm-__TAG__-macos-arm64.tar.gz`
 - `ezm-__TAG__-checksums.txt`
 - `ezm-__TAG__-sbom-status.txt` (status: `__SBOM_STATUS__`)
 
