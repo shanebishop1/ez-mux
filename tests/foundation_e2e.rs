@@ -166,19 +166,19 @@ fn case_e2e_15(harness: &FoundationHarness) -> CaseEvidence {
     let mut samples = Vec::new();
 
     let run_one = harness
-        .run_ezm(&[], &[], 0)
+        .run_ezm(&["-v"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-15 first launch failed: {error}"));
     let first_log = extract_active_log_path(&run_one.stderr)
         .unwrap_or_else(|| panic!("E2E-15 first run missing active log path in stderr"));
 
     let run_two = harness
-        .run_ezm(&[], &[], 0)
+        .run_ezm(&["-v"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-15 second launch failed: {error}"));
     let second_log = extract_active_log_path(&run_two.stderr)
         .unwrap_or_else(|| panic!("E2E-15 second run missing active log path in stderr"));
 
-    samples.push(sample(&[], &run_one));
-    samples.push(sample(&[], &run_two));
+    samples.push(sample(&["-v"], &run_one));
+    samples.push(sample(&["-v"], &run_two));
 
     assertions.push(format!("first active log: {first_log}"));
     assertions.push(format!("second active log: {second_log}"));
@@ -226,9 +226,9 @@ fn case_e2e_15(harness: &FoundationHarness) -> CaseEvidence {
     ));
 
     let open_latest = harness
-        .run_ezm(&["logs", "open-latest"], &[], 0)
+        .run_ezm(&["-v", "logs", "open-latest"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-15 open-latest failed: {error}"));
-    samples.push(sample(&["logs", "open-latest"], &open_latest));
+    samples.push(sample(&["-v", "logs", "open-latest"], &open_latest));
 
     let open_outcome = evaluate_open_latest(harness, &open_latest, &second_log);
     assertions.extend(open_outcome.assertions);
@@ -409,8 +409,8 @@ fn case_e2e_18(harness: &FoundationHarness) -> CaseEvidence {
         success.stdout.contains("contract locked")
     ));
     assertions.push(format!(
-        "success stderr has diagnostics: {}",
-        success.stderr.contains("active log file:")
+        "success stderr omits active-log banner by default: {}",
+        !success.stderr.contains("active log file:")
     ));
 
     assertions.push(format!(
@@ -445,7 +445,7 @@ fn case_e2e_18(harness: &FoundationHarness) -> CaseEvidence {
 
     let pass = success.exit_code == 0
         && success.stdout.contains("contract locked")
-        && success.stderr.contains("active log file:")
+        && !success.stderr.contains("active log file:")
         && usage_failure.exit_code == 2
         && usage_failure.stdout.trim().is_empty()
         && usage_failure.stderr.contains("error:")

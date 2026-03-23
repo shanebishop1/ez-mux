@@ -14,6 +14,9 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "OPERATOR")]
     pub operator: Option<String>,
 
+    #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -120,6 +123,14 @@ mod tests {
     fn parses_default_invocation() {
         let parsed = Cli::try_parse_from(["ezm"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
+        assert_eq!(parsed.verbose, 0);
+    }
+
+    #[test]
+    fn parses_verbose_flag() {
+        let parsed = Cli::try_parse_from(["ezm", "-v"]).expect("parse should succeed");
+        assert_eq!(parsed.command, None);
+        assert_eq!(parsed.verbose, 1);
     }
 
     #[test]
