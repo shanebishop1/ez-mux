@@ -32,11 +32,22 @@ pub(super) fn toggle_popup_shell(
         resolve_popup_remote_context(&cwd, remote_prefix, operator, remote_server_url)?;
     let popup_session = popup_session_name(session_name, slot_id);
 
-    if !session_exists(&popup_session)? {
-        let create_args = popup_new_session_args(&popup_session, &cwd);
-        let create_args_ref = create_args.iter().map(String::as_str).collect::<Vec<_>>();
-        tmux_run(&create_args_ref)?;
+    if session_exists(&popup_session)? {
+        tmux_run(&["kill-session", "-t", &popup_session])?;
+        validate_canonical_slot_registry(session_name)?;
+        return Ok(PopupShellOutcome {
+            session_name: session_name.to_owned(),
+            slot_id,
+            action: PopupShellAction::Closed,
+            cwd,
+            width_pct: POPUP_WIDTH_PCT,
+            height_pct: POPUP_HEIGHT_PCT,
+        });
     }
+
+    let create_args = popup_new_session_args(&popup_session, &cwd);
+    let create_args_ref = create_args.iter().map(String::as_str).collect::<Vec<_>>();
+    tmux_run(&create_args_ref)?;
 
     persist_popup_defaults(session_name)?;
     set_session_option(&popup_session, "@ezm_popup_origin_session", session_name)?;

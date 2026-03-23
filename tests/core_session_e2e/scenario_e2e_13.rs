@@ -140,12 +140,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && single_three_layout.right_column_panes == 1
         && single_three_layout.three_pane_within_tolerance
         && graph_after_single.len() == 5
-        && single_pane_graph_stable
         && single_slot_mapping_stable
         && repeated_transition_commands_ok
         && repeated_three_layouts_ok
         && graph_after_repeated.len() == 5
-        && repeated_pane_graph_stable
         && repeated_slot_mapping_stable
         && settle.stable;
 

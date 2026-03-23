@@ -54,8 +54,8 @@ fn apply_or_restore_three_pane_preset(session_name: &str) -> Result<(), SessionE
 }
 
 fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
-    let left_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
-    let center_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
+    let left_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
+    let center_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
     let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;
 
     persist_restore_width_targets(session_name, &left_pane, &center_pane, &right_pane)?;
@@ -79,24 +79,30 @@ fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
             })?;
     let (left_target, center_target, _right_target) = three_pane_target_widths(window_width);
 
-    tmux_run(&[
-        "resize-pane",
-        "-t",
+    let (_, _, right_target) = three_pane_target_widths(window_width);
+    let mut measured = resize_three_pane_columns(
         &left_pane,
-        "-x",
-        &left_target.to_string(),
-    ])?;
-    tmux_run(&[
-        "resize-pane",
-        "-t",
         &center_pane,
-        "-x",
-        &center_target.to_string(),
-    ])?;
+        &right_pane,
+        left_target,
+        center_target,
+        right_target,
+        window_width,
+    )?;
 
-    let left_width = pane_width(&left_pane)?;
-    let center_width = pane_width(&center_pane)?;
-    let right_width = pane_width(&right_pane)?;
+    if !three_pane_widths_within_tolerance(measured.0, measured.1, measured.2, window_width) {
+        measured = resize_three_pane_columns(
+            &left_pane,
+            &center_pane,
+            &right_pane,
+            left_target,
+            center_target,
+            right_target,
+            window_width,
+        )?;
+    }
+
+    let (left_width, center_width, right_width) = measured;
     if !three_pane_widths_within_tolerance(left_width, center_width, right_width, window_width) {
         return Err(SessionError::TmuxCommandFailed {
             command: format!("apply-three-pane-preset -t {target}"),
@@ -113,6 +119,60 @@ fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
     Ok(())
 }
 
+fn resize_three_pane_columns(
+    left_pane: &str,
+    center_pane: &str,
+    right_pane: &str,
+    left_target: u16,
+    center_target: u16,
+    right_target: u16,
+    window_width: u16,
+) -> Result<(u16, u16, u16), SessionError> {
+    let attempts: [[(&str, u16); 3]; 4] = [
+        [
+            (left_pane, left_target),
+            (right_pane, right_target),
+            (center_pane, center_target),
+        ],
+        [
+            (right_pane, right_target),
+            (left_pane, left_target),
+            (center_pane, center_target),
+        ],
+        [
+            (left_pane, left_target),
+            (center_pane, center_target),
+            (right_pane, right_target),
+        ],
+        [
+            (center_pane, center_target),
+            (left_pane, left_target),
+            (right_pane, right_target),
+        ],
+    ];
+
+    for attempt in attempts {
+        for (pane, target_width) in attempt {
+            tmux_run(&["resize-pane", "-t", pane, "-x", &target_width.to_string()])?;
+        }
+
+        let measured = (
+            pane_width(left_pane)?,
+            pane_width(center_pane)?,
+            pane_width(right_pane)?,
+        );
+        if three_pane_widths_within_tolerance(measured.0, measured.1, measured.2, window_width) {
+            return Ok(measured);
+        }
+    }
+
+    Ok((
+        pane_width(left_pane)?,
+        pane_width(center_pane)?,
+        pane_width(right_pane)?,
+    ))
+}
+
 fn restore_five_pane_layout(session_name: &str) -> Result<(), SessionError> {
     let slot_four_restore = load_slot_restore_metadata(session_name, 4)?;
     let slot_five_restore = load_slot_restore_metadata(session_name, 5)?;
@@ -123,8 +183,8 @@ fn restore_five_pane_layout(session_name: &str) -> Result<(), SessionError> {
     verify_restored_slot_continuity(session_name, 5, &slot_five_restore)?;
 
     let target = tmux_primary_window_target(session_name)?;
-    let left_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
-    let center_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
+    let left_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
+    let center_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
     let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;
 
     let window_width =

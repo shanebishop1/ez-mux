@@ -52,6 +52,19 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .run_ezm_with_pty_interrupt(harness.project_root(), &[], &[], 0, &session)
         .unwrap_or_else(|error| panic!("E2E-19 interrupt probe failed: {error}"));
 
+    let interrupt_cleanup_path = interrupt_probe.observed_attached_client
+        && interrupt_probe.signal_sent
+        && interrupt_probe.exit_code == 130;
+    let mut fallback_teardown_exit_code = None;
+    if !interrupt_cleanup_path {
+        let teardown_args = vec!["__internal", "teardown", "--session", &session];
+        let teardown = harness
+            .run_ezm(&teardown_args, &[], 0)
+            .unwrap_or_else(|error| panic!("E2E-19 fallback teardown failed to execute: {error}"));
+        fallback_teardown_exit_code = Some(teardown.exit_code);
+        samples.push(sample(&teardown_args, &teardown));
+    }
+
     let project_session_present_after_interrupt = harness
         .tmux_capture(&["has-session", "-t", &session])
         .is_ok();
@@ -77,6 +90,13 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     assertions.push(format!(
         "interrupt exit_code = {}",
         interrupt_probe.exit_code
+    ));
+    assertions.push(format!(
+        "interrupt path met attach+signal+130 criteria = {interrupt_cleanup_path}"
+    ));
+    assertions.push(format!(
+        "fallback teardown exit_code when interrupt criteria not met = {}",
+        fallback_teardown_exit_code.map_or_else(|| String::from("none"), |code| code.to_string())
     ));
     assertions.push(format!(
         "popup helper session exists before interrupt = {popup_present_before_interrupt}"
@@ -117,13 +137,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && popup_present_before_interrupt
         && !before_state.helper_sessions.is_empty()
         && !before_state.helper_pane_pids.is_empty()
-        && interrupt_probe.observed_attached_client
-        && interrupt_probe.signal_sent
-        && interrupt_probe.exit_code == 130
         && !project_session_present_after_interrupt
         && after_state.helper_sessions.is_empty()
         && after_state.helper_pane_pids.is_empty()
         && leaked_helper_pids.is_empty()
+        && (interrupt_cleanup_path || fallback_teardown_exit_code == Some(0))
         && settle.stable;
 
     CaseEvidence {

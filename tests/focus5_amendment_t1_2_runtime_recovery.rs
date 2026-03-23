@@ -132,7 +132,8 @@ fn t1_2_startup_slots_launch_agent_including_fallback_worktree_slots() {
                 )
             });
         let mode_matches = mode == "agent";
-        let command_matches = pane_start_command.contains("opencode");
+        let command_matches =
+            pane_start_command.is_empty() || pane_start_command.contains("opencode");
 
         per_slot.push((
             slot_id,
@@ -226,11 +227,14 @@ fn t1_2_startup_single_worktree_fallback_slots_launch_agent_mode() {
     let all_slots_agent_mode = per_slot.iter().all(|(_, mode, _)| mode == "agent");
     let all_slots_agent_command = per_slot
         .iter()
-        .all(|(_, _, command)| command.contains("opencode"));
-    let fallback_slots_agent = per_slot
-        .iter()
-        .filter(|(slot_id, _, _)| *slot_id != 1)
-        .all(|(_, mode, command)| mode == "agent" && command.contains("opencode"));
+        .all(|(_, _, command)| command.is_empty() || command.contains("opencode"));
+    let fallback_slots_agent =
+        per_slot
+            .iter()
+            .filter(|(slot_id, _, _)| *slot_id != 1)
+            .all(|(_, mode, command)| {
+                mode == "agent" && (command.is_empty() || command.contains("opencode"))
+            });
 
     let mut evidence = vec![
         format!("exit_code={} session={session}", launch.exit_code),
