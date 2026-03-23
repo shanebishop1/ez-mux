@@ -51,6 +51,10 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
+    let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
+    let parsed_cli = cli::Cli::try_parse_from(args.clone());
+    let show_active_log_path = verbose_flag_present(&args);
+
     let launch_log = match logging::initialize_launch_log_with_defaults(env, os) {
         Ok(launch_log) => launch_log,
         Err(error) => {
@@ -66,18 +70,20 @@ where
             return code;
         }
     }
-    if let Err(code) = checked_write(
-        writeln!(
+    if show_active_log_path {
+        if let Err(code) = checked_write(
+            writeln!(
+                stderr,
+                "active log file: {}",
+                launch_log.file_path.display()
+            ),
             stderr,
-            "active log file: {}",
-            launch_log.file_path.display()
-        ),
-        stderr,
-    ) {
-        return code;
+        ) {
+            return code;
+        }
     }
 
-    match cli::Cli::try_parse_from(args) {
+    match parsed_cli {
         Ok(cli) => match app::execute_with_opener(cli, env, os, &launch_log.root, opener) {
             Ok(message) => {
                 if !message.is_empty() {
@@ -111,6 +117,22 @@ where
             }
         },
     }
+}
+
+fn verbose_flag_present(args: &[std::ffi::OsString]) -> bool {
+    args.iter().skip(1).any(|arg| {
+        let value = arg.to_string_lossy();
+        if value == "--verbose" {
+            return true;
+        }
+
+        if value.starts_with('-') && !value.starts_with("--") {
+            let flags = &value[1..];
+            return !flags.is_empty() && flags.chars().all(|flag| flag == 'v');
+        }
+
+        false
+    })
 }
 
 fn append_launch_failure_event(log_path: &std::path::Path, detail: &str) {
@@ -190,7 +212,7 @@ mod tests {
         let stdout = String::from_utf8(stdout).expect("utf8");
         assert!(stdout.contains("Usage:"));
         let stderr = String::from_utf8(stderr).expect("utf8");
-        assert!(stderr.contains("active log file:"));
+        assert!(!stderr.contains("active log file:"));
     }
 
     #[test]
@@ -211,7 +233,7 @@ mod tests {
         assert_eq!(String::from_utf8(stdout).expect("utf8"), "");
         let stderr = String::from_utf8(stderr).expect("utf8");
         assert!(stderr.contains("error:"));
-        assert!(stderr.contains("active log file:"));
+        assert!(!stderr.contains("active log file:"));
     }
 
     #[test]
@@ -232,7 +254,7 @@ mod tests {
         let stdout = String::from_utf8(stdout).expect("utf8");
         assert!(stdout.contains("Usage:"));
         let stderr = String::from_utf8(stderr).expect("utf8");
-        assert!(stderr.contains("active log file:"));
+        assert!(!stderr.contains("active log file:"));
     }
 
     #[test]
@@ -242,7 +264,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let first_code = run_with_io(
-            ["ezm", "--help"],
+            ["ezm", "-v", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -253,7 +275,7 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let second_code = run_with_io(
-            ["ezm", "--help"],
+            ["ezm", "-v", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -293,7 +315,7 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let code = run_with_io(
-            ["ezm", "--help"],
+            ["ezm", "-v", "--help"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -314,7 +336,7 @@ mod tests {
         let mut stderr = Vec::new();
 
         let code = run_with_io_and_opener(
-            ["ezm", "logs", "open-latest"],
+            ["ezm", "-v", "logs", "open-latest"],
             &env,
             OperatingSystem::Linux,
             &mut stdout,
@@ -361,7 +383,7 @@ mod tests {
         assert_eq!(code, ExitCode::UsageOrConfigFailure.as_i32());
         assert_eq!(String::from_utf8(stdout).expect("utf8"), "");
         let stderr = String::from_utf8(stderr).expect("utf8");
-        assert!(stderr.contains("active log file:"));
+        assert!(!stderr.contains("active log file:"));
         assert!(stderr.contains("error:"));
         assert!(stderr.contains("invalid TOML"));
     }
@@ -383,6 +405,7 @@ mod tests {
         let code = run_with_io(
             [
                 "ezm",
+                "-v",
                 "__internal",
                 "mode",
                 "--session",
@@ -435,9 +458,28 @@ mod tests {
         assert_eq!(code, ExitCode::UsageOrConfigFailure.as_i32());
         assert_eq!(String::from_utf8(stdout).expect("utf8"), "");
         let stderr = String::from_utf8(stderr).expect("utf8");
-        assert!(stderr.contains("active log file:"));
+        assert!(!stderr.contains("active log file:"));
         assert!(stderr.contains("invalid OpenCode server URL"));
         assert!(!stderr.contains("top-secret-token"));
+    }
+
+    #[test]
+    fn verbose_mode_emits_active_log_path() {
+        let (env, _state) = TestEnv::with_temp_state();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let code = run_with_io(
+            ["ezm", "-v", "--help"],
+            &env,
+            OperatingSystem::Linux,
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(code, ExitCode::Success.as_i32());
+        let stderr = String::from_utf8(stderr).expect("utf8");
+        assert!(stderr.contains("active log file:"));
     }
 
     struct BrokenPipeWriter;
