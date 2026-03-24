@@ -1,0 +1,81 @@
+use super::{
+    AUXILIARY_WINDOW_NAME, build_auxiliary_local_launch_command,
+    build_auxiliary_remote_launch_command, discover_executable_in_path,
+    resolve_auxiliary_remote_launch, should_validate_registry_for_auxiliary,
+};
+
+#[test]
+fn auxiliary_launch_command_uses_resolved_bv_path() {
+    let command =
+        build_auxiliary_local_launch_command(std::path::Path::new("/tmp/tools/bv"), None, None);
+    assert_eq!(
+        command,
+        "'/tmp/tools/bv'; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; exec \"${SHELL:-/bin/sh}\" -l"
+    );
+}
+
+#[test]
+fn auxiliary_launch_command_escapes_single_quote_sensitive_characters() {
+    let command = build_auxiliary_local_launch_command(
+        std::path::Path::new("/tmp/tools/space and 'quote'/$HOME/`cmd`/bv"),
+        Some("  /tmp/beads dir/it's $HOME  "),
+        Some("/tmp/beads-db/`cmd`-'set'.jsonl"),
+    );
+    assert_eq!(
+        command,
+        "export BEADS_DIR='/tmp/beads dir/it'\"'\"'s $HOME'; export BEADS_DB='/tmp/beads-db/`cmd`-'\"'\"'set'\"'\"'.jsonl'; '/tmp/tools/space and '\"'\"'quote'\"'\"'/$HOME/`cmd`/bv'; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; exec \"${SHELL:-/bin/sh}\" -l"
+    );
+}
+
+#[test]
+fn auxiliary_remote_launch_command_routes_over_ssh_with_remote_directory() {
+    let command = build_auxiliary_remote_launch_command(
+        "/srv/remotes/ez-mux",
+        "https://shell.remote.example:7443",
+        Some("/srv/beads"),
+        Some("/srv/beads/db.jsonl"),
+    )
+    .expect("remote command should build");
+
+    assert!(command.contains("ssh -tt -p 7443 'shell.remote.example'"));
+    assert!(command.contains("/srv/remotes/ez-mux"));
+    assert!(command.contains("command -v bv"));
+    assert!(command.contains("exec \"${SHELL:-/bin/sh}\" -l"));
+}
+
+#[test]
+fn auxiliary_remote_launch_resolves_when_remote_path_and_server_url_are_present() {
+    let resolved = resolve_auxiliary_remote_launch(
+        "/tmp/repo/worktree",
+        Some("/srv/remotes"),
+        Some("https://shell.remote.example:7443"),
+    )
+    .expect("remote launch should resolve")
+    .expect("remote launch should be active");
+
+    assert_eq!(resolved.remote_dir, "/srv/remotes/worktree");
+    assert_eq!(
+        resolved.remote_server_url,
+        "https://shell.remote.example:7443"
+    );
+}
+
+#[test]
+fn auxiliary_remote_launch_is_inactive_without_server_url() {
+    let resolved =
+        resolve_auxiliary_remote_launch("/tmp/repo/worktree", Some("/srv/remotes"), None)
+            .expect("missing server url should not fail");
+    assert!(resolved.is_none());
+}
+
+#[test]
+fn discover_executable_returns_none_for_missing_binary_name() {
+    let unlikely = format!("ezm-no-such-tool-{AUXILIARY_WINDOW_NAME}");
+    assert!(discover_executable_in_path(&unlikely).is_none());
+}
+
+#[test]
+fn auxiliary_open_skips_registry_validation_on_create_path() {
+    assert!(!should_validate_registry_for_auxiliary(true));
+    assert!(should_validate_registry_for_auxiliary(false));
+}
