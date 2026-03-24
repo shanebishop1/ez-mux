@@ -246,6 +246,39 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         ])
         .unwrap_or_else(|error| panic!("E2E-10 failed reading popup pane start command: {error}"));
 
+    let auxiliary_open_args = vec![
+        "__internal",
+        "auxiliary",
+        "--session",
+        &session,
+        "--action",
+        "open",
+    ];
+    let auxiliary_open = harness
+        .run_ezm_in_dir(
+            &fixture.project_dir,
+            &auxiliary_open_args,
+            &[
+                ("EZM_REMOTE_PATH", &remote_path),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-10 auxiliary open failed to execute: {error}"));
+    samples.push(sample(&auxiliary_open_args, &auxiliary_open));
+
+    let auxiliary_pane_start_command = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &format!("{session}:beads-viewer.0"),
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| {
+            panic!("E2E-10 failed reading auxiliary pane start command: {error}")
+        });
+
     let agent_switch_args = vec![
         "__internal",
         "mode",
@@ -300,6 +333,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let popup_uses_ssh_remote = popup_pane_start_command.contains("ssh -tt")
         && popup_pane_start_command.contains("shell.remote.example")
         && popup_pane_start_command.contains(&expected_mapped_path);
+    let auxiliary_uses_ssh_remote = auxiliary_pane_start_command.contains("if ssh -tt")
+        && auxiliary_pane_start_command.contains("shell.remote.example")
+        && auxiliary_pane_start_command.contains("command -v bv");
+    let auxiliary_command_continues_to_shell = auxiliary_pane_start_command.contains("exec")
+        && auxiliary_pane_start_command.contains("${SHELL:-/bin/sh}");
     let agent_attach_url_matches = !agent_pane_start_command.contains("opencode attach");
     let agent_launch_omits_attach_dir_flag = !agent_pane_start_command.contains("--dir");
     let agent_mode_avoids_opencode_attach = !agent_pane_start_command.contains("opencode attach");
@@ -379,6 +417,20 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "popup success branch launch command routes via ssh remote target = {popup_uses_ssh_remote}"
     ));
     assertions.push(format!(
+        "auxiliary success branch open exit_code = {}",
+        auxiliary_open.exit_code
+    ));
+    assertions.push(format!(
+        "auxiliary success branch pane start command = {}",
+        auxiliary_pane_start_command.trim()
+    ));
+    assertions.push(format!(
+        "auxiliary success branch launch command routes via ssh remote target = {auxiliary_uses_ssh_remote}"
+    ));
+    assertions.push(format!(
+        "auxiliary success branch launch command returns to shell context after bv exit = {auxiliary_command_continues_to_shell}"
+    ));
+    assertions.push(format!(
         "agent success branch selected slot id = {agent_slot_id}"
     ));
     assertions.push(format!(
@@ -424,6 +476,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && neovim_uses_ssh_remote
         && popup_open.exit_code == 0
         && popup_uses_ssh_remote
+        && auxiliary_open.exit_code == 0
+        && auxiliary_uses_ssh_remote
+        && auxiliary_command_continues_to_shell
         && agent_switch_success.exit_code == 0
         && agent_mode_avoids_opencode_attach
         && agent_attach_url_matches
