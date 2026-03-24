@@ -64,14 +64,7 @@ fn open_auxiliary_viewer(
         });
     }
 
-    let beads_dir = std::env::var(BEADS_DIR_ENV).ok();
-    let beads_db = std::env::var(BEADS_DB_ENV).ok();
-    let command = build_auxiliary_launch_command(
-        remote_launch.as_ref(),
-        local_bv_executable,
-        beads_dir.as_deref(),
-        beads_db.as_deref(),
-    )?;
+    let command = build_auxiliary_launch_command(remote_launch.as_ref(), local_bv_executable)?;
     let window_id = tmux_output_value(&[
         "new-window",
         "-d",
@@ -128,34 +121,30 @@ fn close_auxiliary_viewer(
 fn build_auxiliary_launch_command(
     remote_launch: Option<&AuxiliaryRemoteLaunch>,
     local_bv_executable: Option<PathBuf>,
-    beads_dir: Option<&str>,
-    beads_db: Option<&str>,
 ) -> Result<String, SessionError> {
     if let Some(remote_launch) = remote_launch {
-        return build_auxiliary_command_for_remote(remote_launch, beads_dir, beads_db);
+        return build_auxiliary_command_for_remote(remote_launch);
     }
 
+    let beads_dir = std::env::var(BEADS_DIR_ENV).ok();
+    let beads_db = std::env::var(BEADS_DB_ENV).ok();
     let bv_executable = local_bv_executable.ok_or_else(|| SessionError::TmuxCommandFailed {
         command: String::from("auxiliary-viewer discover bv"),
         stderr: String::from("bv executable disappeared during startup reconciliation"),
     })?;
     Ok(build_auxiliary_local_launch_command(
         &bv_executable,
-        beads_dir,
-        beads_db,
+        beads_dir.as_deref(),
+        beads_db.as_deref(),
     ))
 }
 
 fn build_auxiliary_command_for_remote(
     remote_launch: &AuxiliaryRemoteLaunch,
-    beads_dir: Option<&str>,
-    beads_db: Option<&str>,
 ) -> Result<String, SessionError> {
     if let Some(remote_command) = build_auxiliary_remote_launch_command(
         &remote_launch.remote_dir,
         &remote_launch.remote_server_url,
-        beads_dir,
-        beads_db,
     ) {
         return Ok(remote_command);
     }
@@ -169,8 +158,8 @@ fn build_auxiliary_command_for_remote(
         })?;
     Ok(build_auxiliary_local_launch_command(
         &bv_executable,
-        beads_dir,
-        beads_db,
+        std::env::var(BEADS_DIR_ENV).ok().as_deref(),
+        std::env::var(BEADS_DB_ENV).ok().as_deref(),
     ))
 }
 
@@ -257,15 +246,13 @@ fn build_auxiliary_local_launch_command(
 fn build_auxiliary_remote_launch_command(
     remote_dir: &str,
     remote_server_url: &str,
-    beads_dir: Option<&str>,
-    beads_db: Option<&str>,
 ) -> Option<String> {
     let (target, port) = ssh_target_and_port(remote_server_url);
     if target.is_empty() {
         return None;
     }
 
-    let remote_script = render_auxiliary_remote_script(remote_dir, beads_dir, beads_db);
+    let remote_script = render_auxiliary_remote_script(remote_dir);
     let mut ssh_invocation = String::from("ssh -tt");
     if let Some(port) = port {
         ssh_invocation.push_str(&format!(" -p {port}"));
@@ -277,12 +264,8 @@ fn build_auxiliary_remote_launch_command(
     ))
 }
 
-fn render_auxiliary_remote_script(
-    remote_dir: &str,
-    beads_dir: Option<&str>,
-    beads_db: Option<&str>,
-) -> String {
-    let mut segments = render_auxiliary_env_exports(beads_dir, beads_db);
+fn render_auxiliary_remote_script(remote_dir: &str) -> String {
+    let mut segments = Vec::new();
     segments.push(format!("cd '{}'", escape_single_quotes(remote_dir)));
     segments.push(String::from(
         "if command -v bv >/dev/null 2>&1; then bv; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; else printf '%s\\n' \"ez-mux auxiliary viewer command not found: bv\" >&2; fi",

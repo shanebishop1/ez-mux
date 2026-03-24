@@ -32,8 +32,6 @@ fn auxiliary_remote_launch_command_routes_over_ssh_with_remote_directory() {
     let command = build_auxiliary_remote_launch_command(
         "/srv/remotes/ez-mux",
         "https://shell.remote.example:7443",
-        Some("/srv/beads"),
-        Some("/srv/beads/db.jsonl"),
     )
     .expect("remote command should build");
 
@@ -41,6 +39,18 @@ fn auxiliary_remote_launch_command_routes_over_ssh_with_remote_directory() {
     assert!(command.contains("/srv/remotes/ez-mux"));
     assert!(command.contains("command -v bv"));
     assert!(command.contains("exec \"${SHELL:-/bin/sh}\" -l"));
+}
+
+#[test]
+fn auxiliary_remote_launch_command_does_not_export_beads_paths() {
+    let command = build_auxiliary_remote_launch_command(
+        "/srv/remotes/ez-mux",
+        "https://shell.remote.example",
+    )
+    .expect("remote command should build");
+
+    assert!(!command.contains("export BEADS_DIR="));
+    assert!(!command.contains("export BEADS_DB="));
 }
 
 #[test]
