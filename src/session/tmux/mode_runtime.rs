@@ -296,7 +296,7 @@ fn ssh_wrapped_launch_command(
     launch_command: &str,
     remote_server_url: Option<&str>,
 ) -> Option<String> {
-    if !matches!(mode, SlotMode::Shell | SlotMode::Lazygit) {
+    if !matches!(mode, SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit) {
         return None;
     }
 
@@ -319,7 +319,7 @@ fn ssh_wrapped_launch_command(
     ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&target)));
     ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&remote_script)));
     Some(format!(
-        "if {ssh_invocation}; then exit 0; fi; status=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $status\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"
+        "if {ssh_invocation}; then exit 0; fi; ssh_exit_code=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $ssh_exit_code\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"
     ))
 }
 

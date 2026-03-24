@@ -67,7 +67,7 @@ fn lazygit_mode_remote_prefix_launches_over_ssh() {
 
     let command = launch_command_with_remote_dir_from_mapping(
         SlotMode::Lazygit,
-        "if command -v lazygit >/dev/null 2>&1; then lazygit; status=$?; if [ \"$status\" -ne 0 ]; then printf '%s\\n' \"ez-mux mode tool lazygit exited with status $status\" >&2; exit \"$status\"; fi; fi; exec \"${SHELL:-/bin/sh}\" -l",
+        "if command -v lazygit >/dev/null 2>&1; then lazygit; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux mode tool lazygit exited with status $exit_code\" >&2; :; fi; fi; exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
         remote_context(Some("/srv/remotes"), Some("devbox-ez-1")),
     )
@@ -75,6 +75,10 @@ fn lazygit_mode_remote_prefix_launches_over_ssh() {
 
     assert!(command.contains("if ssh -tt 'devbox-ez-1'"));
     assert!(command.contains("lazygit"));
+    assert!(command.contains("; :; fi; fi; exec \"${SHELL:-/bin/sh}\" -l"));
+    assert!(!command.contains("exit \"$exit_code\""));
+    assert!(!command.contains("status=$?"));
+    assert!(command.contains("${SHELL:-/bin/sh}"));
 }
 
 #[test]
@@ -91,7 +95,7 @@ fn missing_remote_mapping_keeps_original_launch_command() {
 }
 
 #[test]
-fn neovim_mode_keeps_environment_export_remote_contract() {
+fn neovim_mode_remote_prefix_launches_over_ssh() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
     let nested = repo_root.join("worktrees").join("feature-x");
@@ -100,7 +104,7 @@ fn neovim_mode_keeps_environment_export_remote_contract() {
 
     let command = launch_command_with_remote_dir_from_mapping(
         SlotMode::Neovim,
-        "nvim",
+        "if command -v nvim >/dev/null 2>&1; then nvim; fi; exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
         remote_context(
             Some("/srv/remotes"),
@@ -109,9 +113,9 @@ fn neovim_mode_keeps_environment_export_remote_contract() {
     )
     .expect("command should resolve");
 
-    assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
-    assert!(command.contains("EZM_REMOTE_SERVER_URL='https://shell.remote.example:7443'"));
-    assert!(!command.contains("exec ssh -tt"));
+    assert!(command.contains("if ssh -tt -p 7443 'shell.remote.example'"));
+    assert!(command.contains("nvim"));
+    assert!(command.contains("cd '\"'\"'/srv/remotes/alpha/worktrees/feature-x'\"'\"'"));
 }
 
 #[test]
