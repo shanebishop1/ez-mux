@@ -16,7 +16,7 @@ fn remote_context<'a>(
 }
 
 #[test]
-fn remote_prefix_injects_ezm_remote_dir_export() {
+fn shell_mode_remote_prefix_launches_over_ssh_with_remote_dir() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
     let nested = repo_root.join("worktrees").join("feature-x");
@@ -24,18 +24,19 @@ fn remote_prefix_injects_ezm_remote_dir_export() {
     std::fs::create_dir_all(&nested).expect("create nested");
 
     let command = launch_command_with_remote_dir_from_mapping(
+        SlotMode::Shell,
         "exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
-        remote_context(Some("/srv/remotes"), None),
+        remote_context(Some("/srv/remotes"), Some("devbox-ez-1")),
     )
     .expect("command should resolve");
 
-    assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
-    assert!(!command.contains("OPERATOR='"));
+    assert!(command.contains("if ssh -tt 'devbox-ez-1'"));
+    assert!(command.contains("cd '\"'\"'/srv/remotes/alpha/worktrees/feature-x'\"'\"'"));
 }
 
 #[test]
-fn remote_prefix_injects_ezm_remote_server_url_export_when_configured() {
+fn shell_mode_remote_prefix_uses_ssh_port_for_absolute_url_authority() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
     let nested = repo_root.join("worktrees").join("feature-x");
@@ -43,6 +44,7 @@ fn remote_prefix_injects_ezm_remote_server_url_export_when_configured() {
     std::fs::create_dir_all(&nested).expect("create nested");
 
     let command = launch_command_with_remote_dir_from_mapping(
+        SlotMode::Shell,
         "exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
         remote_context(
@@ -52,13 +54,11 @@ fn remote_prefix_injects_ezm_remote_server_url_export_when_configured() {
     )
     .expect("command should resolve");
 
-    assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
-    assert!(!command.contains("OPERATOR='"));
-    assert!(command.contains("EZM_REMOTE_SERVER_URL='https://shell.remote.example:7443'"));
+    assert!(command.contains("if ssh -tt -p 7443 'shell.remote.example'"));
 }
 
 #[test]
-fn remote_prefix_omits_ezm_remote_server_url_export_when_unconfigured() {
+fn lazygit_mode_remote_prefix_launches_over_ssh() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
     let nested = repo_root.join("worktrees").join("feature-x");
@@ -66,18 +66,21 @@ fn remote_prefix_omits_ezm_remote_server_url_export_when_unconfigured() {
     std::fs::create_dir_all(&nested).expect("create nested");
 
     let command = launch_command_with_remote_dir_from_mapping(
-        "exec \"${SHELL:-/bin/sh}\" -l",
+        SlotMode::Lazygit,
+        "if command -v lazygit >/dev/null 2>&1; then lazygit; status=$?; if [ \"$status\" -ne 0 ]; then printf '%s\\n' \"ez-mux mode tool lazygit exited with status $status\" >&2; exit \"$status\"; fi; fi; exec \"${SHELL:-/bin/sh}\" -l",
         &nested.display().to_string(),
-        remote_context(Some("/srv/remotes"), Some("   ")),
+        remote_context(Some("/srv/remotes"), Some("devbox-ez-1")),
     )
     .expect("command should resolve");
 
-    assert!(!command.contains("EZM_REMOTE_SERVER_URL='"));
+    assert!(command.contains("if ssh -tt 'devbox-ez-1'"));
+    assert!(command.contains("lazygit"));
 }
 
 #[test]
 fn missing_remote_mapping_keeps_original_launch_command() {
     let command = launch_command_with_remote_dir_from_mapping(
+        SlotMode::Shell,
         "exec \"${SHELL:-/bin/sh}\" -l",
         "/tmp/local-only",
         RemoteModeContext::default(),
@@ -85,6 +88,30 @@ fn missing_remote_mapping_keeps_original_launch_command() {
     .expect("command should resolve");
 
     assert_eq!(command, "exec \"${SHELL:-/bin/sh}\" -l");
+}
+
+#[test]
+fn neovim_mode_keeps_environment_export_remote_contract() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo_root = temp.path().join("alpha");
+    let nested = repo_root.join("worktrees").join("feature-x");
+    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+    std::fs::create_dir_all(&nested).expect("create nested");
+
+    let command = launch_command_with_remote_dir_from_mapping(
+        SlotMode::Neovim,
+        "nvim",
+        &nested.display().to_string(),
+        remote_context(
+            Some("/srv/remotes"),
+            Some("https://shell.remote.example:7443"),
+        ),
+    )
+    .expect("command should resolve");
+
+    assert!(command.contains("EZM_REMOTE_DIR='/srv/remotes/alpha/worktrees/feature-x'"));
+    assert!(command.contains("EZM_REMOTE_SERVER_URL='https://shell.remote.example:7443'"));
+    assert!(!command.contains("exec ssh -tt"));
 }
 
 #[test]
