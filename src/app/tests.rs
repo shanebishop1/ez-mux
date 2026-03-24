@@ -311,6 +311,60 @@ fn shared_server_attach_config_is_enabled_for_remote_mode_when_explicit() {
     assert_eq!(attach.password.as_deref(), Some("secret"));
 }
 
+#[test]
+fn shared_server_attach_config_stays_disabled_when_remote_server_url_is_missing() {
+    let runtime = RemoteRuntimeResolution {
+        remote_path: ResolvedValue {
+            value: Some(String::from("/srv/remotes")),
+            source: ValueSource::Env,
+        },
+        remote_server_url: ResolvedValue {
+            value: None,
+            source: ValueSource::Default,
+        },
+        shared_server: SharedServerRuntimeResolution {
+            url: ResolvedValue {
+                value: Some(String::from("http://devbox-ez-1:4096")),
+                source: ValueSource::Env,
+            },
+            password: ResolvedValue {
+                value: Some(String::from("secret")),
+                source: ValueSource::Env,
+            },
+        },
+    };
+
+    assert!(shared_server_attach_config(&runtime).is_none());
+}
+
+#[test]
+fn shared_server_attach_config_accepts_hostname_remote_server_url_with_remote_path() {
+    let runtime = RemoteRuntimeResolution {
+        remote_path: ResolvedValue {
+            value: Some(String::from("/projects/shared/shane/goblinham-lincoln-1")),
+            source: ValueSource::Env,
+        },
+        remote_server_url: ResolvedValue {
+            value: Some(String::from("devbox-ez-1")),
+            source: ValueSource::Env,
+        },
+        shared_server: SharedServerRuntimeResolution {
+            url: ResolvedValue {
+                value: Some(String::from("http://devbox-ez-1:4096")),
+                source: ValueSource::Env,
+            },
+            password: ResolvedValue {
+                value: Some(String::from("weinthisyuh78")),
+                source: ValueSource::Env,
+            },
+        },
+    };
+
+    let attach = shared_server_attach_config(&runtime).expect("attach config");
+    assert_eq!(attach.url, "http://devbox-ez-1:4096");
+    assert_eq!(attach.password.as_deref(), Some("weinthisyuh78"));
+}
+
 fn remote_runtime_resolution(remote_path: Option<&str>) -> RemoteRuntimeResolution {
     let remote_source = if remote_path.is_some() {
         ValueSource::Env

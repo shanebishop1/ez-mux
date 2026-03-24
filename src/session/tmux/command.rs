@@ -1,13 +1,16 @@
 use std::process::{Command, Output};
 
 use super::SessionError;
+use crate::config::OPENCODE_SERVER_PASSWORD_ENV;
+
+const REDACTED_SECRET_VALUE: &str = "<redacted>";
 
 pub(super) fn tmux_output(args: &[&str]) -> Result<Output, SessionError> {
     Command::new("tmux")
         .args(args)
         .output()
         .map_err(|source| SessionError::TmuxSpawnFailed {
-            command: args.join(" "),
+            command: tmux_command_for_diagnostics(args),
             source,
         })
 }
@@ -19,7 +22,7 @@ pub(super) fn tmux_run(args: &[&str]) -> Result<(), SessionError> {
     }
 
     Err(SessionError::TmuxCommandFailed {
-        command: args.join(" "),
+        command: tmux_command_for_diagnostics(args),
         stderr: format_output_diagnostics(&output),
     })
 }
@@ -35,7 +38,7 @@ pub(super) fn tmux_output_value(args: &[&str]) -> Result<String, SessionError> {
     }
 
     Err(SessionError::TmuxCommandFailed {
-        command: args.join(" "),
+        command: tmux_command_for_diagnostics(args),
         stderr: format_output_diagnostics(&output),
     })
 }
@@ -101,9 +104,31 @@ fn retry_legacy_window_zero_list_panes(
     }
 
     Err(SessionError::TmuxCommandFailed {
-        command: retry_args.join(" "),
+        command: tmux_command_for_diagnostics(&retry_args),
         stderr: format_output_diagnostics(&retry_output),
     })
+}
+
+fn tmux_command_for_diagnostics(args: &[&str]) -> String {
+    let mut redacted = args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    redact_set_environment_secret_value(&mut redacted, OPENCODE_SERVER_PASSWORD_ENV);
+    redacted.join(" ")
+}
+
+fn redact_set_environment_secret_value(args: &mut [String], secret_key: &str) {
+    if args.first().map(String::as_str) != Some("set-environment") {
+        return;
+    }
+
+    let Some(key_index) = args.iter().position(|arg| arg == secret_key) else {
+        return;
+    };
+
+    let Some(value) = args.get_mut(key_index + 1) else {
+        return;
+    };
+
+    *value = String::from(REDACTED_SECRET_VALUE);
 }
 
 fn legacy_window_zero_session_target<'a>(
@@ -141,7 +166,10 @@ pub(super) fn format_output_diagnostics(output: &Output) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{legacy_window_zero_session_target, parse_primary_window_target};
+    use super::{
+        REDACTED_SECRET_VALUE, legacy_window_zero_session_target, parse_primary_window_target,
+        tmux_command_for_diagnostics,
+    };
 
     #[test]
     fn parse_primary_window_target_prefers_active_window_id() {
@@ -176,5 +204,52 @@ mod tests {
         let args = ["list-panes", "-t", "ezm-demo:2", "-F", "#{pane_id}"];
         let stderr = "can't find window: 2";
         assert_eq!(legacy_window_zero_session_target(&args, stderr), None);
+    }
+
+    #[test]
+    fn tmux_command_for_diagnostics_redacts_password_set_environment_value_for_global_sync() {
+        let rendered = tmux_command_for_diagnostics(&[
+            "set-environment",
+            "-g",
+            "OPENCODE_SERVER_PASSWORD",
+            "super-secret",
+        ]);
+
+        assert!(!rendered.contains("super-secret"));
+        assert!(rendered.contains(REDACTED_SECRET_VALUE));
+    }
+
+    #[test]
+    fn tmux_command_for_diagnostics_redacts_password_set_environment_value_for_targeted_sync() {
+        let rendered = tmux_command_for_diagnostics(&[
+            "set-environment",
+            "-t",
+            "ezm-s42",
+            "OPENCODE_SERVER_PASSWORD",
+            "another-secret",
+        ]);
+
+        assert!(!rendered.contains("another-secret"));
+        assert!(rendered.contains(REDACTED_SECRET_VALUE));
+    }
+
+    #[test]
+    fn tmux_command_for_diagnostics_does_not_inject_redaction_for_unset_without_value() {
+        let rendered =
+            tmux_command_for_diagnostics(&["set-environment", "-gu", "OPENCODE_SERVER_PASSWORD"]);
+
+        assert_eq!(rendered, "set-environment -gu OPENCODE_SERVER_PASSWORD");
+    }
+
+    #[test]
+    fn tmux_command_for_diagnostics_keeps_non_secret_environment_values_visible() {
+        let rendered = tmux_command_for_diagnostics(&[
+            "set-environment",
+            "-g",
+            "EZM_REMOTE_PATH",
+            "/srv/remotes",
+        ]);
+
+        assert_eq!(rendered, "set-environment -g EZM_REMOTE_PATH /srv/remotes");
     }
 }

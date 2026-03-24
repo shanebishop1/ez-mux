@@ -103,6 +103,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
                 panic!("E2E-07 failed polling fallback popup open state: {error}")
             });
     }
+    let popup_recorded_cwd = harness
+        .tmux_capture(&["show-options", "-v", "-t", &popup_session, "@ezm_popup_cwd"])
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
     let popup_pane_cwd = harness
         .tmux_capture(&[
             "display-message",
@@ -111,6 +116,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             &format!("{popup_session}:0.0"),
             "#{pane_current_path}",
         ])
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    let popup_pane_pid_after_open = harness
+        .tmux_capture(&["list-panes", "-t", &popup_session, "-F", "#{pane_pid}"])
         .unwrap_or_default()
         .trim()
         .to_owned();
@@ -147,48 +157,22 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     send_prefix_keybind(harness, &session, "P")
         .unwrap_or_else(|error| panic!("E2E-07 failed sending popup close keybind: {error}"));
 
-    let mut popup_closed_observed = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+    let popup_not_visible_after_close = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
         Ok(harness
-            .tmux_capture(&["has-session", "-t", &popup_session])
-            .is_err())
+            .tmux_capture(&[
+                "display-message",
+                "-p",
+                "-t",
+                &format!("{session}:0"),
+                "#{popup_active}",
+            ])
+            .map(|value| value.trim() != "1")
+            .unwrap_or(true))
     })
-    .unwrap_or_else(|error| panic!("E2E-07 failed polling popup close state: {error}"));
-
-    if !popup_closed_observed {
-        let slot_id_arg = slot_id.to_string();
-        let fallback_close_args = vec![
-            "__internal",
-            "popup",
-            "--session",
-            &session,
-            "--slot",
-            &slot_id_arg,
-        ];
-        let fallback_close = harness
-            .run_ezm(&fallback_close_args, &[], 0)
-            .unwrap_or_else(|error| panic!("E2E-07 fallback popup close failed: {error}"));
-        samples.push(sample(&fallback_close_args, &fallback_close));
-        popup_closed_observed = fallback_close.exit_code == 0
-            && poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
-                Ok(harness
-                    .tmux_capture(&["has-session", "-t", &popup_session])
-                    .is_err())
-            })
-            .unwrap_or_else(|error| {
-                panic!("E2E-07 failed polling fallback popup close state: {error}")
-            });
-    }
-    let popup_exists_after_close = !popup_closed_observed;
-    let popup_not_visible_after_close = harness
-        .tmux_capture(&[
-            "display-message",
-            "-p",
-            "-t",
-            &format!("{session}:0"),
-            "#{popup_active}",
-        ])
-        .map(|value| value.trim() != "1")
-        .unwrap_or(true);
+    .unwrap_or_else(|error| panic!("E2E-07 failed polling popup close visibility state: {error}"));
+    let popup_exists_after_close = harness
+        .tmux_capture(&["has-session", "-t", &popup_session])
+        .is_ok();
     let selected_after_close = harness
         .tmux_capture(&[
             "display-message",
@@ -201,20 +185,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .trim()
         .to_owned();
 
-    let slot_id_arg = slot_id.to_string();
-    let reopen_args = vec![
-        "__internal",
-        "popup",
-        "--session",
-        &session,
-        "--slot",
-        &slot_id_arg,
-    ];
-    let reopen = harness
-        .run_ezm(&reopen_args, &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-07 popup reopen before cleanup failed: {error}"));
-    samples.push(sample(&reopen_args, &reopen));
-
+    send_prefix_keybind(harness, &session, "P")
+        .unwrap_or_else(|error| panic!("E2E-07 failed sending popup reopen keybind: {error}"));
     let popup_exists_before_parent_kill =
         poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
             Ok(harness
@@ -222,6 +194,24 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
                 .is_ok())
         })
         .unwrap_or_else(|error| panic!("E2E-07 failed polling popup reopen state: {error}"));
+    let popup_visible_after_reopen = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+        Ok(harness
+            .tmux_capture(&[
+                "display-message",
+                "-p",
+                "-t",
+                &format!("{session}:0"),
+                "#{popup_active}",
+            ])
+            .map(|value| value.trim() == "1")
+            .unwrap_or(false))
+    })
+    .unwrap_or_else(|error| panic!("E2E-07 failed polling popup reopen visibility: {error}"));
+    let popup_pane_pid_after_reopen = harness
+        .tmux_capture(&["list-panes", "-t", &popup_session, "-F", "#{pane_pid}"])
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
 
     harness
         .tmux_capture(&["kill-session", "-t", &session])
@@ -246,14 +236,17 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "popup visibly opens after open = {popup_visible_after_open}"
     ));
     assertions.push(format!(
-        "popup helper session removed after close = {}",
-        !popup_exists_after_close
+        "popup helper session persists after close = {popup_exists_after_close}"
     ));
     assertions.push(format!(
         "popup visibly closes after close = {popup_not_visible_after_close}"
     ));
     assertions.push(format!(
-        "popup cwd matches slot cwd fixture = {}",
+        "popup recorded cwd matches slot cwd fixture = {}",
+        paths_equivalent(&popup_recorded_cwd, &popup_cwd)
+    ));
+    assertions.push(format!(
+        "popup pane cwd matches slot cwd fixture (best effort) = {}",
         paths_equivalent(&popup_pane_cwd, &popup_cwd)
     ));
     assertions.push(format!("popup width pct = {popup_width}"));
@@ -264,6 +257,14 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     ));
     assertions.push(format!(
         "popup helper session exists before parent kill = {popup_exists_before_parent_kill}"
+    ));
+    assertions.push(format!(
+        "popup visibly opens again after reopen = {popup_visible_after_reopen}"
+    ));
+    assertions.push(format!(
+        "popup pane pid is stable across close/reopen = {}",
+        !popup_pane_pid_after_open.is_empty()
+            && popup_pane_pid_after_open == popup_pane_pid_after_reopen
     ));
     assertions.push(format!(
         "popup helper session removed after parent kill = {popup_removed_after_parent_kill}"
@@ -278,14 +279,14 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && session == expected_session
         && popup_keybind_present
         && popup_exists_after_open
-        && !popup_exists_after_close
+        && popup_exists_after_close
         && popup_not_visible_after_close
-        && !popup_pane_cwd.trim().is_empty()
+        && !popup_pane_pid_after_open.is_empty()
         && popup_width == "70"
         && popup_height == "70"
         && selected_after_close == slot_pane
-        && reopen.exit_code == 0
         && popup_exists_before_parent_kill
+        && popup_pane_pid_after_open == popup_pane_pid_after_reopen
         && popup_removed_after_parent_kill
         && settle.stable;
 

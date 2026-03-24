@@ -28,12 +28,30 @@ pub(super) fn toggle_popup_shell(
     let popup_session = popup_session_name(session_name, slot_id);
 
     if session_exists(&popup_session)? {
-        tmux_run(&["kill-session", "-t", &popup_session])?;
+        if popup_visible_for_client(client_tty)? {
+            close_popup(client_tty)?;
+            validate_canonical_slot_registry(session_name)?;
+            return Ok(PopupShellOutcome {
+                session_name: session_name.to_owned(),
+                slot_id,
+                action: PopupShellAction::Closed,
+                cwd,
+                width_pct: POPUP_WIDTH_PCT,
+                height_pct: POPUP_HEIGHT_PCT,
+            });
+        }
+
+        set_session_option(&popup_session, "@ezm_popup_origin_pane", &origin_slot_pane)?;
+        set_session_option(&popup_session, "@ezm_popup_cwd", &cwd)?;
+        apply_popup_remote_context_environment(&popup_session, remote_context.as_ref())?;
+        disable_popup_session_auto_destroy(&popup_session)?;
+        show_popup(&origin_slot_pane, &popup_session, &cwd, client_tty)?;
+
         validate_canonical_slot_registry(session_name)?;
         return Ok(PopupShellOutcome {
             session_name: session_name.to_owned(),
             slot_id,
-            action: PopupShellAction::Closed,
+            action: PopupShellAction::Opened,
             cwd,
             width_pct: POPUP_WIDTH_PCT,
             height_pct: POPUP_HEIGHT_PCT,
@@ -204,6 +222,61 @@ fn show_popup(
     result
 }
 
+fn close_popup(client_tty: Option<&str>) -> Result<(), SessionError> {
+    let args = popup_close_args(client_tty);
+    let args_ref = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let result = tmux_run(&args_ref);
+
+    if let Err(SessionError::TmuxCommandFailed { stderr, .. }) = &result {
+        if stderr.to_ascii_lowercase().contains("no current client") {
+            return Ok(());
+        }
+    }
+
+    result
+}
+
+fn popup_close_args(client_tty: Option<&str>) -> Vec<String> {
+    let mut args = vec![String::from("display-popup")];
+    if let Some(client_tty) = client_tty.filter(|tty| !tty.trim().is_empty()) {
+        args.push(String::from("-c"));
+        args.push(client_tty.to_owned());
+    }
+    args.push(String::from("-C"));
+    args
+}
+
+fn popup_visible_for_client(client_tty: Option<&str>) -> Result<bool, SessionError> {
+    let args = popup_active_probe_args(client_tty);
+    let args_ref = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let output = tmux_output(&args_ref)?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Ok(stdout.trim() == "1");
+    }
+
+    let stderr = super::command::format_output_diagnostics(&output);
+    if stderr.to_ascii_lowercase().contains("no current client") {
+        return Ok(false);
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: args.join(" "),
+        stderr,
+    })
+}
+
+fn popup_active_probe_args(client_tty: Option<&str>) -> Vec<String> {
+    let mut args = vec![String::from("display-message"), String::from("-p")];
+    if let Some(client_tty) = client_tty.filter(|tty| !tty.trim().is_empty()) {
+        args.push(String::from("-c"));
+        args.push(client_tty.to_owned());
+    }
+    args.push(String::from("#{popup_active}"));
+    args
+}
+
 fn popup_display_args(
     origin_slot_pane: &str,
     cwd: &str,
@@ -311,9 +384,9 @@ fn persist_popup_defaults(session_name: &str) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        hooks_contain_popup_parent_cleanup, popup_attach_command, popup_cleanup_hook_names,
-        popup_display_args, popup_new_session_args, popup_parent_cleanup_hook_command,
-        popup_persistence_args, resolve_popup_remote_context,
+        hooks_contain_popup_parent_cleanup, popup_active_probe_args, popup_attach_command,
+        popup_cleanup_hook_names, popup_close_args, popup_display_args, popup_new_session_args,
+        popup_parent_cleanup_hook_command, popup_persistence_args, resolve_popup_remote_context,
     };
 
     #[test]
@@ -374,6 +447,44 @@ mod tests {
         assert!(rendered.contains("-c client-7"));
         assert!(rendered.contains("-d /tmp/popup"));
         assert!(rendered.contains("tmux attach-session -t 'ezm-s42__popup_slot_2'"));
+    }
+
+    #[test]
+    fn popup_close_args_target_client_when_present() {
+        let args = popup_close_args(Some("/dev/pts/88"));
+        assert_eq!(
+            args,
+            vec![
+                String::from("display-popup"),
+                String::from("-c"),
+                String::from("/dev/pts/88"),
+                String::from("-C"),
+            ]
+        );
+    }
+
+    #[test]
+    fn popup_close_args_omit_client_when_unset() {
+        let args = popup_close_args(None);
+        assert_eq!(
+            args,
+            vec![String::from("display-popup"), String::from("-C")]
+        );
+    }
+
+    #[test]
+    fn popup_active_probe_args_include_popup_active_format() {
+        let args = popup_active_probe_args(Some("/dev/pts/3"));
+        assert_eq!(
+            args,
+            vec![
+                String::from("display-message"),
+                String::from("-p"),
+                String::from("-c"),
+                String::from("/dev/pts/3"),
+                String::from("#{popup_active}")
+            ]
+        );
     }
 
     #[test]

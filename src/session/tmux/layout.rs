@@ -9,6 +9,7 @@ use super::canonical_five_pane_column_widths;
 use super::command::{tmux_output_value, tmux_primary_window_target, tmux_run};
 use super::keybinds::install_runtime_keybinds;
 use super::options::{set_pane_option, set_session_option};
+use super::remote_env::sync_runtime_env_into_tmux_server;
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::apply_runtime_style_defaults;
 use super::worktree::discover_worktrees_for_slots;
@@ -80,6 +81,7 @@ pub(super) fn bootstrap_default_layout(
         if should_apply_runtime_styles_during_bootstrap() {
             apply_runtime_style_defaults(session_name)?;
         }
+        sync_runtime_env_into_tmux_server()?;
         launch_startup_slot_modes(session_name)?;
 
         if should_validate_registry_after_bootstrap() {
