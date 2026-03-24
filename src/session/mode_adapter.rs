@@ -53,10 +53,10 @@ pub fn mode_launch_contract(mode: SlotMode) -> ModeLaunchContract {
             launch_command: launch_tool_command(
                 "lazygit",
                 "lazygit",
-                ModeToolFailurePolicy::FailModeSwitch,
+                ModeToolFailurePolicy::ContinueToShell,
             ),
             teardown_hooks: vec![TeardownHook::SendCtrlC],
-            tool_failure_policy: ModeToolFailurePolicy::FailModeSwitch,
+            tool_failure_policy: ModeToolFailurePolicy::ContinueToShell,
         },
     }
 }
@@ -67,13 +67,13 @@ pub(super) fn launch_tool_command(
     policy: ModeToolFailurePolicy,
 ) -> String {
     let on_failure = match policy {
-        ModeToolFailurePolicy::FailModeSwitch => String::from("exit \"$status\""),
+        ModeToolFailurePolicy::FailModeSwitch => String::from("exit \"$exit_code\""),
         ModeToolFailurePolicy::ContinueToShell => String::from(":"),
     };
     let launch_invocation = sanitize_tool_environment(binary_name, launch_invocation);
 
     format!(
-        "if command -v {binary_name} >/dev/null 2>&1; then {launch_invocation}; status=$?; if [ \"$status\" -ne 0 ]; then printf '%s\\n' \"ez-mux mode tool {binary_name} exited with status $status\" >&2; {on_failure}; fi; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
+        "if command -v {binary_name} >/dev/null 2>&1; then {launch_invocation}; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux mode tool {binary_name} exited with status $exit_code\" >&2; {on_failure}; fi; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
     )
 }
 
@@ -107,5 +107,19 @@ mod tests {
 
         assert!(!command.contains("unset OPENCODE_SERVER_URL"));
         assert!(command.contains("then nvim;"));
+        assert!(command.contains("exit_code=$?"));
+        assert!(!command.contains("status=$?"));
+    }
+
+    #[test]
+    fn continue_policy_preserves_shell_continuation_on_non_zero_exit() {
+        let command =
+            launch_tool_command("lazygit", "lazygit", ModeToolFailurePolicy::ContinueToShell);
+
+        assert!(command.contains("exit_code=$?"));
+        assert!(command.contains("if [ \"$exit_code\" -ne 0 ]"));
+        assert!(command.contains("; :; fi; fi; exec \"${SHELL:-/bin/sh}\" -l"));
+        assert!(!command.contains("status=$?"));
+        assert!(!command.contains("exit \"$exit_code\""));
     }
 }

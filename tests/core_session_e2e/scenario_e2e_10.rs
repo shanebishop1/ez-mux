@@ -173,6 +173,79 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             panic!("E2E-10 failed reading lazygit pane start command: {error}")
         });
 
+    let neovim_switch_args = vec![
+        "__internal",
+        "mode",
+        "--session",
+        &session,
+        "--slot",
+        &shell_slot,
+        "--mode",
+        "neovim",
+    ];
+    let neovim_switch = harness
+        .run_ezm_in_dir(
+            &fixture.project_dir,
+            &neovim_switch_args,
+            &[
+                ("EZM_REMOTE_PATH", &remote_path),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-10 neovim switch failed to execute: {error}"));
+    samples.push(sample(&neovim_switch_args, &neovim_switch));
+
+    let slots_after_neovim = read_slot_snapshot(harness, &session)
+        .unwrap_or_else(|error| panic!("E2E-10 failed reading post-neovim slot snapshot: {error}"));
+    let neovim_slot_pane = slots_after_neovim
+        .iter()
+        .find(|slot| slot.slot_id == shell_slot_id)
+        .map(|slot| slot.pane_id.clone())
+        .unwrap_or_default();
+
+    let neovim_pane_start_command = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &neovim_slot_pane,
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-10 failed reading neovim pane start command: {error}"));
+
+    let popup_open_args = vec![
+        "__internal",
+        "popup",
+        "--session",
+        &session,
+        "--slot",
+        &shell_slot,
+    ];
+    let popup_open = harness
+        .run_ezm_in_dir(
+            &fixture.project_dir,
+            &popup_open_args,
+            &[
+                ("EZM_REMOTE_PATH", &remote_path),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-10 popup open failed to execute: {error}"));
+    samples.push(sample(&popup_open_args, &popup_open));
+
+    let popup_session = format!("{session}__popup_slot_{shell_slot_id}");
+    let popup_pane_start_command = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &format!("{popup_session}:0.0"),
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-10 failed reading popup pane start command: {error}"));
+
     let agent_switch_args = vec![
         "__internal",
         "mode",
@@ -217,6 +290,16 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let lazygit_uses_ssh_remote = lazygit_pane_start_command.contains("ssh -tt")
         && lazygit_pane_start_command.contains("shell.remote.example")
         && lazygit_pane_start_command.contains("lazygit");
+    let lazygit_command_continues_to_shell = lazygit_pane_start_command
+        .contains("lazygit; exit_code=$?;")
+        && lazygit_pane_start_command.contains("; :; fi; fi;")
+        && !lazygit_pane_start_command.contains("exit \\\"\\\\$exit_code\\\"");
+    let neovim_uses_ssh_remote = neovim_pane_start_command.contains("ssh -tt")
+        && neovim_pane_start_command.contains("shell.remote.example")
+        && neovim_pane_start_command.contains("nvim");
+    let popup_uses_ssh_remote = popup_pane_start_command.contains("ssh -tt")
+        && popup_pane_start_command.contains("shell.remote.example")
+        && popup_pane_start_command.contains(&expected_mapped_path);
     let agent_attach_url_matches = !agent_pane_start_command.contains("opencode attach");
     let agent_launch_omits_attach_dir_flag = !agent_pane_start_command.contains("--dir");
     let agent_mode_avoids_opencode_attach = !agent_pane_start_command.contains("opencode attach");
@@ -271,6 +354,31 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "lazygit success branch launch command routes via ssh remote target = {lazygit_uses_ssh_remote}"
     ));
     assertions.push(format!(
+        "lazygit success branch launch command continues into remote login shell after non-zero tool exit = {lazygit_command_continues_to_shell}"
+    ));
+    assertions.push(format!(
+        "neovim success branch mode switch exit_code = {}",
+        neovim_switch.exit_code
+    ));
+    assertions.push(format!(
+        "neovim success branch pane start command = {}",
+        neovim_pane_start_command.trim()
+    ));
+    assertions.push(format!(
+        "neovim success branch launch command routes via ssh remote target = {neovim_uses_ssh_remote}"
+    ));
+    assertions.push(format!(
+        "popup success branch toggle exit_code = {}",
+        popup_open.exit_code
+    ));
+    assertions.push(format!(
+        "popup success branch pane start command = {}",
+        popup_pane_start_command.trim()
+    ));
+    assertions.push(format!(
+        "popup success branch launch command routes via ssh remote target = {popup_uses_ssh_remote}"
+    ));
+    assertions.push(format!(
         "agent success branch selected slot id = {agent_slot_id}"
     ));
     assertions.push(format!(
@@ -311,6 +419,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && shell_uses_ssh_remote
         && lazygit_switch.exit_code == 0
         && lazygit_uses_ssh_remote
+        && lazygit_command_continues_to_shell
+        && neovim_switch.exit_code == 0
+        && neovim_uses_ssh_remote
+        && popup_open.exit_code == 0
+        && popup_uses_ssh_remote
         && agent_switch_success.exit_code == 0
         && agent_mode_avoids_opencode_attach
         && agent_attach_url_matches

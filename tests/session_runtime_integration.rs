@@ -663,10 +663,27 @@ fn per_mode_launch_contracts_define_runtime_command_and_hooks() {
             .contains("mode tool opencode exited with status")
     );
     assert!(agent.launch_command.contains("\"${SHELL:-/bin/sh}\""));
+    assert_eq!(
+        format!("{:?}", shell.tool_failure_policy),
+        "ContinueToShell"
+    );
+    assert_eq!(
+        format!("{:?}", agent.tool_failure_policy),
+        "ContinueToShell"
+    );
+    assert_eq!(
+        format!("{:?}", neovim.tool_failure_policy),
+        "FailModeSwitch"
+    );
+    assert_eq!(
+        format!("{:?}", lazygit.tool_failure_policy),
+        "ContinueToShell"
+    );
     assert_eq!(shell.teardown_hooks.len(), 0);
     assert_eq!(agent.teardown_hooks.len(), 1);
     assert_eq!(neovim.teardown_hooks.len(), 1);
     assert_eq!(lazygit.teardown_hooks.len(), 1);
+    assert!(!lazygit.launch_command.contains("exit \"$exit_code\""));
 }
 
 #[test]
