@@ -129,6 +129,50 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         ])
         .unwrap_or_else(|error| panic!("E2E-10 failed reading pane start command: {error}"));
 
+    let lazygit_switch_args = vec![
+        "__internal",
+        "mode",
+        "--session",
+        &session,
+        "--slot",
+        &shell_slot,
+        "--mode",
+        "lazygit",
+    ];
+    let lazygit_switch = harness
+        .run_ezm_in_dir(
+            &fixture.project_dir,
+            &lazygit_switch_args,
+            &[
+                ("EZM_REMOTE_PATH", &remote_path),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.remote.example:7443"),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-10 lazygit switch failed to execute: {error}"));
+    samples.push(sample(&lazygit_switch_args, &lazygit_switch));
+
+    let slots_after_lazygit = read_slot_snapshot(harness, &session).unwrap_or_else(|error| {
+        panic!("E2E-10 failed reading post-lazygit slot snapshot: {error}")
+    });
+    let lazygit_slot_pane = slots_after_lazygit
+        .iter()
+        .find(|slot| slot.slot_id == shell_slot_id)
+        .map(|slot| slot.pane_id.clone())
+        .unwrap_or_default();
+
+    let lazygit_pane_start_command = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &lazygit_slot_pane,
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| {
+            panic!("E2E-10 failed reading lazygit pane start command: {error}")
+        });
+
     let agent_switch_args = vec![
         "__internal",
         "mode",
@@ -168,6 +212,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .unwrap_or_else(|error| panic!("E2E-10 failed reading agent pane start command: {error}"));
 
     let shell_remote_dir_matches = pane_start_command.contains(&expected_mapped_path);
+    let shell_uses_ssh_remote = pane_start_command.contains("ssh -tt")
+        && pane_start_command.contains("shell.remote.example");
+    let lazygit_uses_ssh_remote = lazygit_pane_start_command.contains("ssh -tt")
+        && lazygit_pane_start_command.contains("shell.remote.example")
+        && lazygit_pane_start_command.contains("lazygit");
     let agent_attach_url_matches = !agent_pane_start_command.contains("opencode attach");
     let agent_launch_omits_attach_dir_flag = !agent_pane_start_command.contains("--dir");
     let agent_mode_avoids_opencode_attach = !agent_pane_start_command.contains("opencode attach");
@@ -208,6 +257,20 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "shell success branch effective remote dir matches mapped path = {shell_remote_dir_matches}"
     ));
     assertions.push(format!(
+        "shell success branch launch command routes via ssh remote target = {shell_uses_ssh_remote}"
+    ));
+    assertions.push(format!(
+        "lazygit success branch mode switch exit_code = {}",
+        lazygit_switch.exit_code
+    ));
+    assertions.push(format!(
+        "lazygit success branch pane start command = {}",
+        lazygit_pane_start_command.trim()
+    ));
+    assertions.push(format!(
+        "lazygit success branch launch command routes via ssh remote target = {lazygit_uses_ssh_remote}"
+    ));
+    assertions.push(format!(
         "agent success branch selected slot id = {agent_slot_id}"
     ));
     assertions.push(format!(
@@ -245,6 +308,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && password_source_is_default
         && shell_switch_success.exit_code == 0
         && shell_remote_dir_matches
+        && shell_uses_ssh_remote
+        && lazygit_switch.exit_code == 0
+        && lazygit_uses_ssh_remote
         && agent_switch_success.exit_code == 0
         && agent_mode_avoids_opencode_attach
         && agent_attach_url_matches
