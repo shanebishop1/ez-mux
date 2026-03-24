@@ -37,6 +37,7 @@ fn auxiliary_remote_launch_command_routes_over_ssh_with_remote_directory() {
 
     assert!(command.contains("ssh -tt -p 7443 'shell.remote.example'"));
     assert!(command.contains("/srv/remotes/ez-mux"));
+    assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic '"));
     assert!(command.contains("command -v bv"));
     assert!(command.contains("exec \"${SHELL:-/bin/sh}\" -l"));
 }
@@ -51,6 +52,23 @@ fn auxiliary_remote_launch_command_does_not_export_beads_paths() {
 
     assert!(!command.contains("export BEADS_DIR="));
     assert!(!command.contains("export BEADS_DB="));
+}
+
+#[test]
+fn auxiliary_remote_launch_bootstraps_shell_before_running_bv() {
+    let command = build_auxiliary_remote_launch_command(
+        "/srv/remotes/ez-mux",
+        "https://shell.remote.example",
+    )
+    .expect("remote command should build");
+
+    let bootstrap_index = command
+        .find("\"${SHELL:-/bin/sh}\" -lic '")
+        .expect("remote command should use login+interactive shell bootstrap");
+    let bv_index = command
+        .find("command -v bv")
+        .expect("remote command should invoke bv discovery");
+    assert!(bootstrap_index < bv_index);
 }
 
 #[test]

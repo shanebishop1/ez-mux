@@ -53,40 +53,7 @@ pub(crate) fn execute_with_opener(
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
                 &session::ProcessTmuxClient,
             )?;
-            let attach_visibility = attach_visibility_label();
-
-            if outcome.remote_routing_active {
-                format!(
-                    "ezm contract locked; session={}; session_action={}; routing_mode=remote; remote_routing_active=true; attach_visibility={}; remote_project_dir={}; remote_path={}; remote_path_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
-                    outcome.identity.session_name,
-                    outcome.action.label(),
-                    attach_visibility,
-                    outcome.remote_project_dir.display(),
-                    optional_value_label(resolved_remote_runtime.remote_path.value.as_deref()),
-                    source_label(resolved_remote_runtime.remote_path.source),
-                    optional_value_label(
-                        resolved_remote_runtime.remote_server_url.value.as_deref()
-                    ),
-                    source_label(resolved_remote_runtime.remote_server_url.source),
-                    optional_value_label(
-                        resolved_remote_runtime.shared_server.url.value.as_deref()
-                    ),
-                    source_label(resolved_remote_runtime.shared_server.url.source),
-                    resolved_remote_runtime
-                        .shared_server
-                        .password
-                        .value
-                        .is_some(),
-                    source_label(resolved_remote_runtime.shared_server.password.source)
-                )
-            } else {
-                format!(
-                    "ezm contract locked; session={}; session_action={}; routing_mode=local; remote_routing_active=false; attach_visibility={}",
-                    outcome.identity.session_name,
-                    outcome.action.label(),
-                    attach_visibility,
-                )
-            }
+            default_contract_summary_message(cli.verbose > 0, &outcome, &resolved_remote_runtime)
         }
         Some(Command::Repair) => {
             let outcome = session::repair_current_project_session(&session::ProcessTmuxClient)?;
@@ -323,6 +290,46 @@ fn source_label(source: ValueSource) -> &'static str {
 
 fn optional_value_label(value: Option<&str>) -> &str {
     value.unwrap_or("none")
+}
+
+fn default_contract_summary_message(
+    verbose: bool,
+    outcome: &session::SessionLaunchOutcome,
+    resolved_remote_runtime: &config::RemoteRuntimeResolution,
+) -> String {
+    if !verbose {
+        return String::new();
+    }
+
+    let attach_visibility = attach_visibility_label();
+    if outcome.remote_routing_active {
+        format!(
+            "ezm contract locked; session={}; session_action={}; routing_mode=remote; remote_routing_active=true; attach_visibility={}; remote_project_dir={}; remote_path={}; remote_path_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
+            outcome.identity.session_name,
+            outcome.action.label(),
+            attach_visibility,
+            outcome.remote_project_dir.display(),
+            optional_value_label(resolved_remote_runtime.remote_path.value.as_deref()),
+            source_label(resolved_remote_runtime.remote_path.source),
+            optional_value_label(resolved_remote_runtime.remote_server_url.value.as_deref()),
+            source_label(resolved_remote_runtime.remote_server_url.source),
+            optional_value_label(resolved_remote_runtime.shared_server.url.value.as_deref()),
+            source_label(resolved_remote_runtime.shared_server.url.source),
+            resolved_remote_runtime
+                .shared_server
+                .password
+                .value
+                .is_some(),
+            source_label(resolved_remote_runtime.shared_server.password.source)
+        )
+    } else {
+        format!(
+            "ezm contract locked; session={}; session_action={}; routing_mode=local; remote_routing_active=false; attach_visibility={}",
+            outcome.identity.session_name,
+            outcome.action.label(),
+            attach_visibility,
+        )
+    }
 }
 
 fn format_repair_message(outcome: &session::SessionRepairExecution) -> String {

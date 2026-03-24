@@ -268,7 +268,7 @@ fn render_auxiliary_remote_script(remote_dir: &str) -> String {
     let mut segments = Vec::new();
     segments.push(format!("cd '{}'", escape_single_quotes(remote_dir)));
     segments.push(String::from(
-        "if command -v bv >/dev/null 2>&1; then bv; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; else printf '%s\\n' \"ez-mux auxiliary viewer command not found: bv\" >&2; fi",
+        "\"${SHELL:-/bin/sh}\" -lic 'if command -v bv >/dev/null 2>&1; then bv; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf \"%s\\n\" \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; else printf \"%s\\n\" \"ez-mux auxiliary viewer command not found: bv\" >&2; fi'",
     ));
     segments.push(String::from("exec \"${SHELL:-/bin/sh}\" -l"));
     segments.join("; ")

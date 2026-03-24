@@ -6,6 +6,7 @@ use std::path::Path;
 use tempfile::tempdir;
 
 use super::AppError;
+use super::default_contract_summary_message;
 use super::execute_default_session_flow_for_project_dir;
 use super::execute_with_opener;
 use super::format_repair_message;
@@ -19,8 +20,8 @@ use crate::config::{
 };
 use crate::logging::LogOpener;
 use crate::session::{
-    AuxiliaryViewerOutcome, LayoutPreset, PopupShellOutcome, SessionError, SlotMode,
-    TeardownOutcome, TmuxClient,
+    AuxiliaryViewerOutcome, LayoutPreset, PopupShellOutcome, SessionAction, SessionError,
+    SessionLaunchOutcome, SlotMode, TeardownOutcome, TmuxClient,
 };
 
 struct OkOpener;
@@ -365,6 +366,30 @@ fn shared_server_attach_config_accepts_hostname_remote_server_url_with_remote_pa
     assert_eq!(attach.password.as_deref(), Some("weinthisyuh78"));
 }
 
+#[test]
+fn contract_summary_is_suppressed_when_not_verbose() {
+    let summary = default_contract_summary_message(
+        false,
+        &sample_launch_outcome(false),
+        &remote_runtime_resolution(None),
+    );
+
+    assert!(summary.is_empty());
+}
+
+#[test]
+fn contract_summary_is_emitted_in_verbose_mode() {
+    let summary = default_contract_summary_message(
+        true,
+        &sample_launch_outcome(false),
+        &remote_runtime_resolution(None),
+    );
+
+    assert!(summary.starts_with("ezm contract locked;"));
+    assert!(summary.contains("routing_mode=local"));
+    assert!(summary.contains("remote_routing_active=false"));
+}
+
 fn remote_runtime_resolution(remote_path: Option<&str>) -> RemoteRuntimeResolution {
     let remote_source = if remote_path.is_some() {
         ValueSource::Env
@@ -391,5 +416,18 @@ fn remote_runtime_resolution(remote_path: Option<&str>) -> RemoteRuntimeResoluti
                 source: ValueSource::Env,
             },
         },
+    }
+}
+
+fn sample_launch_outcome(remote_routing_active: bool) -> SessionLaunchOutcome {
+    SessionLaunchOutcome {
+        identity: crate::session::SessionIdentity {
+            project_dir: std::path::PathBuf::from("/tmp/project"),
+            project_key: String::from("abc123"),
+            session_name: String::from("ezm-project-abc123"),
+        },
+        remote_project_dir: std::path::PathBuf::from("/tmp/project"),
+        remote_routing_active,
+        action: SessionAction::Attach,
     }
 }
