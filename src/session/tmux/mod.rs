@@ -1,9 +1,12 @@
 use std::path::Path;
 use std::process::Command;
 
+use super::build_registry_for_canonical_panes;
+use super::canonical_five_pane_column_widths;
+use super::pick_center_pane;
+use super::tmux_diagnostics_exit_status;
+use super::zoom_flag_support_for_command;
 use super::AuxiliaryViewerOutcome;
-use super::CANONICAL_SLOT_IDS;
-use super::DEFAULT_CENTER_WIDTH_PCT;
 use super::LayoutPreset;
 use super::PaneWidthSample;
 use super::PopupShellOutcome;
@@ -14,11 +17,8 @@ use super::SlotMode;
 use super::SlotRegistry;
 use super::TeardownOutcome;
 use super::ZoomFlagSupport;
-use super::build_registry_for_canonical_panes;
-use super::canonical_five_pane_column_widths;
-use super::pick_center_pane;
-use super::tmux_diagnostics_exit_status;
-use super::zoom_flag_support_for_command;
+use super::CANONICAL_SLOT_IDS;
+use super::DEFAULT_CENTER_WIDTH_PCT;
 
 mod attach;
 mod auxiliary;
@@ -214,7 +214,6 @@ impl TmuxClient for ProcessTmuxClient {
 
     fn validate_session_invariants(&self, session_name: &str) -> Result<(), SessionError> {
         slot_swap::validate_canonical_slot_registry(session_name)?;
-        popup::reconcile_popup_parent_cleanup_hook()?;
         keybinds::install_runtime_keybinds()?;
         style::apply_runtime_style_defaults(session_name)
     }
@@ -224,8 +223,7 @@ impl TmuxClient for ProcessTmuxClient {
         session_name: &str,
         project_dir: &Path,
     ) -> Result<(), SessionError> {
-        layout::bootstrap_default_layout(session_name, project_dir)?;
-        popup::reconcile_popup_parent_cleanup_hook()
+        layout::bootstrap_default_layout(session_name, project_dir)
     }
 
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError> {

@@ -1,13 +1,15 @@
-use super::SessionError;
 use super::command::{tmux_output, tmux_output_value, tmux_run};
 use super::options::{required_session_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
+use super::SessionError;
 use crate::config::EZM_REMOTE_SERVER_URL_ENV;
-use crate::session::{PopupShellAction, PopupShellOutcome, resolve_remote_path};
+use crate::session::{resolve_remote_path, PopupShellAction, PopupShellOutcome};
 
 const POPUP_WIDTH_PCT: u8 = 70;
 const POPUP_HEIGHT_PCT: u8 = 70;
 const POPUP_PARENT_CLEANUP_HOOK_MARKER: &str = "EZM_POPUP_PARENT_CLEANUP_V2";
+const POPUP_PARENT_CLEANUP_HOOK_NAME: &str = "session-closed[999]";
+#[cfg(test)]
 const POPUP_PARENT_CLEANUP_LEGACY_INTERNAL_MARKER: &str = "__internal popup-parent-closed";
 const EZM_REMOTE_DIR_ENV: &str = "EZM_REMOTE_DIR";
 
@@ -144,22 +146,23 @@ fn unset_session_environment(session_name: &str, key: &str) -> Result<(), Sessio
 }
 
 pub(super) fn reconcile_popup_parent_cleanup_hook() -> Result<(), SessionError> {
-    let hooks = tmux_output_value(&["show-hooks", "-g", "session-closed"])?;
-    let parent_cleanup_installed = hooks_contain_popup_parent_cleanup(&hooks);
-    for hook_name in popup_cleanup_hook_names(&hooks) {
-        tmux_run(&["set-hook", "-gu", &hook_name])?;
-    }
-
-    if parent_cleanup_installed {
-        return Ok(());
-    }
-
-    let hook_command = popup_parent_cleanup_hook_command();
-    tmux_run(&["set-hook", "-ag", "session-closed", &hook_command])?;
+    let args = popup_parent_cleanup_hook_install_command();
+    let refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    tmux_run(&refs)?;
 
     Ok(())
 }
 
+pub(super) fn popup_parent_cleanup_hook_install_command() -> Vec<String> {
+    vec![
+        String::from("set-hook"),
+        String::from("-g"),
+        String::from(POPUP_PARENT_CLEANUP_HOOK_NAME),
+        popup_parent_cleanup_hook_command(),
+    ]
+}
+
+#[cfg(test)]
 fn popup_cleanup_hook_names(hooks: &str) -> Vec<String> {
     hooks
         .lines()
@@ -173,6 +176,7 @@ fn popup_cleanup_hook_names(hooks: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn hooks_contain_popup_parent_cleanup(hooks: &str) -> bool {
     hooks.contains(POPUP_PARENT_CLEANUP_HOOK_MARKER)
 }
@@ -518,9 +522,7 @@ mod tests {
     fn popup_parent_cleanup_hook_command_invokes_shell_cleanup_route() {
         let rendered = popup_parent_cleanup_hook_command();
         assert!(rendered.starts_with("run-shell -b \""));
-        assert!(
-            rendered.contains("tmux has-session -t \\\"#{hook_session_name}__popup_slot_1\\\"")
-        );
+        assert!(rendered.contains("tmux has-session -t \\\"#{hook_session_name}__popup_slot_1\\\""));
         assert!(
             rendered.contains("tmux kill-session -t \\\"#{hook_session_name}__popup_slot_5\\\"")
         );

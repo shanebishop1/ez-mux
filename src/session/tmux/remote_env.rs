@@ -1,8 +1,8 @@
+use super::command::tmux_run_batch;
 use super::SessionError;
-use super::command::tmux_run;
 use crate::config::{
-    EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV, EnvProvider, OPENCODE_SERVER_PASSWORD_ENV,
-    OPENCODE_SERVER_URL_ENV, ProcessEnv,
+    EnvProvider, ProcessEnv, EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV,
+    OPENCODE_SERVER_PASSWORD_ENV, OPENCODE_SERVER_URL_ENV,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,12 +32,7 @@ pub(super) fn sync_runtime_env_into_tmux_server() -> Result<(), SessionError> {
 pub(super) fn sync_runtime_env_into_tmux_server_with(
     env: &impl EnvProvider,
 ) -> Result<(), SessionError> {
-    for command in runtime_env_sync_commands(env) {
-        let args = command.iter().map(String::as_str).collect::<Vec<_>>();
-        tmux_run(&args)?;
-    }
-
-    Ok(())
+    tmux_run_batch(&runtime_env_sync_commands(env))
 }
 
 fn runtime_env_sync_commands(env: &impl EnvProvider) -> Vec<Vec<String>> {
