@@ -1,6 +1,7 @@
-use super::SessionError;
-use super::command::{tmux_output, tmux_run};
+use super::command::{tmux_output, tmux_run_batch};
+use super::popup::popup_parent_cleanup_hook_install_command;
 use super::remote_env::sync_runtime_env_into_tmux_server;
+use super::SessionError;
 use crate::config::EZM_BIN_ENV;
 
 const SWAP_TABLE: &str = "ezm-swap";
@@ -31,46 +32,51 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
         }
     }
 
-    install_prefix_routing_bindings(&ezm_bin)?;
-    install_pane_navigation_bindings()?;
-    install_slot_table_bindings(&ezm_bin)?;
-    install_table_exit_bindings()?;
-    install_mode_bindings(&ezm_bin)?;
+    let mut commands = Vec::new();
+    commands.extend(install_prefix_routing_bindings(&ezm_bin));
+    commands.extend(install_pane_navigation_bindings());
+    commands.extend(install_slot_table_bindings(&ezm_bin));
+    commands.extend(install_table_exit_bindings());
+    commands.extend(install_mode_bindings(&ezm_bin));
+    commands.push(popup_parent_cleanup_hook_install_command());
 
-    Ok(())
+    tmux_run_batch(&commands)
 }
 
 fn should_clear_existing_keybinds_before_install() -> bool {
     false
 }
 
-fn install_prefix_routing_bindings(ezm_bin: &str) -> Result<(), SessionError> {
+fn install_prefix_routing_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
     let three_pane_preset_command = preset_command(ezm_bin);
 
-    install_run_shell_binding("prefix", THREE_PANE_PRESET_KEY, &three_pane_preset_command)?;
-    tmux_run(&[
-        "bind-key",
-        "-T",
-        "prefix",
-        SWAP_PREFIX_KEY,
-        "switch-client",
-        "-T",
-        SWAP_TABLE,
-    ])?;
-    tmux_run(&[
-        "bind-key",
-        "-T",
-        "prefix",
-        FOCUS_PREFIX_KEY,
-        "switch-client",
-        "-T",
-        FOCUS_TABLE,
-    ])
+    vec![
+        run_shell_binding_command("prefix", THREE_PANE_PRESET_KEY, &three_pane_preset_command),
+        command(&[
+            "bind-key",
+            "-T",
+            "prefix",
+            SWAP_PREFIX_KEY,
+            "switch-client",
+            "-T",
+            SWAP_TABLE,
+        ]),
+        command(&[
+            "bind-key",
+            "-T",
+            "prefix",
+            FOCUS_PREFIX_KEY,
+            "switch-client",
+            "-T",
+            FOCUS_TABLE,
+        ]),
+    ]
 }
 
-fn install_pane_navigation_bindings() -> Result<(), SessionError> {
+fn install_pane_navigation_bindings() -> Vec<Vec<String>> {
+    let mut commands = Vec::with_capacity(4);
     for (key, direction) in pane_nav_bindings() {
-        tmux_run(&[
+        commands.push(command(&[
             "bind-key",
             "-T",
             "prefix",
@@ -81,17 +87,18 @@ fn install_pane_navigation_bindings() -> Result<(), SessionError> {
             "set-window-option",
             "pane-active-border-style",
             ACTIVE_SLOT_BORDER_STYLE_FORMAT,
-        ])?;
+        ]));
     }
 
-    Ok(())
+    commands
 }
 
-fn install_slot_table_bindings(ezm_bin: &str) -> Result<(), SessionError> {
+fn install_slot_table_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
+    let mut commands = Vec::with_capacity(10);
     for slot in 1_u8..=5 {
         let key = slot.to_string();
         let swap_command = swap_command(ezm_bin, slot);
-        tmux_run(&[
+        commands.push(command(&[
             "bind-key",
             "-T",
             SWAP_TABLE,
@@ -103,10 +110,10 @@ fn install_slot_table_bindings(ezm_bin: &str) -> Result<(), SessionError> {
             "switch-client",
             "-T",
             "root",
-        ])?;
+        ]));
 
         let focus_command = focus_command(ezm_bin, slot);
-        tmux_run(&[
+        commands.push(command(&[
             "bind-key",
             "-T",
             FOCUS_TABLE,
@@ -118,15 +125,16 @@ fn install_slot_table_bindings(ezm_bin: &str) -> Result<(), SessionError> {
             "switch-client",
             "-T",
             "root",
-        ])?;
+        ]));
     }
 
-    Ok(())
+    commands
 }
 
-fn install_table_exit_bindings() -> Result<(), SessionError> {
+fn install_table_exit_bindings() -> Vec<Vec<String>> {
+    let mut commands = Vec::with_capacity(6);
     for key in ["Escape", "q", "Any"] {
-        tmux_run(&[
+        commands.push(command(&[
             "bind-key",
             "-T",
             SWAP_TABLE,
@@ -134,8 +142,8 @@ fn install_table_exit_bindings() -> Result<(), SessionError> {
             "switch-client",
             "-T",
             "root",
-        ])?;
-        tmux_run(&[
+        ]));
+        commands.push(command(&[
             "bind-key",
             "-T",
             FOCUS_TABLE,
@@ -143,13 +151,13 @@ fn install_table_exit_bindings() -> Result<(), SessionError> {
             "switch-client",
             "-T",
             "root",
-        ])?;
+        ]));
     }
 
-    Ok(())
+    commands
 }
 
-fn install_mode_bindings(ezm_bin: &str) -> Result<(), SessionError> {
+fn install_mode_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
     let mode_bindings = [
         (TOGGLE_MODE_KEY, toggle_mode_command(ezm_bin)),
         (AGENT_MODE_KEY, mode_command(ezm_bin, "agent")),
@@ -158,19 +166,19 @@ fn install_mode_bindings(ezm_bin: &str) -> Result<(), SessionError> {
         (LAZYGIT_MODE_KEY, mode_command(ezm_bin, "lazygit")),
     ];
 
+    let mut commands = Vec::with_capacity(mode_bindings.len() + 2);
     for (key, command) in mode_bindings {
-        install_run_shell_binding("prefix", key, &command)?;
+        commands.push(run_shell_binding_command("prefix", key, &command));
     }
+    commands.push(popup_toggle_binding_command(ezm_bin));
+    commands.push(popup_context_detach_binding_command());
 
-    install_popup_toggle_binding(ezm_bin)?;
-    install_popup_context_detach_binding()?;
-
-    Ok(())
+    commands
 }
 
-fn install_popup_toggle_binding(ezm_bin: &str) -> Result<(), SessionError> {
+fn popup_toggle_binding_command(ezm_bin: &str) -> Vec<String> {
     let popup_open_action = popup_toggle_open_action(ezm_bin);
-    tmux_run(&[
+    command(&[
         "bind-key",
         "-T",
         "prefix",
@@ -183,8 +191,8 @@ fn install_popup_toggle_binding(ezm_bin: &str) -> Result<(), SessionError> {
     ])
 }
 
-fn install_popup_context_detach_binding() -> Result<(), SessionError> {
-    tmux_run(&[
+fn popup_context_detach_binding_command() -> Vec<String> {
+    command(&[
         "bind-key",
         "-T",
         "prefix",
@@ -209,8 +217,20 @@ fn popup_hard_close_action() -> &'static str {
     "kill-session"
 }
 
-fn install_run_shell_binding(table: &str, key: &str, command: &str) -> Result<(), SessionError> {
-    tmux_run(&["bind-key", "-T", table, key, "run-shell", "-b", command])
+fn run_shell_binding_command(table: &str, key: &str, shell_command: &str) -> Vec<String> {
+    command(&[
+        "bind-key",
+        "-T",
+        table,
+        key,
+        "run-shell",
+        "-b",
+        shell_command,
+    ])
+}
+
+fn command(args: &[&str]) -> Vec<String> {
+    args.iter().map(|value| (*value).to_owned()).collect()
 }
 
 fn clear_specs() -> Vec<(&'static str, String)> {
@@ -360,10 +380,10 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
 
     use super::{
-        ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
-        popup_command, popup_hard_close_action, popup_toggle_open_action, resolve_ezm_bin,
-        shell_command_token, should_clear_existing_keybinds_before_install, swap_command,
-        toggle_mode_command,
+        focus_command, mode_command, pane_nav_bindings, popup_command, popup_hard_close_action,
+        popup_toggle_open_action, resolve_ezm_bin, shell_command_token,
+        should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
+        ACTIVE_SLOT_BORDER_STYLE_FORMAT,
     };
 
     #[test]
@@ -427,11 +447,8 @@ mod tests {
     fn popup_command_targets_focused_slot_metadata() {
         let rendered = popup_command("'ezm'");
         assert!(rendered.contains("__internal popup"));
-        assert!(
-            rendered.contains(
-                "#{?#{@ezm_popup_origin_slot},#{@ezm_popup_origin_slot},#{@ezm_slot_id}}"
-            )
-        );
+        assert!(rendered
+            .contains("#{?#{@ezm_popup_origin_slot},#{@ezm_popup_origin_slot},#{@ezm_slot_id}}"));
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
         assert!(rendered.starts_with("'ezm' __internal popup"));
         assert!(rendered.contains(
