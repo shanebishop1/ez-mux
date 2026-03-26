@@ -5,7 +5,6 @@ use std::path::Path;
 
 use tempfile::tempdir;
 
-use super::AppError;
 use super::default_contract_summary_message;
 use super::execute_default_session_flow_for_project_dir;
 use super::execute_with_opener;
@@ -13,6 +12,7 @@ use super::format_repair_message;
 use super::internal_focus_success_message;
 use super::internal_swap_success_message;
 use super::shared_server_attach_config;
+use super::AppError;
 use crate::cli::{Cli, Command, LogsCommand};
 use crate::config::{
     OperatingSystem, RemoteRuntimeResolution, ResolvedValue, SharedServerRuntimeResolution,
@@ -208,6 +208,7 @@ impl TmuxClient for InterruptingTmuxClient {
         _: SlotMode,
         _: crate::session::RemoteModeContext<'_>,
         _: Option<&crate::session::SharedServerAttachConfig>,
+        _: Option<&str>,
     ) -> Result<(), SessionError> {
         Ok(())
     }

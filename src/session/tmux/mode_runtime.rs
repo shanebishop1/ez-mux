@@ -1,7 +1,4 @@
-use super::super::mode_adapter::{ModeToolFailurePolicy, launch_tool_command};
-use super::CANONICAL_SLOT_IDS;
-use super::SessionError;
-use super::SlotMode;
+use super::super::mode_adapter::{launch_tool_command, ModeToolFailurePolicy};
 use super::command::{format_output_diagnostics, tmux_output, tmux_output_value, tmux_run};
 use super::options::{
     required_pane_option, required_session_option, set_pane_option, set_session_option,
@@ -9,9 +6,12 @@ use super::options::{
 };
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::refresh_active_border_for_slot;
+use super::SessionError;
+use super::SlotMode;
+use super::CANONICAL_SLOT_IDS;
 use crate::session::{
-    RemoteModeContext, SharedServerAttachConfig, TeardownHook, mode_launch_contract,
-    resolve_remote_path,
+    mode_launch_contract, resolve_remote_path, RemoteModeContext, SharedServerAttachConfig,
+    TeardownHook,
 };
 
 pub(super) fn switch_slot_mode(
@@ -20,6 +20,7 @@ pub(super) fn switch_slot_mode(
     mode: SlotMode,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    opencode_theme: Option<&str>,
 ) -> Result<(), SessionError> {
     let startup = startup_mode_signal_present();
     switch_slot_mode_internal(
@@ -28,7 +29,27 @@ pub(super) fn switch_slot_mode(
         mode,
         remote_context,
         shared_server,
+        opencode_theme,
         startup,
+    )
+}
+
+pub(super) fn switch_slot_mode_for_repair(
+    session_name: &str,
+    slot_id: u8,
+    mode: SlotMode,
+    remote_context: RemoteModeContext<'_>,
+    shared_server: Option<&SharedServerAttachConfig>,
+    opencode_theme: Option<&str>,
+) -> Result<(), SessionError> {
+    switch_slot_mode_internal(
+        session_name,
+        slot_id,
+        mode,
+        remote_context,
+        shared_server,
+        opencode_theme,
+        true,
     )
 }
 
@@ -38,6 +59,7 @@ fn switch_slot_mode_internal(
     mode: SlotMode,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    opencode_theme: Option<&str>,
     prefer_assigned_worktree_cwd: bool,
 ) -> Result<(), SessionError> {
     let startup_fast_path = use_startup_fast_path(prefer_assigned_worktree_cwd);
@@ -76,11 +98,13 @@ fn switch_slot_mode_internal(
 
     let contract = mode_launch_contract(mode);
     let launch_command = launch_command_for_mode(
+        slot_id,
         mode,
         &contract.launch_command,
         &current_cwd,
         remote_context,
         shared_server,
+        opencode_theme,
     )?;
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
     respawn_slot_mode(&pane_id, &current_cwd, &launch_command)?;
@@ -194,16 +218,28 @@ fn load_previous_mode_metadata(
 }
 
 fn launch_command_for_mode(
+    slot_id: u8,
     mode: SlotMode,
     launch_command: &str,
     cwd: &str,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    opencode_theme: Option<&str>,
 ) -> Result<String, SessionError> {
     match mode {
         SlotMode::Agent => match shared_server {
-            Some(config) => launch_agent_attach_command(cwd, remote_context.remote_path, config),
-            None => Ok(launch_command.to_owned()),
+            Some(config) => launch_agent_attach_command(
+                slot_id,
+                cwd,
+                remote_context.remote_path,
+                config,
+                opencode_theme,
+            ),
+            None => Ok(with_opencode_tui_config_env(
+                launch_command.to_owned(),
+                slot_id,
+                opencode_theme,
+            )),
         },
         SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit => {
             launch_command_with_remote_dir_from_mapping(mode, launch_command, cwd, remote_context)
@@ -212,9 +248,11 @@ fn launch_command_for_mode(
 }
 
 fn launch_agent_attach_command(
+    slot_id: u8,
     cwd: &str,
     remote_path: Option<&str>,
     shared_server: &SharedServerAttachConfig,
+    opencode_theme: Option<&str>,
 ) -> Result<String, SessionError> {
     let attach_url = shared_server.url.trim();
     if attach_url.is_empty() {
@@ -243,6 +281,9 @@ fn launch_agent_attach_command(
             escape_single_quotes(&attach_dir)
         )
     };
+
+    let attach_invocation =
+        with_opencode_tui_config_env(attach_invocation, slot_id, opencode_theme);
 
     Ok(launch_tool_command(
         "opencode",
@@ -463,6 +504,79 @@ fn respawn_slot_mode(pane_id: &str, cwd: &str, launch_command: &str) -> Result<(
 
 fn escape_single_quotes(value: &str) -> String {
     value.replace('\'', "'\"'\"'")
+}
+
+fn with_opencode_tui_config_env(
+    command: String,
+    slot_id: u8,
+    opencode_theme: Option<&str>,
+) -> String {
+    let Some(theme) = opencode_theme
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return command;
+    };
+
+    match ensure_opencode_tui_config_directory(slot_id, theme) {
+        Ok(directory) => {
+            let directory_value = directory.display().to_string();
+            let tui_config_path = directory.join("tui.json").display().to_string();
+            format!(
+                "export OPENCODE_CONFIG_DIR='{}'; export OPENCODE_TUI_CONFIG='{}'; export OPENCODE_TEST_MANAGED_CONFIG_DIR='{}'; {command}",
+                escape_single_quotes(&directory_value),
+                escape_single_quotes(&tui_config_path),
+                escape_single_quotes(&directory_value)
+            )
+        }
+        Err(source) => {
+            eprintln!("warning: failed writing opencode tui config for slot {slot_id}: {source}");
+            command
+        }
+    }
+}
+
+fn ensure_opencode_tui_config_directory(
+    slot_id: u8,
+    theme: &str,
+) -> Result<std::path::PathBuf, std::io::Error> {
+    let directory = std::env::temp_dir()
+        .join("ez-mux")
+        .join("opencode-tui")
+        .join(format!("slot-{slot_id}"));
+    std::fs::create_dir_all(&directory)?;
+    let path = directory.join("tui.json");
+    std::fs::write(path, render_opencode_tui_config(theme))?;
+    Ok(directory)
+}
+
+fn render_opencode_tui_config(theme: &str) -> String {
+    format!(
+        "{{\n  \"$schema\": \"https://opencode.ai/tui.json\",\n  \"theme\": \"{}\"\n}}\n",
+        escape_json_string(theme)
+    )
+}
+
+fn escape_json_string(value: &str) -> String {
+    use std::fmt::Write;
+
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => escaped.push_str("\\\""),
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            '\u{0008}' => escaped.push_str("\\b"),
+            '\u{000c}' => escaped.push_str("\\f"),
+            c if c.is_control() => {
+                let _ = write!(escaped, "\\u{:04x}", u32::from(c));
+            }
+            c => escaped.push(c),
+        }
+    }
+    escaped
 }
 
 #[derive(Debug, Clone)]

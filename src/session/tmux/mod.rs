@@ -112,6 +112,7 @@ pub trait TmuxClient {
         mode: SlotMode,
         remote_context: RemoteModeContext<'_>,
         shared_server: Option<&SharedServerAttachConfig>,
+        opencode_theme: Option<&str>,
     ) -> Result<(), SessionError>;
 
     /// Toggles popup shell helper session for one canonical slot.
@@ -249,8 +250,16 @@ impl TmuxClient for ProcessTmuxClient {
         mode: SlotMode,
         remote_context: RemoteModeContext<'_>,
         shared_server: Option<&SharedServerAttachConfig>,
+        opencode_theme: Option<&str>,
     ) -> Result<(), SessionError> {
-        mode_runtime::switch_slot_mode(session_name, slot_id, mode, remote_context, shared_server)
+        mode_runtime::switch_slot_mode(
+            session_name,
+            slot_id,
+            mode,
+            remote_context,
+            shared_server,
+            opencode_theme,
+        )
     }
 
     fn toggle_popup_shell(

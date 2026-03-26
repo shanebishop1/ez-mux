@@ -1,7 +1,7 @@
-use super::CANONICAL_SLOT_IDS;
 use super::SessionError;
 use super::SlotMode;
 use super::TmuxClient;
+use super::CANONICAL_SLOT_IDS;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedServerAttachConfig {
@@ -32,6 +32,7 @@ pub fn switch_slot_mode(
     mode: SlotMode,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    opencode_theme: Option<&str>,
     tmux: &impl TmuxClient,
 ) -> Result<SlotModeSwitchOutcome, SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -40,7 +41,14 @@ pub fn switch_slot_mode(
         ));
     }
 
-    tmux.switch_slot_mode(session_name, slot_id, mode, remote_context, shared_server)?;
+    tmux.switch_slot_mode(
+        session_name,
+        slot_id,
+        mode,
+        remote_context,
+        shared_server,
+        opencode_theme,
+    )?;
 
     Ok(SlotModeSwitchOutcome {
         session_name: session_name.to_owned(),

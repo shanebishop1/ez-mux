@@ -2,13 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use ez_mux::session::LayoutPreset;
-use ez_mux::session::RemoteModeContext;
-use ez_mux::session::SessionAction;
-use ez_mux::session::SessionDamageAnalysis;
-use ez_mux::session::SessionRepairOutcome;
-use ez_mux::session::SlotMode;
-use ez_mux::session::TmuxClient;
 use ez_mux::session::analyze_session_damage;
 use ez_mux::session::auxiliary_viewer;
 use ez_mux::session::ensure_project_session;
@@ -20,6 +13,13 @@ use ez_mux::session::resolve_session_identity;
 use ez_mux::session::switch_slot_mode;
 use ez_mux::session::teardown_session;
 use ez_mux::session::toggle_popup_shell;
+use ez_mux::session::LayoutPreset;
+use ez_mux::session::RemoteModeContext;
+use ez_mux::session::SessionAction;
+use ez_mux::session::SessionDamageAnalysis;
+use ez_mux::session::SessionRepairOutcome;
+use ez_mux::session::SlotMode;
+use ez_mux::session::TmuxClient;
 
 struct FakeTmux {
     sessions: RefCell<HashSet<String>>,
@@ -89,6 +89,7 @@ impl TmuxClient for FakeTmux {
         mode: SlotMode,
         _remote_context: ez_mux::session::RemoteModeContext<'_>,
         _shared_server: Option<&ez_mux::session::SharedServerAttachConfig>,
+        _opencode_theme: Option<&str>,
     ) -> Result<(), ez_mux::session::SessionError> {
         self.mode_switches
             .borrow_mut()
@@ -521,6 +522,7 @@ fn slot_targeted_mode_switch_routes_to_tmux_client() {
         SlotMode::Neovim,
         RemoteModeContext::default(),
         None,
+        None,
         &tmux,
     )
     .expect("mode switch should succeed");
@@ -549,6 +551,7 @@ fn slot_targeted_mode_switch_surfaces_tmux_failures() {
         SlotMode::Agent,
         RemoteModeContext::default(),
         None,
+        None,
         &tmux,
     )
     .expect_err("mode switch should fail");
@@ -570,6 +573,7 @@ fn slot_targeted_mode_switch_rejects_non_canonical_slot_id_at_runtime_boundary()
         9,
         SlotMode::Agent,
         RemoteModeContext::default(),
+        None,
         None,
         &tmux,
     )
@@ -657,11 +661,9 @@ fn per_mode_launch_contracts_define_runtime_command_and_hooks() {
     assert!(!agent.launch_command.contains("|| true"));
     assert!(!neovim.launch_command.contains("|| true"));
     assert!(!lazygit.launch_command.contains("|| true"));
-    assert!(
-        agent
-            .launch_command
-            .contains("mode tool opencode exited with status")
-    );
+    assert!(agent
+        .launch_command
+        .contains("mode tool opencode exited with status"));
     assert!(agent.launch_command.contains("\"${SHELL:-/bin/sh}\""));
     assert_eq!(
         format!("{:?}", shell.tool_failure_policy),

@@ -44,6 +44,7 @@ pub(crate) fn execute_with_opener(
 ) -> Result<String, AppError> {
     let loaded = config::load_config(env, os)?;
     let resolved_remote_runtime = config::resolve_remote_runtime(env, &loaded.values)?;
+    let opencode_theme_runtime = config::resolve_opencode_theme_runtime(&loaded.values);
     let remote_path = remote_path_for_routing(&resolved_remote_runtime);
 
     let message = match cli.command {
@@ -56,7 +57,8 @@ pub(crate) fn execute_with_opener(
             default_contract_summary_message(cli.verbose > 0, &outcome, &resolved_remote_runtime)
         }
         Some(Command::Repair) => {
-            let outcome = session::repair_current_project_session(&session::ProcessTmuxClient)?;
+            let outcome =
+                session::repair_current_project_session_and_attach(&session::ProcessTmuxClient)?;
             format_repair_message(&outcome)
         }
         Some(Command::Logs(LogsCommand::OpenLatest)) => {
@@ -77,9 +79,12 @@ pub(crate) fn execute_with_opener(
                 preset_outcome.preset.label()
             )
         }
-        Some(Command::Internal { command }) => {
-            execute_internal(command, remote_path, &resolved_remote_runtime)?
-        }
+        Some(Command::Internal { command }) => execute_internal(
+            command,
+            remote_path,
+            &resolved_remote_runtime,
+            &opencode_theme_runtime,
+        )?,
     };
 
     Ok(message)
@@ -135,6 +140,7 @@ fn execute_internal(
     command: InternalCommand,
     remote_path: Option<&str>,
     remote_runtime: &config::RemoteRuntimeResolution,
+    opencode_theme_runtime: &config::OpencodeThemeRuntimeResolution,
 ) -> Result<String, AppError> {
     match command {
         InternalCommand::Swap { session, slot } => {
@@ -167,6 +173,7 @@ fn execute_internal(
                 mode,
                 remote_context,
                 shared_server.as_ref(),
+                opencode_theme_runtime.theme_for_slot(slot),
                 &tmux,
             )?;
             Ok(format!(

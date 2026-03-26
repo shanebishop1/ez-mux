@@ -1,7 +1,7 @@
 use super::{
-    AUXILIARY_WINDOW_NAME, build_auxiliary_local_launch_command,
-    build_auxiliary_remote_launch_command, discover_executable_in_path,
-    resolve_auxiliary_remote_launch, should_validate_registry_for_auxiliary,
+    build_auxiliary_local_launch_command, build_auxiliary_remote_launch_command,
+    discover_executable_in_path, resolve_auxiliary_remote_launch,
+    should_validate_registry_for_auxiliary, AUXILIARY_WINDOW_NAME,
 };
 
 #[test]

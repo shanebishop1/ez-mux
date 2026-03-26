@@ -1,6 +1,6 @@
-use super::CANONICAL_SLOT_IDS;
 use super::SessionError;
 use super::TmuxClient;
+use super::CANONICAL_SLOT_IDS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PopupShellAction {
