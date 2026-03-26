@@ -1,15 +1,15 @@
 use std::io;
 use std::io::IsTerminal;
 use std::process::Command;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use signal_hook::SigId;
 use signal_hook::consts::SIGINT;
 use signal_hook::flag;
 use signal_hook::low_level::unregister;
+use signal_hook::SigId;
 
 use super::SessionError;
 

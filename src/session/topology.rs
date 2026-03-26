@@ -73,14 +73,14 @@ pub fn three_pane_widths_within_tolerance(
 
 #[cfg(test)]
 mod tests {
+    use super::canonical_five_pane_column_widths;
+    use super::three_pane_target_widths;
+    use super::three_pane_widths_within_tolerance;
     use super::CENTER_WIDTH_TOLERANCE_PCT;
     use super::DEFAULT_CENTER_WIDTH_PCT;
     use super::THREE_PANE_CENTER_TARGET_PCT;
     use super::THREE_PANE_SIDE_TARGET_PCT;
     use super::THREE_PANE_TARGET_TOLERANCE_PCT;
-    use super::canonical_five_pane_column_widths;
-    use super::three_pane_target_widths;
-    use super::three_pane_widths_within_tolerance;
 
     #[test]
     fn column_widths_are_deterministic_and_sum_to_window_width() {

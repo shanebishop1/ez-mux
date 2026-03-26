@@ -1,10 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
-use super::CANONICAL_SLOT_IDS;
+use super::resolve_session_identity;
 use super::SessionError;
 use super::TmuxClient;
-use super::resolve_session_identity;
+use super::CANONICAL_SLOT_IDS;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionDamageAnalysis {
@@ -83,6 +83,18 @@ pub fn repair_current_project_session(
     repair_project_session(&project_dir, tmux)
 }
 
+/// Repairs the current project's tmux session and re-attaches when interactive.
+///
+/// # Errors
+/// Returns an error when project/session resolution fails, tmux reconcile cannot
+/// safely complete, or interactive attach fails.
+pub fn repair_current_project_session_and_attach(
+    tmux: &impl TmuxClient,
+) -> Result<SessionRepairExecution, SessionError> {
+    let project_dir = std::env::current_dir().map_err(SessionError::CurrentDir)?;
+    repair_project_session_and_attach(&project_dir, tmux)
+}
+
 /// Repairs one resolved project session when damage is detected.
 ///
 /// # Errors
@@ -109,6 +121,20 @@ pub fn repair_project_session(
         recreate_order: analysis.recreate_order,
         recreated_slots,
     })
+}
+
+/// Repairs one resolved project session and re-attaches when interactive.
+///
+/// # Errors
+/// Returns an error when session resolution fails, reconcile cannot safely
+/// complete, or interactive attach fails.
+pub fn repair_project_session_and_attach(
+    project_dir: &Path,
+    tmux: &impl TmuxClient,
+) -> Result<SessionRepairExecution, SessionError> {
+    let execution = repair_project_session(project_dir, tmux)?;
+    tmux.attach_session(&execution.session_name)?;
+    Ok(execution)
 }
 
 pub(crate) fn analyze_slot_damage(
@@ -226,12 +252,14 @@ mod tests {
         TmuxClient,
     };
 
-    use super::{analyze_slot_damage, repair_project_session};
+    use super::{analyze_slot_damage, repair_project_session, repair_project_session_and_attach};
 
     struct RepairTmuxStub {
         analysis: super::SessionDamageAnalysis,
         outcome: super::SessionRepairOutcome,
         reconcile_calls: std::cell::Cell<u8>,
+        attach_calls: std::cell::RefCell<Vec<String>>,
+        interrupt_on_attach: bool,
     }
 
     impl TmuxClient for RepairTmuxStub {
@@ -247,7 +275,11 @@ mod tests {
             Ok(())
         }
 
-        fn attach_session(&self, _: &str) -> Result<(), crate::session::SessionError> {
+        fn attach_session(&self, session_name: &str) -> Result<(), crate::session::SessionError> {
+            self.attach_calls.borrow_mut().push(session_name.to_owned());
+            if self.interrupt_on_attach {
+                return Err(crate::session::SessionError::Interrupted);
+            }
             Ok(())
         }
 
@@ -290,6 +322,7 @@ mod tests {
             _: SlotMode,
             _: crate::session::RemoteModeContext<'_>,
             _: Option<&crate::session::SharedServerAttachConfig>,
+            _: Option<&str>,
         ) -> Result<(), crate::session::SessionError> {
             Ok(())
         }
@@ -441,11 +474,9 @@ mod tests {
 
         let error =
             analyze_slot_damage(&slot_to_pane, &live_panes).expect_err("root slot should fail");
-        assert!(
-            error
-                .to_string()
-                .contains("slot 1 pane is missing; selective reconcile is unsafe")
-        );
+        assert!(error
+            .to_string()
+            .contains("slot 1 pane is missing; selective reconcile is unsafe"));
     }
 
     #[test]
@@ -466,6 +497,8 @@ mod tests {
                 recreated_slots: vec![4],
             },
             reconcile_calls: std::cell::Cell::new(0),
+            attach_calls: std::cell::RefCell::new(Vec::new()),
+            interrupt_on_attach: false,
         };
 
         let execution = repair_project_session(&project_dir, &tmux).expect("repair execution");
@@ -493,6 +526,8 @@ mod tests {
                 recreated_slots: vec![4],
             },
             reconcile_calls: std::cell::Cell::new(0),
+            attach_calls: std::cell::RefCell::new(Vec::new()),
+            interrupt_on_attach: false,
         };
 
         let execution = repair_project_session(&project_dir, &tmux).expect("repair execution");
@@ -500,5 +535,112 @@ mod tests {
         assert_eq!(execution.action_label(), "reconcile");
         assert_eq!(execution.recreated_slots, vec![4]);
         assert_eq!(tmux.reconcile_calls.get(), 1);
+    }
+
+    #[test]
+    fn repair_project_session_and_attach_reopens_current_session_after_reconcile() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        let expected_session = crate::session::resolve_session_identity(&project_dir)
+            .expect("session identity")
+            .session_name;
+        let tmux = RepairTmuxStub {
+            analysis: super::SessionDamageAnalysis {
+                healthy_slots: vec![1, 2, 3, 5],
+                missing_visible_slots: vec![4],
+                missing_backing_slots: Vec::new(),
+                recreate_order: vec![4],
+            },
+            outcome: super::SessionRepairOutcome {
+                session_name: expected_session.clone(),
+                healthy_slots: vec![1, 2, 3, 5],
+                recreated_slots: vec![4],
+            },
+            reconcile_calls: std::cell::Cell::new(0),
+            attach_calls: std::cell::RefCell::new(Vec::new()),
+            interrupt_on_attach: false,
+        };
+
+        let execution =
+            repair_project_session_and_attach(&project_dir, &tmux).expect("repair execution");
+
+        assert_eq!(execution.session_name, expected_session);
+        assert_eq!(tmux.reconcile_calls.get(), 1);
+        assert_eq!(
+            tmux.attach_calls.borrow().as_slice(),
+            &[expected_session.to_owned()]
+        );
+    }
+
+    #[test]
+    fn repair_project_session_and_attach_reopens_even_when_noop() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        let expected_session = crate::session::resolve_session_identity(&project_dir)
+            .expect("session identity")
+            .session_name;
+        let tmux = RepairTmuxStub {
+            analysis: super::SessionDamageAnalysis {
+                healthy_slots: vec![1, 2, 3, 4, 5],
+                missing_visible_slots: Vec::new(),
+                missing_backing_slots: Vec::new(),
+                recreate_order: Vec::new(),
+            },
+            outcome: super::SessionRepairOutcome {
+                session_name: expected_session.clone(),
+                healthy_slots: vec![1, 2, 3, 4, 5],
+                recreated_slots: vec![4],
+            },
+            reconcile_calls: std::cell::Cell::new(0),
+            attach_calls: std::cell::RefCell::new(Vec::new()),
+            interrupt_on_attach: false,
+        };
+
+        let execution =
+            repair_project_session_and_attach(&project_dir, &tmux).expect("repair execution");
+
+        assert_eq!(execution.action_label(), "noop");
+        assert_eq!(tmux.reconcile_calls.get(), 0);
+        assert_eq!(
+            tmux.attach_calls.borrow().as_slice(),
+            &[expected_session.to_owned()]
+        );
+    }
+
+    #[test]
+    fn repair_project_session_and_attach_propagates_interrupts() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        let expected_session = crate::session::resolve_session_identity(&project_dir)
+            .expect("session identity")
+            .session_name;
+        let tmux = RepairTmuxStub {
+            analysis: super::SessionDamageAnalysis {
+                healthy_slots: vec![1, 2, 3, 5],
+                missing_visible_slots: vec![4],
+                missing_backing_slots: Vec::new(),
+                recreate_order: vec![4],
+            },
+            outcome: super::SessionRepairOutcome {
+                session_name: expected_session.clone(),
+                healthy_slots: vec![1, 2, 3, 5],
+                recreated_slots: vec![4],
+            },
+            reconcile_calls: std::cell::Cell::new(0),
+            attach_calls: std::cell::RefCell::new(Vec::new()),
+            interrupt_on_attach: true,
+        };
+
+        let error = repair_project_session_and_attach(&project_dir, &tmux)
+            .expect_err("attach interrupt should propagate");
+
+        assert!(matches!(error, crate::session::SessionError::Interrupted));
+        assert_eq!(
+            tmux.attach_calls.borrow().as_slice(),
+            &[expected_session.to_owned()]
+        );
     }
 }

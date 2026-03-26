@@ -127,12 +127,14 @@ fn agent_mode_uses_shared_server_attach_url_and_mapped_dir() {
     std::fs::create_dir_all(&nested).expect("create nested");
 
     let command = launch_agent_attach_command(
+        1,
         &nested.display().to_string(),
         Some("/srv/remotes"),
         &SharedServerAttachConfig {
             url: String::from("http://127.0.0.1:4096"),
             password: None,
         },
+        None,
     )
     .expect("agent command should resolve");
 
@@ -143,12 +145,14 @@ fn agent_mode_uses_shared_server_attach_url_and_mapped_dir() {
 #[test]
 fn agent_mode_password_is_included_when_configured() {
     let command = launch_agent_attach_command(
+        1,
         "/tmp/local-only",
         None,
         &SharedServerAttachConfig {
             url: String::from("http://127.0.0.1:4096"),
             password: Some(String::from("secret-token")),
         },
+        None,
     )
     .expect("agent command should resolve");
 
@@ -158,29 +162,31 @@ fn agent_mode_password_is_included_when_configured() {
 #[test]
 fn agent_mode_requires_non_empty_attach_url_when_shared_server_config_is_used() {
     let error = launch_agent_attach_command(
+        1,
         "/tmp/local-only",
         None,
         &SharedServerAttachConfig {
             url: String::new(),
             password: None,
         },
+        None,
     )
     .expect_err("empty shared server config should fail");
 
-    assert!(
-        error
-            .to_string()
-            .contains("agent mode requires shared-server attach configuration")
-    );
+    assert!(error
+        .to_string()
+        .contains("agent mode requires shared-server attach configuration"));
 }
 
 #[test]
 fn agent_mode_without_shared_server_uses_local_launch_contract() {
     let command = launch_command_for_mode(
+        2,
         SlotMode::Agent,
         "exec opencode || exec \"${SHELL:-/bin/sh}\" -l",
         "/tmp/local-only",
         RemoteModeContext::default(),
+        None,
         None,
     )
     .expect("agent local launch should resolve");
@@ -195,6 +201,7 @@ fn agent_mode_uses_remote_path_mapping_without_operator() {
     std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
 
     let command = launch_command_for_mode(
+        3,
         SlotMode::Agent,
         "placeholder",
         &repo_root.display().to_string(),
@@ -203,10 +210,58 @@ fn agent_mode_uses_remote_path_mapping_without_operator() {
             url: String::from("http://127.0.0.1:4096"),
             password: None,
         }),
+        None,
     )
     .expect("agent mode should resolve");
 
     assert!(command.contains("opencode attach 'http://127.0.0.1:4096'"));
+}
+
+#[test]
+fn agent_mode_theme_sets_custom_tui_config_for_attach_launches() {
+    let command = launch_agent_attach_command(
+        2,
+        "/tmp/local-only",
+        None,
+        &SharedServerAttachConfig {
+            url: String::from("http://127.0.0.1:4096"),
+            password: None,
+        },
+        Some("orng"),
+    )
+    .expect("agent command should resolve");
+
+    assert!(command.contains("OPENCODE_CONFIG_DIR"));
+    assert!(command.contains("OPENCODE_TUI_CONFIG"));
+    assert!(command.contains("OPENCODE_TEST_MANAGED_CONFIG_DIR"));
+    assert!(command.contains("slot-2"));
+
+    let path = command
+        .split_once("OPENCODE_TUI_CONFIG='")
+        .and_then(|(_, rest)| rest.split_once('\''))
+        .map(|(path, _)| path)
+        .expect("theme command should include exported tui config path");
+    let rendered = std::fs::read_to_string(path).expect("theme config should be written");
+    assert!(rendered.contains("\"theme\": \"orng\""));
+}
+
+#[test]
+fn agent_mode_theme_sets_custom_tui_config_for_local_launches() {
+    let command = launch_command_for_mode(
+        4,
+        SlotMode::Agent,
+        "exec opencode || exec \"${SHELL:-/bin/sh}\" -l",
+        "/tmp/local-only",
+        RemoteModeContext::default(),
+        None,
+        Some("catppuccin"),
+    )
+    .expect("agent local launch should resolve");
+
+    assert!(command.contains("OPENCODE_CONFIG_DIR"));
+    assert!(command.contains("OPENCODE_TUI_CONFIG"));
+    assert!(command.contains("OPENCODE_TEST_MANAGED_CONFIG_DIR"));
+    assert!(command.contains("slot-4"));
 }
 
 #[test]

@@ -124,6 +124,7 @@ fn remote_runtime_prefers_env_over_file_values() {
         ezm_remote_server_url: None,
         opencode_server_url: Some(String::from("https://file.example:4096")),
         opencode_server_password: Some(String::from("file-secret")),
+        ..FileConfig::default()
     };
 
     let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
@@ -164,6 +165,7 @@ fn remote_runtime_prefers_ezm_env_remote_path_when_present() {
         ezm_remote_server_url: None,
         opencode_server_url: None,
         opencode_server_password: None,
+        ..FileConfig::default()
     };
 
     let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
@@ -284,6 +286,7 @@ fn remote_runtime_uses_config_when_env_is_missing() {
         ezm_remote_server_url: None,
         opencode_server_url: Some(String::from("https://shared.example:7443")),
         opencode_server_password: Some(String::from("file-secret")),
+        ..FileConfig::default()
     };
 
     let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
@@ -351,4 +354,71 @@ fn remote_shared_server_env_constants_are_contract_stable() {
     assert_eq!(EZM_REMOTE_SERVER_URL_ENV, "EZM_REMOTE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_URL_ENV, "OPENCODE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_PASSWORD_ENV, "OPENCODE_SERVER_PASSWORD");
+}
+
+#[test]
+fn opencode_theme_runtime_defaults_to_slot_palette_mapping() {
+    let runtime = resolve_opencode_theme_runtime(&FileConfig::default());
+
+    assert!(runtime.enabled);
+    assert_eq!(runtime.theme_for_slot(1), Some("nightowl"));
+    assert_eq!(runtime.theme_for_slot(2), Some("orng"));
+    assert_eq!(runtime.theme_for_slot(3), Some("osaka-jade"));
+    assert_eq!(runtime.theme_for_slot(4), Some("catppuccin"));
+    assert_eq!(runtime.theme_for_slot(5), Some("monokai"));
+}
+
+#[test]
+fn opencode_theme_runtime_accepts_per_slot_overrides() {
+    let file = FileConfig {
+        opencode_slot_themes: Some(HashMap::from([
+            (String::from("2"), String::from("dracula")),
+            (String::from("4"), String::from("nord")),
+        ])),
+        ..FileConfig::default()
+    };
+
+    let runtime = resolve_opencode_theme_runtime(&file);
+
+    assert_eq!(runtime.theme_for_slot(1), Some("nightowl"));
+    assert_eq!(runtime.theme_for_slot(2), Some("dracula"));
+    assert_eq!(runtime.theme_for_slot(3), Some("osaka-jade"));
+    assert_eq!(runtime.theme_for_slot(4), Some("nord"));
+    assert_eq!(runtime.theme_for_slot(5), Some("monokai"));
+}
+
+#[test]
+fn opencode_theme_runtime_can_be_disabled_globally() {
+    let file = FileConfig {
+        opencode_slot_themes_enabled: Some(false),
+        ..FileConfig::default()
+    };
+
+    let runtime = resolve_opencode_theme_runtime(&file);
+
+    assert!(!runtime.enabled);
+    assert_eq!(runtime.theme_for_slot(1), None);
+    assert_eq!(runtime.theme_for_slot(3), None);
+    assert_eq!(runtime.theme_for_slot(5), None);
+}
+
+#[test]
+fn load_config_parses_opencode_slot_theme_settings() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    fs::write(
+        &path,
+        "opencode_slot_themes_enabled = true\n[opencode_slot_themes]\n\"2\" = \"dracula\"\n\"4\" = \"catppuccin\"\n",
+    )
+    .expect("write config");
+
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
+
+    let loaded = load_config(&env, OperatingSystem::Linux).expect("load should succeed");
+    let runtime = resolve_opencode_theme_runtime(&loaded.values);
+
+    assert!(runtime.enabled);
+    assert_eq!(runtime.theme_for_slot(2), Some("dracula"));
+    assert_eq!(runtime.theme_for_slot(4), Some("catppuccin"));
 }

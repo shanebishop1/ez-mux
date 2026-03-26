@@ -1,9 +1,5 @@
 use std::sync::OnceLock;
 
-use super::CANONICAL_SLOT_IDS;
-use super::PaneWidthSample;
-use super::SessionError;
-use super::ZoomFlagSupport;
 use super::command::{tmux_output_value, tmux_run};
 use super::layout::{
     LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_KEY, LAYOUT_MODE_THREE_PANE, SLOT_SUSPENDED_KEY_PREFIX,
@@ -16,6 +12,10 @@ use super::pick_center_pane;
 use super::style::refresh_active_border_for_slot;
 use super::tmux_diagnostics_exit_status;
 use super::zoom_flag_support_for_command;
+use super::PaneWidthSample;
+use super::SessionError;
+use super::ZoomFlagSupport;
+use super::CANONICAL_SLOT_IDS;
 
 #[derive(Debug, Clone, Copy)]
 struct ZoomFlagCapabilities {
@@ -330,10 +330,10 @@ fn slot_restore_mode_key(slot_id: u8) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::SlotContinuitySnapshot;
     use super::should_retry_without_zoom;
     use super::validate_slot_suspension;
     use super::validate_suspended_slot_restore_metadata;
+    use super::SlotContinuitySnapshot;
     use crate::session::tmux::layout::{LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_THREE_PANE};
 
     #[test]
@@ -359,107 +359,93 @@ mod tests {
     fn suspension_only_allowed_for_slots_four_and_five_in_three_pane_mode() {
         assert!(validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 4, true).is_ok());
         assert!(validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 5, true).is_ok());
-        assert!(
-            validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 3, true)
-                .expect_err("slot 3 must reject suspension")
-                .contains("cannot be suspended")
-        );
-        assert!(
-            validate_slot_suspension(LAYOUT_MODE_FIVE_PANE, 4, true)
-                .expect_err("five-pane mode must reject suspension")
-                .contains("marked suspended")
-        );
+        assert!(validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 3, true)
+            .expect_err("slot 3 must reject suspension")
+            .contains("cannot be suspended"));
+        assert!(validate_slot_suspension(LAYOUT_MODE_FIVE_PANE, 4, true)
+            .expect_err("five-pane mode must reject suspension")
+            .contains("marked suspended"));
         assert!(validate_slot_suspension(LAYOUT_MODE_FIVE_PANE, 4, false).is_ok());
     }
 
     #[test]
     fn suspended_slots_require_restore_metadata_to_match_slot_identity() {
-        assert!(
-            validate_suspended_slot_restore_metadata(
-                4,
-                SlotContinuitySnapshot {
-                    worktree: "wt-4",
-                    cwd: "/repo/slot-4",
-                    mode: "lazygit",
-                },
-                SlotContinuitySnapshot {
-                    worktree: "wt-4",
-                    cwd: "/repo/slot-4",
-                    mode: "lazygit",
-                }
-            )
-            .is_ok()
-        );
+        assert!(validate_suspended_slot_restore_metadata(
+            4,
+            SlotContinuitySnapshot {
+                worktree: "wt-4",
+                cwd: "/repo/slot-4",
+                mode: "lazygit",
+            },
+            SlotContinuitySnapshot {
+                worktree: "wt-4",
+                cwd: "/repo/slot-4",
+                mode: "lazygit",
+            }
+        )
+        .is_ok());
 
-        assert!(
-            validate_suspended_slot_restore_metadata(
-                4,
-                SlotContinuitySnapshot {
-                    worktree: "wt-4",
-                    cwd: "/repo/slot-4",
-                    mode: "lazygit",
-                },
-                SlotContinuitySnapshot {
-                    worktree: "wt-4",
-                    cwd: "/repo/slot-4",
-                    mode: "lazygit",
-                }
-            )
-            .is_ok()
-        );
+        assert!(validate_suspended_slot_restore_metadata(
+            4,
+            SlotContinuitySnapshot {
+                worktree: "wt-4",
+                cwd: "/repo/slot-4",
+                mode: "lazygit",
+            },
+            SlotContinuitySnapshot {
+                worktree: "wt-4",
+                cwd: "/repo/slot-4",
+                mode: "lazygit",
+            }
+        )
+        .is_ok());
 
-        assert!(
-            validate_suspended_slot_restore_metadata(
-                5,
-                SlotContinuitySnapshot {
-                    worktree: "wt-5",
-                    cwd: "/repo/slot-5",
-                    mode: "shell",
-                },
-                SlotContinuitySnapshot {
-                    worktree: "wt-override",
-                    cwd: "/repo/slot-5",
-                    mode: "shell",
-                }
-            )
-            .expect_err("suspended metadata must keep worktree")
-            .contains("worktree mismatch")
-        );
+        assert!(validate_suspended_slot_restore_metadata(
+            5,
+            SlotContinuitySnapshot {
+                worktree: "wt-5",
+                cwd: "/repo/slot-5",
+                mode: "shell",
+            },
+            SlotContinuitySnapshot {
+                worktree: "wt-override",
+                cwd: "/repo/slot-5",
+                mode: "shell",
+            }
+        )
+        .expect_err("suspended metadata must keep worktree")
+        .contains("worktree mismatch"));
 
-        assert!(
-            validate_suspended_slot_restore_metadata(
-                5,
-                SlotContinuitySnapshot {
-                    worktree: "wt-5",
-                    cwd: "/repo/slot-5",
-                    mode: "shell",
-                },
-                SlotContinuitySnapshot {
-                    worktree: "wt-5",
-                    cwd: "/repo/other",
-                    mode: "shell",
-                }
-            )
-            .expect_err("suspended metadata must keep cwd")
-            .contains("cwd mismatch")
-        );
+        assert!(validate_suspended_slot_restore_metadata(
+            5,
+            SlotContinuitySnapshot {
+                worktree: "wt-5",
+                cwd: "/repo/slot-5",
+                mode: "shell",
+            },
+            SlotContinuitySnapshot {
+                worktree: "wt-5",
+                cwd: "/repo/other",
+                mode: "shell",
+            }
+        )
+        .expect_err("suspended metadata must keep cwd")
+        .contains("cwd mismatch"));
 
-        assert!(
-            validate_suspended_slot_restore_metadata(
-                5,
-                SlotContinuitySnapshot {
-                    worktree: "wt-5",
-                    cwd: "/repo/slot-5",
-                    mode: "shell",
-                },
-                SlotContinuitySnapshot {
-                    worktree: "wt-5",
-                    cwd: "/repo/slot-5",
-                    mode: "agent",
-                }
-            )
-            .expect_err("suspended metadata must keep mode")
-            .contains("mode mismatch")
-        );
+        assert!(validate_suspended_slot_restore_metadata(
+            5,
+            SlotContinuitySnapshot {
+                worktree: "wt-5",
+                cwd: "/repo/slot-5",
+                mode: "shell",
+            },
+            SlotContinuitySnapshot {
+                worktree: "wt-5",
+                cwd: "/repo/slot-5",
+                mode: "agent",
+            }
+        )
+        .expect_err("suspended metadata must keep mode")
+        .contains("mode mismatch"));
     }
 }

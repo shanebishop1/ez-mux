@@ -91,6 +91,8 @@ pub struct FileConfig {
     pub ezm_remote_server_url: Option<String>,
     pub opencode_server_url: Option<String>,
     pub opencode_server_password: Option<String>,
+    pub opencode_slot_themes_enabled: Option<bool>,
+    pub opencode_slot_themes: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +139,31 @@ pub struct RemoteRuntimeResolution {
     pub remote_server_url: ResolvedValue<Option<String>>,
     pub shared_server: SharedServerRuntimeResolution,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpencodeThemeRuntimeResolution {
+    pub enabled: bool,
+    pub themes_by_slot: HashMap<u8, String>,
+}
+
+impl OpencodeThemeRuntimeResolution {
+    #[must_use]
+    pub fn theme_for_slot(&self, slot_id: u8) -> Option<&str> {
+        if !self.enabled {
+            return None;
+        }
+
+        self.themes_by_slot.get(&slot_id).map(String::as_str)
+    }
+}
+
+const DEFAULT_OPENCODE_SLOT_THEMES: [(u8, &str); 5] = [
+    (1, "nightowl"),
+    (2, "orng"),
+    (3, "osaka-jade"),
+    (4, "catppuccin"),
+    (5, "monokai"),
+];
 
 /// Resolves remote-path and shared-server runtime values from env/config.
 ///
@@ -185,6 +212,54 @@ pub fn resolve_remote_runtime(
             password: server_password,
         },
     })
+}
+
+#[must_use]
+pub fn resolve_opencode_theme_runtime(file_config: &FileConfig) -> OpencodeThemeRuntimeResolution {
+    let enabled = file_config.opencode_slot_themes_enabled.unwrap_or(true);
+    let mut themes_by_slot = default_opencode_slot_themes();
+
+    if let Some(overrides) = file_config.opencode_slot_themes.as_ref() {
+        apply_opencode_slot_theme_overrides(&mut themes_by_slot, overrides);
+    }
+
+    OpencodeThemeRuntimeResolution {
+        enabled,
+        themes_by_slot,
+    }
+}
+
+fn default_opencode_slot_themes() -> HashMap<u8, String> {
+    DEFAULT_OPENCODE_SLOT_THEMES
+        .iter()
+        .map(|(slot_id, theme)| (*slot_id, (*theme).to_owned()))
+        .collect()
+}
+
+fn apply_opencode_slot_theme_overrides(
+    themes_by_slot: &mut HashMap<u8, String>,
+    overrides: &HashMap<String, String>,
+) {
+    for (slot_key, theme) in overrides {
+        let Some(slot_id) = parse_slot_theme_key(slot_key) else {
+            continue;
+        };
+        let normalized_theme = theme.trim();
+        if normalized_theme.is_empty() {
+            themes_by_slot.remove(&slot_id);
+            continue;
+        }
+        themes_by_slot.insert(slot_id, normalized_theme.to_owned());
+    }
+}
+
+fn parse_slot_theme_key(slot_key: &str) -> Option<u8> {
+    let slot_id = slot_key.trim().parse::<u8>().ok()?;
+    if (1..=5).contains(&slot_id) {
+        Some(slot_id)
+    } else {
+        None
+    }
 }
 
 fn resolve_remote_path(
