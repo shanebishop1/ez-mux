@@ -1,18 +1,71 @@
 use std::process::{Command, Output};
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use super::SessionError;
 use crate::config::OPENCODE_SERVER_PASSWORD_ENV;
 
 const REDACTED_SECRET_VALUE: &str = "<redacted>";
+const STARTUP_TRACE_TMUX_ENV: &str = "EZM_STARTUP_TRACE_TMUX";
 
-pub(super) fn tmux_output(args: &[&str]) -> Result<Output, SessionError> {
-    Command::new("tmux")
-        .args(args)
+pub(super) fn tmux_run_batch(commands: &[Vec<String>]) -> Result<(), SessionError> {
+    if commands.is_empty() {
+        return Ok(());
+    }
+
+    let mut flattened_args = Vec::new();
+    let mut first = true;
+    for command in commands {
+        if command.is_empty() {
+            continue;
+        }
+        if !first {
+            flattened_args.push(String::from(";"));
+        }
+        first = false;
+        flattened_args.extend(command.iter().cloned());
+    }
+
+    if flattened_args.is_empty() {
+        return Ok(());
+    }
+
+    let diagnostics = tmux_batch_command_for_diagnostics(commands);
+    let started_at = Instant::now();
+    let flat_refs = flattened_args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let output = Command::new("tmux")
+        .args(&flat_refs)
         .output()
         .map_err(|source| SessionError::TmuxSpawnFailed {
-            command: tmux_command_for_diagnostics(args),
+            command: diagnostics.clone(),
             source,
-        })
+        })?;
+    trace_tmux_command(&diagnostics, &output, started_at.elapsed());
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: diagnostics,
+        stderr: format_output_diagnostics(&output),
+    })
+}
+
+pub(super) fn tmux_output(args: &[&str]) -> Result<Output, SessionError> {
+    let diagnostics = tmux_command_for_diagnostics(args);
+    let started_at = Instant::now();
+    let output = Command::new("tmux").args(args).output().map_err(|source| {
+        SessionError::TmuxSpawnFailed {
+            command: diagnostics.clone(),
+            source,
+        }
+    })?;
+    trace_tmux_command(&diagnostics, &output, started_at.elapsed());
+    Ok(output)
 }
 
 pub(super) fn tmux_run(args: &[&str]) -> Result<(), SessionError> {
@@ -110,9 +163,21 @@ fn retry_legacy_window_zero_list_panes(
 }
 
 fn tmux_command_for_diagnostics(args: &[&str]) -> String {
-    let mut redacted = args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
-    redact_set_environment_secret_value(&mut redacted, OPENCODE_SERVER_PASSWORD_ENV);
-    redacted.join(" ")
+    tmux_command_for_diagnostics_owned(args.iter().map(|arg| (*arg).to_owned()).collect())
+}
+
+fn tmux_command_for_diagnostics_owned(mut args: Vec<String>) -> String {
+    redact_set_environment_secret_value(&mut args, OPENCODE_SERVER_PASSWORD_ENV);
+    args.join(" ")
+}
+
+fn tmux_batch_command_for_diagnostics(commands: &[Vec<String>]) -> String {
+    commands
+        .iter()
+        .filter(|command| !command.is_empty())
+        .map(|command| tmux_command_for_diagnostics_owned(command.clone()))
+        .collect::<Vec<_>>()
+        .join(" \\; ")
 }
 
 fn redact_set_environment_secret_value(args: &mut [String], secret_key: &str) {
@@ -153,6 +218,37 @@ fn legacy_window_zero_session_target<'a>(
     Some((target_index, session))
 }
 
+fn trace_tmux_command(command: &str, output: &Output, elapsed: std::time::Duration) {
+    if !startup_trace_tmux_enabled() {
+        return;
+    }
+
+    let status_code = output
+        .status
+        .code()
+        .map_or_else(|| String::from("signal"), |code| code.to_string());
+    eprintln!(
+        "startup-trace tmux delta_ms={:.2} status={} cmd=tmux {}",
+        elapsed.as_secs_f64() * 1000.0,
+        status_code,
+        command
+    );
+}
+
+fn startup_trace_tmux_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var(STARTUP_TRACE_TMUX_ENV)
+            .ok()
+            .is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+    })
+}
+
 pub(super) fn format_output_diagnostics(output: &Output) -> String {
     let status = output
         .status
@@ -167,8 +263,8 @@ pub(super) fn format_output_diagnostics(output: &Output) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        REDACTED_SECRET_VALUE, legacy_window_zero_session_target, parse_primary_window_target,
-        tmux_command_for_diagnostics,
+        legacy_window_zero_session_target, parse_primary_window_target,
+        tmux_batch_command_for_diagnostics, tmux_command_for_diagnostics, REDACTED_SECRET_VALUE,
     };
 
     #[test]
@@ -251,5 +347,29 @@ mod tests {
         ]);
 
         assert_eq!(rendered, "set-environment -g EZM_REMOTE_PATH /srv/remotes");
+    }
+
+    #[test]
+    fn tmux_batch_command_for_diagnostics_redacts_password_values() {
+        let commands = vec![
+            vec![
+                String::from("set-environment"),
+                String::from("-g"),
+                String::from("OPENCODE_SERVER_PASSWORD"),
+                String::from("super-secret"),
+            ],
+            vec![
+                String::from("set-option"),
+                String::from("-t"),
+                String::from("demo"),
+                String::from("@foo"),
+                String::from("bar"),
+            ],
+        ];
+
+        let rendered = tmux_batch_command_for_diagnostics(&commands);
+        assert!(!rendered.contains("super-secret"));
+        assert!(rendered.contains(REDACTED_SECRET_VALUE));
+        assert!(rendered.contains("set-option -t demo @foo bar"));
     }
 }

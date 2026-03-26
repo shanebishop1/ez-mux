@@ -1,7 +1,7 @@
-use super::SessionError;
 use super::command::{tmux_output_value, tmux_run};
 use super::options::show_session_option;
 use super::slot_swap::validate_canonical_slot_registry;
+use super::SessionError;
 use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
 use crate::session::resolve_remote_path;
 use crate::session::{AuxiliaryViewerAction, AuxiliaryViewerOutcome};
@@ -27,6 +27,15 @@ fn open_auxiliary_viewer(
     session_name: &str,
     existing: Option<String>,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
+    if let Some(window_id) = existing {
+        return Ok(AuxiliaryViewerOutcome {
+            session_name: session_name.to_owned(),
+            action: AuxiliaryViewerAction::Reused,
+            window_name: String::from(AUXILIARY_WINDOW_NAME),
+            window_id: Some(window_id),
+        });
+    }
+
     let cwd = resolve_auxiliary_cwd(session_name)?;
     let remote_path = std::env::var(EZM_REMOTE_PATH_ENV).ok();
     let remote_server_url = std::env::var(EZM_REMOTE_SERVER_URL_ENV).ok();
@@ -53,15 +62,6 @@ fn open_auxiliary_viewer(
 
     if should_validate_registry_for_auxiliary(true) {
         validate_canonical_slot_registry(session_name)?;
-    }
-
-    if let Some(window_id) = existing {
-        return Ok(AuxiliaryViewerOutcome {
-            session_name: session_name.to_owned(),
-            action: AuxiliaryViewerAction::Reused,
-            window_name: String::from(AUXILIARY_WINDOW_NAME),
-            window_id: Some(window_id),
-        });
     }
 
     let command = build_auxiliary_launch_command(remote_launch.as_ref(), local_bv_executable)?;
