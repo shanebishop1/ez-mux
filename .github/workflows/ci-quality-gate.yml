@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   quality-gate:
-    name: Rust fmt + clippy strict
+    name: Rust quality gate + structure audit
     runs-on: ubuntu-latest
 
     steps:
@@ -22,6 +22,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Runtime source structure audit
+        run: python3 scripts/audit_runtime_file_sizes.py
 
       - name: cargo fmt check
         run: cargo fmt --all -- --check
