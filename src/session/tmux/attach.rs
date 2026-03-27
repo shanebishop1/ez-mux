@@ -12,6 +12,7 @@ use signal_hook::flag;
 use signal_hook::low_level::unregister;
 
 use super::SessionError;
+use super::command::tmux_output;
 
 pub(super) fn attach_session(session_name: &str) -> Result<(), SessionError> {
     if !should_attempt_interactive_attach(
@@ -52,13 +53,14 @@ pub(super) fn attach_session(session_name: &str) -> Result<(), SessionError> {
                 return Err(SessionError::Interrupted);
             }
 
-            let status_code = status
-                .code()
-                .map_or_else(|| String::from("signal"), |code| code.to_string());
+            let diagnostics = format_attach_failure_diagnostics(
+                status.code(),
+                capture_attach_failure_streams(session_name),
+            );
 
             return Err(SessionError::TmuxCommandFailed {
                 command,
-                stderr: format!("status={status_code}; stdout=\"\"; stderr=\"\""),
+                stderr: diagnostics,
             });
         }
 
@@ -81,6 +83,37 @@ fn best_effort_interrupt_child(child: &mut std::process::Child) -> io::Result<()
     }
 
     Ok(())
+}
+
+struct AttachFailureStreams {
+    stdout: String,
+    stderr: String,
+}
+
+fn capture_attach_failure_streams(
+    session_name: &str,
+) -> Result<AttachFailureStreams, SessionError> {
+    let output = tmux_output(&["attach-session", "-t", session_name])?;
+    Ok(AttachFailureStreams {
+        stdout: String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+    })
+}
+
+fn format_attach_failure_diagnostics(
+    status_code: Option<i32>,
+    captured_streams: Result<AttachFailureStreams, SessionError>,
+) -> String {
+    let status = status_code.map_or_else(|| String::from("signal"), |code| code.to_string());
+    let (stdout, stderr) = match captured_streams {
+        Ok(streams) => (streams.stdout, streams.stderr),
+        Err(error) => (
+            String::new(),
+            format!("failed collecting attach-session diagnostics: {error}"),
+        ),
+    };
+
+    format!("status={status}; stdout={stdout:?}; stderr={stderr:?}")
 }
 
 struct ScopedSigintFlag {
@@ -117,6 +150,11 @@ fn should_attempt_interactive_attach(stdin_is_terminal: bool, stdout_is_terminal
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
+    use super::AttachFailureStreams;
+    use super::SessionError;
+    use super::format_attach_failure_diagnostics;
     use super::interrupted_status_code;
     use super::should_attempt_interactive_attach;
 
@@ -133,5 +171,34 @@ mod tests {
         assert!(interrupted_status_code(Some(130)));
         assert!(!interrupted_status_code(Some(1)));
         assert!(!interrupted_status_code(None));
+    }
+
+    #[test]
+    fn attach_failure_diagnostics_include_captured_stdout_stderr_and_status() {
+        let diagnostics = format_attach_failure_diagnostics(
+            Some(1),
+            Ok(AttachFailureStreams {
+                stdout: String::from("captured stdout"),
+                stderr: String::from("captured stderr"),
+            }),
+        );
+
+        assert_eq!(
+            diagnostics,
+            "status=1; stdout=\"captured stdout\"; stderr=\"captured stderr\""
+        );
+    }
+
+    #[test]
+    fn attach_failure_diagnostics_report_capture_errors_with_original_status() {
+        let capture_error = SessionError::TmuxSpawnFailed {
+            command: String::from("attach-session -t ezm-s42"),
+            source: io::Error::new(io::ErrorKind::NotFound, "tmux missing"),
+        };
+        let diagnostics = format_attach_failure_diagnostics(Some(127), Err(capture_error));
+
+        assert!(diagnostics.contains("status=127"));
+        assert!(diagnostics.contains("failed collecting attach-session diagnostics"));
+        assert!(diagnostics.contains("tmux missing"));
     }
 }
