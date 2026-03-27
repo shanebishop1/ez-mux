@@ -72,6 +72,19 @@ fn auxiliary_remote_launch_bootstraps_shell_before_running_bv() {
 }
 
 #[test]
+fn auxiliary_remote_launch_command_fails_fast_for_invalid_remote_authority() {
+    let error = build_auxiliary_remote_launch_command(
+        "/srv/remotes/ez-mux",
+        "https://shell.remote.example:",
+    )
+    .expect_err("invalid authority should fail");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("invalid remote ssh authority"));
+    assert!(rendered.contains("EZM_REMOTE_SERVER_URL"));
+}
+
+#[test]
 fn auxiliary_remote_launch_resolves_when_remote_path_and_server_url_are_present() {
     let resolved = resolve_auxiliary_remote_launch(
         "/tmp/repo/worktree",

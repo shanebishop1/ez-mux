@@ -4,7 +4,8 @@ use super::super::session::popup_new_session_args;
 
 #[test]
 fn popup_new_session_uses_default_shell_without_lc_wrapper() {
-    let args = popup_new_session_args("ezm-s100__popup_slot_4", "/tmp/popup-cwd", None);
+    let args = popup_new_session_args("ezm-s100__popup_slot_4", "/tmp/popup-cwd", None)
+        .expect("args should resolve");
     let rendered = args.join(" ");
 
     assert!(rendered.starts_with("new-session -d -s ezm-s100__popup_slot_4 -c /tmp/popup-cwd"));
@@ -30,7 +31,8 @@ fn popup_new_session_uses_remote_ssh_shell_when_remote_routing_is_active() {
         "ezm-s100__popup_slot_4",
         "/tmp/popup-cwd",
         remote_context.as_ref(),
-    );
+    )
+    .expect("args should resolve");
     let rendered = args.join(" ");
 
     assert!(rendered.contains("new-session -d -s ezm-s100__popup_slot_4 -c /tmp/popup-cwd"));
@@ -47,6 +49,20 @@ fn popup_remote_launch_command_returns_none_without_server_url() {
         remote_server_url: None,
     };
 
-    let command = popup_remote_launch_command(Some(&context));
+    let command = popup_remote_launch_command(Some(&context)).expect("command should resolve");
     assert!(command.is_none());
+}
+
+#[test]
+fn popup_new_session_args_fail_fast_for_invalid_remote_authority() {
+    let context = PopupRemoteContext {
+        remote_dir: String::from("/srv/remotes/alpha"),
+        remote_server_url: Some(String::from("https://shell.remote.example:")),
+    };
+
+    let error = popup_new_session_args("ezm-s100__popup_slot_4", "/tmp/popup-cwd", Some(&context))
+        .expect_err("invalid authority should fail");
+    let rendered = error.to_string();
+    assert!(rendered.contains("invalid remote ssh authority"));
+    assert!(rendered.contains("EZM_REMOTE_SERVER_URL"));
 }
