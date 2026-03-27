@@ -65,7 +65,7 @@ pub(super) fn toggle_popup_shell(
     }
 
     let create_args =
-        session::popup_new_session_args(&popup_session, &cwd, remote_context.as_ref());
+        session::popup_new_session_args(&popup_session, &cwd, remote_context.as_ref())?;
     let create_args_ref = create_args.iter().map(String::as_str).collect::<Vec<_>>();
     tmux_run(&create_args_ref)?;
 

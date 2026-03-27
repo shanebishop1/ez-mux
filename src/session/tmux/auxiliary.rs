@@ -1,6 +1,7 @@
 use super::SessionError;
 use super::command::{tmux_output_value, tmux_run};
 use super::options::show_session_option;
+use super::remote_authority::parse_remote_ssh_authority;
 use super::slot_swap::validate_canonical_slot_registry;
 use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
 use crate::session::resolve_remote_path;
@@ -142,25 +143,10 @@ fn build_auxiliary_launch_command(
 fn build_auxiliary_command_for_remote(
     remote_launch: &AuxiliaryRemoteLaunch,
 ) -> Result<String, SessionError> {
-    if let Some(remote_command) = build_auxiliary_remote_launch_command(
+    build_auxiliary_remote_launch_command(
         &remote_launch.remote_dir,
         &remote_launch.remote_server_url,
-    ) {
-        return Ok(remote_command);
-    }
-
-    let bv_executable =
-        discover_executable_in_path("bv").ok_or_else(|| SessionError::TmuxCommandFailed {
-            command: String::from("auxiliary-viewer discover bv"),
-            stderr: String::from(
-                "remote auxiliary ssh target is invalid and local bv is unavailable",
-            ),
-        })?;
-    Ok(build_auxiliary_local_launch_command(
-        &bv_executable,
-        std::env::var(BEADS_DIR_ENV).ok().as_deref(),
-        std::env::var(BEADS_DB_ENV).ok().as_deref(),
-    ))
+    )
 }
 
 fn set_auxiliary_window_remain_on_exit(window_id: &str) -> Result<(), SessionError> {
@@ -246,20 +232,17 @@ fn build_auxiliary_local_launch_command(
 fn build_auxiliary_remote_launch_command(
     remote_dir: &str,
     remote_server_url: &str,
-) -> Option<String> {
-    let (target, port) = ssh_target_and_port(remote_server_url);
-    if target.is_empty() {
-        return None;
-    }
+) -> Result<String, SessionError> {
+    let authority = parse_remote_ssh_authority(remote_server_url)?;
 
     let remote_script = render_auxiliary_remote_script(remote_dir);
     let mut ssh_invocation = String::from("ssh -tt");
-    if let Some(port) = port {
+    if let Some(port) = authority.port {
         ssh_invocation.push_str(&format!(" -p {port}"));
     }
-    ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&target)));
+    ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&authority.target)));
     ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&remote_script)));
-    Some(format!(
+    Ok(format!(
         "if {ssh_invocation}; then :; else ssh_exit_code=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $ssh_exit_code\" >&2; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
     ))
 }
@@ -306,57 +289,6 @@ fn resolve_auxiliary_remote_launch(
         remote_dir: resolved.effective_path.display().to_string(),
         remote_server_url: server_url.to_owned(),
     }))
-}
-
-fn ssh_target_and_port(server_url: &str) -> (String, Option<u16>) {
-    let normalized = normalize_ssh_authority(server_url);
-    if normalized.is_empty() {
-        return (String::new(), None);
-    }
-
-    parse_authority_host_and_port(normalized)
-}
-
-fn normalize_ssh_authority(server_url: &str) -> &str {
-    let trimmed = server_url.trim();
-    let without_scheme = trimmed
-        .split_once("://")
-        .map_or(trimmed, |(_, remainder)| remainder);
-
-    without_scheme.split('/').next().unwrap_or_default().trim()
-}
-
-fn parse_authority_host_and_port(authority: &str) -> (String, Option<u16>) {
-    if let Some((host, port)) = parse_bracketed_authority(authority) {
-        return (host, port);
-    }
-
-    if let Some((host, port)) = authority.rsplit_once(':') {
-        let parsed_port = port.parse::<u16>().ok();
-        if !host.contains(':') && parsed_port.is_some() {
-            return (host.to_owned(), parsed_port);
-        }
-    }
-
-    (authority.to_owned(), None)
-}
-
-fn parse_bracketed_authority(authority: &str) -> Option<(String, Option<u16>)> {
-    if !authority.starts_with('[') {
-        return None;
-    }
-
-    let closing = authority.find(']')?;
-    let host = authority[..=closing].to_owned();
-    let remainder = authority[(closing + 1)..].trim();
-    if remainder.is_empty() {
-        return Some((host, None));
-    }
-
-    let port = remainder
-        .strip_prefix(':')
-        .and_then(|candidate| candidate.parse::<u16>().ok());
-    Some((host, port))
 }
 
 fn escape_single_quotes(value: &str) -> String {

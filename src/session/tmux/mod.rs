@@ -27,6 +27,7 @@ mod layout;
 mod mode_runtime;
 mod options;
 mod popup;
+mod remote_authority;
 mod remote_env;
 mod repair;
 mod slot_focus;

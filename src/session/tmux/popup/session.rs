@@ -67,7 +67,7 @@ pub(super) fn popup_new_session_args(
     popup_session: &str,
     cwd: &str,
     remote_context: Option<&PopupRemoteContext>,
-) -> Vec<String> {
+) -> Result<Vec<String>, SessionError> {
     let mut args = vec![
         String::from("new-session"),
         String::from("-d"),
@@ -77,9 +77,9 @@ pub(super) fn popup_new_session_args(
         cwd.to_owned(),
     ];
 
-    if let Some(command) = popup_remote_launch_command(remote_context) {
+    if let Some(command) = popup_remote_launch_command(remote_context)? {
         args.push(command);
     }
 
-    args
+    Ok(args)
 }

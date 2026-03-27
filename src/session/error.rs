@@ -17,6 +17,10 @@ pub enum SessionError {
     },
     #[error("invalid remote path `{prefix}`: expected absolute path")]
     InvalidRemotePathMappingPrefix { prefix: String },
+    #[error(
+        "invalid remote ssh authority `{value}`: {reason}. Set EZM_REMOTE_SERVER_URL (or ezm_remote_server_url) to host, host:port, [ipv6], [ipv6]:port, or <scheme>://<authority>"
+    )]
+    InvalidRemoteSshAuthority { value: String, reason: String },
     #[error("agent mode requires shared-server attach configuration")]
     MissingSharedServerAttachConfig,
     #[error("tmux command `{command}` failed: {stderr}")]

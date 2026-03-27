@@ -74,6 +74,27 @@ fn shell_mode_remote_prefix_uses_ssh_port_for_absolute_url_authority() {
 }
 
 #[test]
+fn shell_mode_remote_prefix_fails_fast_for_invalid_remote_authority() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo_root = temp.path().join("alpha");
+    let nested = repo_root.join("worktrees").join("feature-x");
+    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+    std::fs::create_dir_all(&nested).expect("create nested");
+
+    let error = launch_command_with_remote_dir_from_mapping(
+        SlotMode::Shell,
+        "exec \"${SHELL:-/bin/sh}\" -l",
+        &nested.display().to_string(),
+        remote_context(Some("/srv/remotes"), Some("https://shell.remote.example:")),
+    )
+    .expect_err("invalid authority should fail");
+
+    let rendered = error.to_string();
+    assert!(rendered.contains("invalid remote ssh authority"));
+    assert!(rendered.contains("EZM_REMOTE_SERVER_URL"));
+}
+
+#[test]
 fn lazygit_mode_remote_prefix_launches_over_ssh() {
     let temp = tempfile::tempdir().expect("tempdir");
     let repo_root = temp.path().join("alpha");
