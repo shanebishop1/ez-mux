@@ -12,7 +12,8 @@ Primary command:
 - Repository foundation and planning docs are in place.
 - Epic gates and E2E ownership are defined in `docs/epics/INDEX.md`.
 - A full read-only Focus5/NTM reference snapshot is imported under `reference/ntm-focus5/`.
-- Runtime implementation has not started yet.
+- Runtime implementation is active in `src/` (CLI entrypoint, config/loading, logging, and tmux session orchestration flows).
+- Verification is implemented with Rust unit/integration coverage plus tmux E2E suites in `tests/` (foundation, core session flows, smoke, and Focus5 amendment scenarios).
 
 ## Project Goals
 
