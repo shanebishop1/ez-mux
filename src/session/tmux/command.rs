@@ -263,8 +263,8 @@ pub(super) fn format_output_diagnostics(output: &Output) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        legacy_window_zero_session_target, parse_primary_window_target,
-        tmux_batch_command_for_diagnostics, tmux_command_for_diagnostics, REDACTED_SECRET_VALUE,
+        REDACTED_SECRET_VALUE, legacy_window_zero_session_target, parse_primary_window_target,
+        tmux_batch_command_for_diagnostics, tmux_command_for_diagnostics,
     };
 
     #[test]

@@ -92,11 +92,11 @@ fn option_group_contains_zoom_flag(command_usage: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::PaneWidthSample;
+    use super::ZoomFlagSupport;
     use super::pick_center_pane;
     use super::tmux_diagnostics_exit_status;
     use super::zoom_flag_support_for_command;
-    use super::PaneWidthSample;
-    use super::ZoomFlagSupport;
 
     #[test]
     fn picks_widest_pane_as_center_target() {

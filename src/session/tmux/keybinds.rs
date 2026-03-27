@@ -1,7 +1,7 @@
+use super::SessionError;
 use super::command::{tmux_output, tmux_run_batch};
 use super::popup::popup_parent_cleanup_hook_install_command;
 use super::remote_env::sync_runtime_env_into_tmux_server;
-use super::SessionError;
 use crate::config::EZM_BIN_ENV;
 
 const SWAP_TABLE: &str = "ezm-swap";
@@ -380,10 +380,10 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
 
     use super::{
-        focus_command, mode_command, pane_nav_bindings, popup_command, popup_hard_close_action,
-        popup_toggle_open_action, resolve_ezm_bin, shell_command_token,
-        should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
-        ACTIVE_SLOT_BORDER_STYLE_FORMAT,
+        ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings,
+        popup_command, popup_hard_close_action, popup_toggle_open_action, resolve_ezm_bin,
+        shell_command_token, should_clear_existing_keybinds_before_install, swap_command,
+        toggle_mode_command,
     };
 
     #[test]
@@ -447,8 +447,11 @@ mod tests {
     fn popup_command_targets_focused_slot_metadata() {
         let rendered = popup_command("'ezm'");
         assert!(rendered.contains("__internal popup"));
-        assert!(rendered
-            .contains("#{?#{@ezm_popup_origin_slot},#{@ezm_popup_origin_slot},#{@ezm_slot_id}}"));
+        assert!(
+            rendered.contains(
+                "#{?#{@ezm_popup_origin_slot},#{@ezm_popup_origin_slot},#{@ezm_slot_id}}"
+            )
+        );
         assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
         assert!(rendered.starts_with("'ezm' __internal popup"));
         assert!(rendered.contains(

@@ -170,16 +170,13 @@ fn execute_internal(
                 remote_path,
                 remote_server_url: remote_runtime.remote_server_url.value.as_deref(),
             };
-            let outcome = session::switch_slot_mode(
-                &session,
-                slot,
-                mode,
+            let launch_context = session::SlotModeLaunchContext {
                 remote_context,
-                shared_server.as_ref(),
+                shared_server: shared_server.as_ref(),
                 agent_command,
-                opencode_theme_runtime.theme_for_slot(slot),
-                &tmux,
-            )?;
+                opencode_theme: opencode_theme_runtime.theme_for_slot(slot),
+            };
+            let outcome = session::switch_slot_mode(&session, slot, mode, launch_context, &tmux)?;
             Ok(format!(
                 "internal mode complete: session={}; slot={}; mode={}",
                 outcome.session_name,

@@ -140,10 +140,10 @@ pub fn build_registry_for_canonical_panes(
 
 #[cfg(test)]
 mod tests {
-    use super::assign_worktrees_to_slots;
-    use super::build_registry_for_canonical_panes;
     use super::SlotRegistry;
     use super::SlotRegistryError;
+    use super::assign_worktrees_to_slots;
+    use super::build_registry_for_canonical_panes;
 
     #[test]
     fn deterministic_assignment_maps_worktrees_to_slots_1_through_5() {

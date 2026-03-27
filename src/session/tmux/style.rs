@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
+use super::SessionError;
 use super::command::{tmux_output_value, tmux_primary_window_target, tmux_run, tmux_run_batch};
 use super::options::canonical_slot_mismatch_error;
-use super::SessionError;
 
 const SLOT_GLYPH_PRESET_KEY: &str = "@ezm_slot_glyph_preset";
 const BORDER_LABEL_OPTION_KEY: &str = "@ezm_border_label";
@@ -450,8 +450,8 @@ fn slot_text_style_commands(pane_id: &str, color: &str) -> [Vec<String>; 2] {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_pane_metrics, parse_session_slot_state, parse_slot_glyph_preset_from_options,
-        slot_border_label, slot_color, SlotGlyphPreset,
+        SlotGlyphPreset, parse_pane_metrics, parse_session_slot_state,
+        parse_slot_glyph_preset_from_options, slot_border_label, slot_color,
     };
 
     #[test]

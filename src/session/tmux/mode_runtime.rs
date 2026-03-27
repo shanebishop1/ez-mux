@@ -1,4 +1,7 @@
-use super::super::mode_adapter::{launch_tool_command, ModeToolFailurePolicy};
+use super::super::mode_adapter::{ModeToolFailurePolicy, launch_tool_command};
+use super::CANONICAL_SLOT_IDS;
+use super::SessionError;
+use super::SlotMode;
 use super::command::{format_output_diagnostics, tmux_output, tmux_output_value, tmux_run};
 use super::options::{
     required_pane_option, required_session_option, set_pane_option, set_session_option,
@@ -6,65 +9,35 @@ use super::options::{
 };
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::refresh_active_border_for_slot;
-use super::SessionError;
-use super::SlotMode;
-use super::CANONICAL_SLOT_IDS;
 use crate::session::{
-    mode_launch_contract, resolve_remote_path, RemoteModeContext, SharedServerAttachConfig,
-    TeardownHook,
+    RemoteModeContext, SharedServerAttachConfig, SlotModeLaunchContext, TeardownHook,
+    mode_launch_contract, resolve_remote_path,
 };
 
 pub(super) fn switch_slot_mode(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
-    remote_context: RemoteModeContext<'_>,
-    shared_server: Option<&SharedServerAttachConfig>,
-    agent_command: Option<&str>,
-    opencode_theme: Option<&str>,
+    launch_context: SlotModeLaunchContext<'_>,
 ) -> Result<(), SessionError> {
     let startup = startup_mode_signal_present();
-    switch_slot_mode_internal(
-        session_name,
-        slot_id,
-        mode,
-        remote_context,
-        shared_server,
-        agent_command,
-        opencode_theme,
-        startup,
-    )
+    switch_slot_mode_internal(session_name, slot_id, mode, launch_context, startup)
 }
 
 pub(super) fn switch_slot_mode_for_repair(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
-    remote_context: RemoteModeContext<'_>,
-    shared_server: Option<&SharedServerAttachConfig>,
-    agent_command: Option<&str>,
-    opencode_theme: Option<&str>,
+    launch_context: SlotModeLaunchContext<'_>,
 ) -> Result<(), SessionError> {
-    switch_slot_mode_internal(
-        session_name,
-        slot_id,
-        mode,
-        remote_context,
-        shared_server,
-        agent_command,
-        opencode_theme,
-        true,
-    )
+    switch_slot_mode_internal(session_name, slot_id, mode, launch_context, true)
 }
 
 fn switch_slot_mode_internal(
     session_name: &str,
     slot_id: u8,
     mode: SlotMode,
-    remote_context: RemoteModeContext<'_>,
-    shared_server: Option<&SharedServerAttachConfig>,
-    agent_command: Option<&str>,
-    opencode_theme: Option<&str>,
+    launch_context: SlotModeLaunchContext<'_>,
     prefer_assigned_worktree_cwd: bool,
 ) -> Result<(), SessionError> {
     let startup_fast_path = use_startup_fast_path(prefer_assigned_worktree_cwd);
@@ -107,10 +80,7 @@ fn switch_slot_mode_internal(
         mode,
         &contract.launch_command,
         &current_cwd,
-        remote_context,
-        shared_server,
-        agent_command,
-        opencode_theme,
+        launch_context,
     )?;
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
     respawn_slot_mode(&pane_id, &current_cwd, &launch_command)?;
@@ -228,11 +198,15 @@ fn launch_command_for_mode(
     mode: SlotMode,
     launch_command: &str,
     cwd: &str,
-    remote_context: RemoteModeContext<'_>,
-    shared_server: Option<&SharedServerAttachConfig>,
-    agent_command: Option<&str>,
-    opencode_theme: Option<&str>,
+    launch_context: SlotModeLaunchContext<'_>,
 ) -> Result<String, SessionError> {
+    let SlotModeLaunchContext {
+        remote_context,
+        shared_server,
+        agent_command,
+        opencode_theme,
+    } = launch_context;
+
     match mode {
         SlotMode::Agent => {
             if let Some(command) = normalize_agent_command_override(agent_command) {

@@ -1,9 +1,9 @@
+use super::SessionError;
 use super::command::{tmux_output, tmux_output_value, tmux_run};
 use super::options::{required_session_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
-use super::SessionError;
 use crate::config::EZM_REMOTE_SERVER_URL_ENV;
-use crate::session::{resolve_remote_path, PopupShellAction, PopupShellOutcome};
+use crate::session::{PopupShellAction, PopupShellOutcome, resolve_remote_path};
 
 const POPUP_WIDTH_PCT: u8 = 70;
 const POPUP_HEIGHT_PCT: u8 = 70;
@@ -522,7 +522,9 @@ mod tests {
     fn popup_parent_cleanup_hook_command_invokes_shell_cleanup_route() {
         let rendered = popup_parent_cleanup_hook_command();
         assert!(rendered.starts_with("run-shell -b \""));
-        assert!(rendered.contains("tmux has-session -t \\\"#{hook_session_name}__popup_slot_1\\\""));
+        assert!(
+            rendered.contains("tmux has-session -t \\\"#{hook_session_name}__popup_slot_1\\\"")
+        );
         assert!(
             rendered.contains("tmux kill-session -t \\\"#{hook_session_name}__popup_slot_5\\\"")
         );

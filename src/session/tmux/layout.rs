@@ -1,5 +1,9 @@
 use std::path::Path;
 
+use super::DEFAULT_CENTER_WIDTH_PCT;
+use super::LayoutPreset;
+use super::SessionError;
+use super::SlotRegistry;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
 use super::command::{tmux_output_value, tmux_run, tmux_run_batch};
@@ -7,10 +11,6 @@ use super::keybinds::install_runtime_keybinds;
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::apply_runtime_style_defaults_for_target;
 use super::worktree::discover_worktrees_for_slots;
-use super::LayoutPreset;
-use super::SessionError;
-use super::SlotRegistry;
-use super::DEFAULT_CENTER_WIDTH_PCT;
 use crate::config::EZM_BIN_ENV;
 
 mod preset;
@@ -364,9 +364,9 @@ fn shell_single_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        bootstrap_registry_write_strategy, parse_bootstrap_anchor,
+        RegistryWriteStrategy, bootstrap_registry_write_strategy, parse_bootstrap_anchor,
         should_apply_runtime_styles_during_bootstrap, should_validate_registry_after_bootstrap,
-        startup_mode_for_slot, startup_mode_schedule_command, RegistryWriteStrategy,
+        startup_mode_for_slot, startup_mode_schedule_command,
     };
 
     #[test]

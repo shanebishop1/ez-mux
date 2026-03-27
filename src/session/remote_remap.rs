@@ -75,7 +75,7 @@ fn discover_git_top(local_path: &Path) -> Option<PathBuf> {
 mod tests {
     use std::path::Path;
 
-    use super::{resolve_remote_path, RemotePathResolution};
+    use super::{RemotePathResolution, resolve_remote_path};
 
     #[test]
     fn canonical_mapping_uses_repo_root_basename_plus_relative_suffix() {
