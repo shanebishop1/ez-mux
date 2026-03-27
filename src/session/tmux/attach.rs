@@ -201,4 +201,20 @@ mod tests {
         assert!(diagnostics.contains("failed collecting attach-session diagnostics"));
         assert!(diagnostics.contains("tmux missing"));
     }
+
+    #[test]
+    fn attach_failure_diagnostics_use_signal_status_for_non_exit_failures() {
+        let diagnostics = format_attach_failure_diagnostics(
+            None,
+            Ok(AttachFailureStreams {
+                stdout: String::from("partial attach output"),
+                stderr: String::from("session died"),
+            }),
+        );
+
+        assert_eq!(
+            diagnostics,
+            "status=signal; stdout=\"partial attach output\"; stderr=\"session died\""
+        );
+    }
 }
