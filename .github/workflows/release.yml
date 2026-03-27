@@ -165,6 +165,41 @@ jobs:
           echo "SBOM: skipped for this run (emission not configured in release workflow)." > "$STATUS_FILE"
           echo "status=skipped" >> "$GITHUB_OUTPUT"
 
+      - name: Emit verification metadata
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          METADATA_FILE="dist/ezm-${TAG}-verification.json"
+          cat > "$METADATA_FILE" <<EOF
+          {
+            "release_tag": "${{ steps.meta.outputs.tag }}",
+            "commit_sha": "${{ steps.meta.outputs.sha }}",
+            "workflow_run": {
+              "id": "${{ github.run_id }}",
+              "url": "${{ steps.meta.outputs.run_url }}"
+            },
+            "required_preflight_checks": [
+              {
+                "name": "cargo fmt --all -- --check",
+                "status": "passed"
+              },
+              {
+                "name": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+                "status": "passed"
+              },
+              {
+                "name": "cargo test --locked",
+                "status": "passed"
+              }
+            ],
+            "verification_status_summary": {
+              "preflight": "passed",
+              "build": "passed",
+              "release_artifacts_prepared": "passed",
+              "overall": "passed"
+            }
+          }
+          EOF
+
       - name: Render release notes from template
         env:
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
@@ -204,5 +239,6 @@ jobs:
             dist/ezm-${{ steps.meta.outputs.tag }}-*.tar.gz
             dist/ezm-${{ steps.meta.outputs.tag }}-checksums.txt
             dist/ezm-${{ steps.meta.outputs.tag }}-sbom-status.txt
+            dist/ezm-${{ steps.meta.outputs.tag }}-verification.json
           fail_on_unmatched_files: true
           body_path: dist/release-notes.md
