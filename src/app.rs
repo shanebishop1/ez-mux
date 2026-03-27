@@ -44,6 +44,7 @@ pub(crate) fn execute_with_opener(
 ) -> Result<String, AppError> {
     let loaded = config::load_config(env, os)?;
     let resolved_remote_runtime = config::resolve_remote_runtime(env, &loaded.values)?;
+    let agent_command = config::resolve_agent_command(&loaded.values);
     let opencode_theme_runtime = config::resolve_opencode_theme_runtime(&loaded.values);
     let remote_path = remote_path_for_routing(&resolved_remote_runtime);
 
@@ -83,6 +84,7 @@ pub(crate) fn execute_with_opener(
             command,
             remote_path,
             &resolved_remote_runtime,
+            agent_command.as_deref(),
             &opencode_theme_runtime,
         )?,
     };
@@ -140,6 +142,7 @@ fn execute_internal(
     command: InternalCommand,
     remote_path: Option<&str>,
     remote_runtime: &config::RemoteRuntimeResolution,
+    agent_command: Option<&str>,
     opencode_theme_runtime: &config::OpencodeThemeRuntimeResolution,
 ) -> Result<String, AppError> {
     match command {
@@ -173,6 +176,7 @@ fn execute_internal(
                 mode,
                 remote_context,
                 shared_server.as_ref(),
+                agent_command,
                 opencode_theme_runtime.theme_for_slot(slot),
                 &tmux,
             )?;

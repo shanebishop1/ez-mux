@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -113,7 +114,10 @@ pub fn ensure_project_session_with_remote_path(
         trace.mark("tmux-bootstrap-default-layout");
         SessionAction::Create
     };
-    if let Err(source) = spawn_auxiliary_viewer_open(&identity.session_name) {
+    if should_open_auxiliary_synchronously() {
+        tmux.auxiliary_viewer(&identity.session_name, true)?;
+        trace.mark("tmux-auxiliary-viewer-sync-non-interactive");
+    } else if let Err(source) = spawn_auxiliary_viewer_open(&identity.session_name) {
         eprintln!(
             "warning: failed scheduling auxiliary viewer open in background; falling back to synchronous open: {source}"
         );
@@ -208,6 +212,10 @@ fn startup_trace_enabled() -> bool {
 fn parse_enabled_value(value: &str) -> bool {
     let normalized = value.trim().to_ascii_lowercase();
     matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+}
+
+fn should_open_auxiliary_synchronously() -> bool {
+    !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal()
 }
 
 fn millis(duration: Duration) -> f64 {

@@ -323,6 +323,7 @@ mod tests {
             _: crate::session::RemoteModeContext<'_>,
             _: Option<&crate::session::SharedServerAttachConfig>,
             _: Option<&str>,
+            _: Option<&str>,
         ) -> Result<(), crate::session::SessionError> {
             Ok(())
         }

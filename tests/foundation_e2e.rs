@@ -323,7 +323,7 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
 
     let env_over_file = harness
         .run_ezm(
-            &[],
+            &["-v"],
             &[
                 ("EZM_CONFIG", &config_path),
                 ("EZM_REMOTE_PATH", "/srv/env-remotes"),
@@ -332,17 +332,17 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-17 env-over-file invocation failed: {error}"));
-    samples.push(sample(&[], &env_over_file));
+    samples.push(sample(&["-v"], &env_over_file));
 
     let file_over_default = harness
-        .run_ezm(&[], &[("EZM_CONFIG", &config_path)], 0)
+        .run_ezm(&["-v"], &[("EZM_CONFIG", &config_path)], 0)
         .unwrap_or_else(|error| panic!("E2E-17 file-over-default invocation failed: {error}"));
-    samples.push(sample(&[], &file_over_default));
+    samples.push(sample(&["-v"], &file_over_default));
 
     let default_only = harness
-        .run_ezm(&[], &[], 0)
+        .run_ezm(&["-v"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-17 default invocation failed: {error}"));
-    samples.push(sample(&[], &default_only));
+    samples.push(sample(&["-v"], &default_only));
 
     let env_source = extract_remote_path_source(&env_over_file.stdout);
     let file_source = extract_remote_path_source(&file_over_default.stdout);
@@ -399,8 +399,8 @@ fn case_e2e_18(harness: &FoundationHarness) -> CaseEvidence {
         success.exit_code == 0
     ));
     assertions.push(format!(
-        "success stdout has user message: {}",
-        success.stdout.contains("contract locked")
+        "success stdout remains empty by default: {}",
+        success.stdout.trim().is_empty()
     ));
     assertions.push(format!(
         "success stderr omits active-log banner by default: {}",
@@ -438,7 +438,7 @@ fn case_e2e_18(harness: &FoundationHarness) -> CaseEvidence {
         .unwrap_or_else(|error| panic!("E2E-18 settle evidence failed: {error}"));
 
     let pass = success.exit_code == 0
-        && success.stdout.contains("contract locked")
+        && success.stdout.trim().is_empty()
         && !success.stderr.contains("active log file:")
         && usage_failure.exit_code == 2
         && usage_failure.stdout.trim().is_empty()

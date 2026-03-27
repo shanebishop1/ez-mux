@@ -422,3 +422,32 @@ fn load_config_parses_opencode_slot_theme_settings() {
     assert_eq!(runtime.theme_for_slot(2), Some("dracula"));
     assert_eq!(runtime.theme_for_slot(4), Some("catppuccin"));
 }
+
+#[test]
+fn resolve_agent_command_uses_trimmed_config_value() {
+    let file = FileConfig {
+        agent_command: Some(String::from(
+            "  exec claude || exec \"${SHELL:-/bin/sh}\" -l  ",
+        )),
+        ..FileConfig::default()
+    };
+
+    let command = resolve_agent_command(&file);
+
+    assert_eq!(
+        command.as_deref(),
+        Some("exec claude || exec \"${SHELL:-/bin/sh}\" -l")
+    );
+}
+
+#[test]
+fn resolve_agent_command_treats_empty_value_as_unset() {
+    let file = FileConfig {
+        agent_command: Some(String::from("   ")),
+        ..FileConfig::default()
+    };
+
+    let command = resolve_agent_command(&file);
+
+    assert!(command.is_none());
+}

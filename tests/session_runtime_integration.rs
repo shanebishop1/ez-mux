@@ -89,6 +89,7 @@ impl TmuxClient for FakeTmux {
         mode: SlotMode,
         _remote_context: ez_mux::session::RemoteModeContext<'_>,
         _shared_server: Option<&ez_mux::session::SharedServerAttachConfig>,
+        _agent_command: Option<&str>,
         _opencode_theme: Option<&str>,
     ) -> Result<(), ez_mux::session::SessionError> {
         self.mode_switches
@@ -523,6 +524,7 @@ fn slot_targeted_mode_switch_routes_to_tmux_client() {
         RemoteModeContext::default(),
         None,
         None,
+        None,
         &tmux,
     )
     .expect("mode switch should succeed");
@@ -552,6 +554,7 @@ fn slot_targeted_mode_switch_surfaces_tmux_failures() {
         RemoteModeContext::default(),
         None,
         None,
+        None,
         &tmux,
     )
     .expect_err("mode switch should fail");
@@ -573,6 +576,7 @@ fn slot_targeted_mode_switch_rejects_non_canonical_slot_id_at_runtime_boundary()
         9,
         SlotMode::Agent,
         RemoteModeContext::default(),
+        None,
         None,
         None,
         &tmux,
