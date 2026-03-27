@@ -1,7 +1,7 @@
 use std::process::Output;
 
-use super::command::{tmux_output, tmux_run};
 use super::SessionError;
+use super::command::{tmux_output, tmux_run};
 
 pub(super) fn required_session_option(
     session_name: &str,

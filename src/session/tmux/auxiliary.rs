@@ -1,7 +1,7 @@
+use super::SessionError;
 use super::command::{tmux_output_value, tmux_run};
 use super::options::show_session_option;
 use super::slot_swap::validate_canonical_slot_registry;
-use super::SessionError;
 use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
 use crate::session::resolve_remote_path;
 use crate::session::{AuxiliaryViewerAction, AuxiliaryViewerOutcome};

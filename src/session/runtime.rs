@@ -5,11 +5,11 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use super::resolve_remote_path;
-use super::resolve_session_identity;
 use super::SessionError;
 use super::SessionIdentity;
 use super::TmuxClient;
+use super::resolve_remote_path;
+use super::resolve_session_identity;
 use crate::config::EZM_BIN_ENV;
 use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
 

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, PtySize};
+use portable_pty::{Child as PtyChild, CommandBuilder, PtySize, native_pty_system};
 
 pub struct CmdOutput {
     pub exit_code: i32,
@@ -222,15 +222,14 @@ impl FoundationHarness {
         })
     }
 
-    #[allow(dead_code)]
-    pub fn run_ezm_with_pty_attach_probe(
+    fn build_pty_command(
         &self,
         project_dir: &Path,
         args: &[&str],
         env_overrides: &[(&str, &str)],
         opener_exit_code: i32,
-        session_name: &str,
-    ) -> Result<PtyAttachProbe, String> {
+        reset_remote_env: bool,
+    ) -> Result<CommandBuilder, String> {
         let state_root = self.work_dir.join("state");
         let config_root = self.work_dir.join("config");
         let home_root = self.work_dir.join("home");
@@ -255,13 +254,16 @@ impl FoundationHarness {
         command.cwd(project_dir);
         command.env("TMUX", "");
         command.env("TERM", "xterm-256color");
-        command.env("EZM_REMOTE_PATH", "");
-        command.env("EZM_REMOTE_SERVER_URL", "");
-        command.env("OPENCODE_SERVER_URL", "");
-        command.env("OPENCODE_SERVER_PASSWORD", "");
-        command.env("OPENCODE_CONFIG_DIR", "");
-        command.env("OPENCODE_TUI_CONFIG", "");
-        command.env("OPENCODE_TEST_MANAGED_CONFIG_DIR", "");
+        if reset_remote_env {
+            command.env("EZM_REMOTE_PATH", "");
+            command.env("EZM_REMOTE_SERVER_URL", "");
+            command.env("OPENCODE_SERVER_URL", "");
+            command.env("OPENCODE_SERVER_PASSWORD", "");
+            command.env("OPENCODE_CONFIG_DIR", "");
+            command.env("OPENCODE_TUI_CONFIG", "");
+            command.env("OPENCODE_TEST_MANAGED_CONFIG_DIR", "");
+        }
+
         command.env("HOME", home_root);
         command.env("XDG_STATE_HOME", state_root);
         command.env("XDG_CONFIG_HOME", config_root);
@@ -274,6 +276,21 @@ impl FoundationHarness {
         for (key, value) in env_overrides {
             command.env(key, value);
         }
+
+        Ok(command)
+    }
+
+    #[allow(dead_code)]
+    pub fn run_ezm_with_pty_attach_probe(
+        &self,
+        project_dir: &Path,
+        args: &[&str],
+        env_overrides: &[(&str, &str)],
+        opener_exit_code: i32,
+        session_name: &str,
+    ) -> Result<PtyAttachProbe, String> {
+        let command =
+            self.build_pty_command(project_dir, args, env_overrides, opener_exit_code, true)?;
 
         let pty = native_pty_system()
             .openpty(PtySize {
@@ -360,42 +377,8 @@ impl FoundationHarness {
         opener_exit_code: i32,
         session_name: &str,
     ) -> Result<PtyInterruptProbe, String> {
-        let state_root = self.work_dir.join("state");
-        let config_root = self.work_dir.join("config");
-        let home_root = self.work_dir.join("home");
-
-        fs::create_dir_all(&state_root)
-            .map_err(|error| format!("failed creating state root: {error}"))?;
-        fs::create_dir_all(&config_root)
-            .map_err(|error| format!("failed creating config root: {error}"))?;
-        fs::create_dir_all(&home_root)
-            .map_err(|error| format!("failed creating home root: {error}"))?;
-
-        let current_path = std::env::var("PATH").unwrap_or_default();
-        let merged_path = format!("{}:{}", self.fake_bin_dir.display(), current_path);
-        let mut command = CommandBuilder::new(
-            self.ezm_bin
-                .to_str()
-                .ok_or_else(|| String::from("ezm binary path is not valid UTF-8"))?,
-        );
-        for arg in args {
-            command.arg(arg);
-        }
-        command.cwd(project_dir);
-        command.env("TMUX", "");
-        command.env("TERM", "xterm-256color");
-        command.env("HOME", home_root);
-        command.env("XDG_STATE_HOME", state_root);
-        command.env("XDG_CONFIG_HOME", config_root);
-        command.env("TMUX_TMPDIR", &self.tmux_tmpdir);
-        command.env("E2E_TMUX_SOCKET", &self.tmux_socket_name);
-        command.env("E2E_OPEN_CAPTURE", &self.open_capture_path);
-        command.env("E2E_OPEN_EXIT", opener_exit_code.to_string());
-        command.env("PATH", merged_path);
-
-        for (key, value) in env_overrides {
-            command.env(key, value);
-        }
+        let command =
+            self.build_pty_command(project_dir, args, env_overrides, opener_exit_code, false)?;
 
         let pty = native_pty_system()
             .openpty(PtySize {

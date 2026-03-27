@@ -1,24 +1,23 @@
 use std::path::Path;
 use std::process::Command;
 
+use super::AuxiliaryViewerOutcome;
+use super::CANONICAL_SLOT_IDS;
+use super::DEFAULT_CENTER_WIDTH_PCT;
+use super::LayoutPreset;
+use super::PaneWidthSample;
+use super::PopupShellOutcome;
+use super::SessionError;
+use super::SlotMode;
+use super::SlotModeLaunchContext;
+use super::SlotRegistry;
+use super::TeardownOutcome;
+use super::ZoomFlagSupport;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
 use super::pick_center_pane;
 use super::tmux_diagnostics_exit_status;
 use super::zoom_flag_support_for_command;
-use super::AuxiliaryViewerOutcome;
-use super::LayoutPreset;
-use super::PaneWidthSample;
-use super::PopupShellOutcome;
-use super::RemoteModeContext;
-use super::SessionError;
-use super::SharedServerAttachConfig;
-use super::SlotMode;
-use super::SlotRegistry;
-use super::TeardownOutcome;
-use super::ZoomFlagSupport;
-use super::CANONICAL_SLOT_IDS;
-use super::DEFAULT_CENTER_WIDTH_PCT;
 
 mod attach;
 mod auxiliary;
@@ -110,10 +109,7 @@ pub trait TmuxClient {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
-        remote_context: RemoteModeContext<'_>,
-        shared_server: Option<&SharedServerAttachConfig>,
-        agent_command: Option<&str>,
-        opencode_theme: Option<&str>,
+        launch_context: SlotModeLaunchContext<'_>,
     ) -> Result<(), SessionError>;
 
     /// Toggles popup shell helper session for one canonical slot.
@@ -249,20 +245,9 @@ impl TmuxClient for ProcessTmuxClient {
         session_name: &str,
         slot_id: u8,
         mode: SlotMode,
-        remote_context: RemoteModeContext<'_>,
-        shared_server: Option<&SharedServerAttachConfig>,
-        agent_command: Option<&str>,
-        opencode_theme: Option<&str>,
+        launch_context: SlotModeLaunchContext<'_>,
     ) -> Result<(), SessionError> {
-        mode_runtime::switch_slot_mode(
-            session_name,
-            slot_id,
-            mode,
-            remote_context,
-            shared_server,
-            agent_command,
-            opencode_theme,
-        )
+        mode_runtime::switch_slot_mode(session_name, slot_id, mode, launch_context)
     }
 
     fn toggle_popup_shell(

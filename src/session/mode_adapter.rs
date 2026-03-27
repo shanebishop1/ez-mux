@@ -87,7 +87,7 @@ fn sanitize_tool_environment(binary_name: &str, launch_invocation: &str) -> Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{launch_tool_command, ModeToolFailurePolicy};
+    use super::{ModeToolFailurePolicy, launch_tool_command};
 
     #[test]
     fn opencode_launch_clears_shared_server_environment_overrides() {

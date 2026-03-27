@@ -213,8 +213,8 @@ mod tests {
     use std::collections::{HashMap, VecDeque};
 
     use super::{
-        parse_lines, process_absence_status, teardown_session_with_executor, tmux_absence_status,
-        CommandOutput, TeardownExecutor,
+        CommandOutput, TeardownExecutor, parse_lines, process_absence_status,
+        teardown_session_with_executor, tmux_absence_status,
     };
 
     #[derive(Default)]

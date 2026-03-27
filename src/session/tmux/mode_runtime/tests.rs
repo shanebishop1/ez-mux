@@ -3,7 +3,9 @@ use super::{
     launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd,
     startup_mode_signal_enabled, use_startup_fast_path,
 };
-use crate::session::{RemoteModeContext, SharedServerAttachConfig, SlotMode};
+use crate::session::{
+    RemoteModeContext, SharedServerAttachConfig, SlotMode, SlotModeLaunchContext,
+};
 
 fn remote_context<'a>(
     remote_path: Option<&'a str>,
@@ -12,6 +14,20 @@ fn remote_context<'a>(
     RemoteModeContext {
         remote_path,
         remote_server_url,
+    }
+}
+
+fn mode_launch_context<'a>(
+    remote_context: RemoteModeContext<'a>,
+    shared_server: Option<&'a SharedServerAttachConfig>,
+    agent_command: Option<&'a str>,
+    opencode_theme: Option<&'a str>,
+) -> SlotModeLaunchContext<'a> {
+    SlotModeLaunchContext {
+        remote_context,
+        shared_server,
+        agent_command,
+        opencode_theme,
     }
 }
 
@@ -173,9 +189,11 @@ fn agent_mode_requires_non_empty_attach_url_when_shared_server_config_is_used() 
     )
     .expect_err("empty shared server config should fail");
 
-    assert!(error
-        .to_string()
-        .contains("agent mode requires shared-server attach configuration"));
+    assert!(
+        error
+            .to_string()
+            .contains("agent mode requires shared-server attach configuration")
+    );
 }
 
 #[test]
@@ -185,10 +203,7 @@ fn agent_mode_without_shared_server_uses_local_launch_contract() {
         SlotMode::Agent,
         "exec opencode || exec \"${SHELL:-/bin/sh}\" -l",
         "/tmp/local-only",
-        RemoteModeContext::default(),
-        None,
-        None,
-        None,
+        mode_launch_context(RemoteModeContext::default(), None, None, None),
     )
     .expect("agent local launch should resolve");
 
@@ -206,13 +221,15 @@ fn agent_mode_uses_remote_path_mapping_without_operator() {
         SlotMode::Agent,
         "placeholder",
         &repo_root.display().to_string(),
-        remote_context(Some("/srv/remotes"), None),
-        Some(&SharedServerAttachConfig {
-            url: String::from("http://127.0.0.1:4096"),
-            password: None,
-        }),
-        None,
-        None,
+        mode_launch_context(
+            remote_context(Some("/srv/remotes"), None),
+            Some(&SharedServerAttachConfig {
+                url: String::from("http://127.0.0.1:4096"),
+                password: None,
+            }),
+            None,
+            None,
+        ),
     )
     .expect("agent mode should resolve");
 
@@ -254,10 +271,7 @@ fn agent_mode_theme_sets_custom_tui_config_for_local_launches() {
         SlotMode::Agent,
         "exec opencode || exec \"${SHELL:-/bin/sh}\" -l",
         "/tmp/local-only",
-        RemoteModeContext::default(),
-        None,
-        None,
-        Some("catppuccin"),
+        mode_launch_context(RemoteModeContext::default(), None, None, Some("catppuccin")),
     )
     .expect("agent local launch should resolve");
 
@@ -274,13 +288,15 @@ fn agent_mode_uses_configured_override_command_when_present() {
         SlotMode::Agent,
         "exec opencode || exec \"${SHELL:-/bin/sh}\" -l",
         "/tmp/local-only",
-        RemoteModeContext::default(),
-        Some(&SharedServerAttachConfig {
-            url: String::from("http://127.0.0.1:4096"),
-            password: Some(String::from("secret")),
-        }),
-        Some("exec claude || exec \"${SHELL:-/bin/sh}\" -l"),
-        Some("nightowl"),
+        mode_launch_context(
+            RemoteModeContext::default(),
+            Some(&SharedServerAttachConfig {
+                url: String::from("http://127.0.0.1:4096"),
+                password: Some(String::from("secret")),
+            }),
+            Some("exec claude || exec \"${SHELL:-/bin/sh}\" -l"),
+            Some("nightowl"),
+        ),
     )
     .expect("agent override launch should resolve");
 

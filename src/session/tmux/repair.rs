@@ -1,18 +1,19 @@
 use std::collections::{BTreeSet, HashMap};
 
+use super::CANONICAL_SLOT_IDS;
+use super::SessionError;
 use super::command::{tmux_output, tmux_output_value, tmux_primary_window_target, tmux_run};
 use super::options::{required_session_option, set_pane_option, set_session_option};
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::apply_runtime_style_defaults;
-use super::SessionError;
-use super::CANONICAL_SLOT_IDS;
-use super::{canonical_five_pane_column_widths, DEFAULT_CENTER_WIDTH_PCT};
+use super::{DEFAULT_CENTER_WIDTH_PCT, canonical_five_pane_column_widths};
 use crate::config::{self, OperatingSystem, ProcessEnv};
 use crate::session::RemoteModeContext;
 use crate::session::SessionDamageAnalysis;
 use crate::session::SessionRepairOutcome;
 use crate::session::SharedServerAttachConfig;
 use crate::session::SlotMode;
+use crate::session::SlotModeLaunchContext;
 
 #[derive(Debug, Clone)]
 struct SlotMetadata {
@@ -164,7 +165,7 @@ fn apply_recovered_slot_pane_bindings(
         if metadata.pane_id == *live_pane_id || live_panes.contains(&metadata.pane_id) {
             continue;
         }
-        metadata.pane_id = live_pane_id.clone();
+        metadata.pane_id.clone_from(live_pane_id);
         recovered_slots.push(slot_id);
     }
     recovered_slots.sort_unstable();
@@ -455,14 +456,17 @@ fn restore_recreated_slot_modes(
             remote_path: launch_context.remote_path.as_deref(),
             remote_server_url: launch_context.remote_server_url.as_deref(),
         };
+        let slot_launch_context = SlotModeLaunchContext {
+            remote_context,
+            shared_server: launch_context.shared_server.as_ref(),
+            agent_command: launch_context.agent_command.as_deref(),
+            opencode_theme: launch_context.opencode_themes.theme_for_slot(*slot_id),
+        };
         super::mode_runtime::switch_slot_mode_for_repair(
             session_name,
             *slot_id,
             mode,
-            remote_context,
-            launch_context.shared_server.as_ref(),
-            launch_context.agent_command.as_deref(),
-            launch_context.opencode_themes.theme_for_slot(*slot_id),
+            slot_launch_context,
         )?;
     }
 
@@ -546,9 +550,9 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        apply_recovered_slot_pane_bindings, parse_live_slot_binding, parse_pane_left_metrics,
-        parse_slot_mode_label, reconcile_loaded_session_damage, recreate_plan,
-        select_right_column_anchor, PaneLeftMetric, SlotMetadata, SplitDirection,
+        PaneLeftMetric, SlotMetadata, SplitDirection, apply_recovered_slot_pane_bindings,
+        parse_live_slot_binding, parse_pane_left_metrics, parse_slot_mode_label,
+        reconcile_loaded_session_damage, recreate_plan, select_right_column_anchor,
     };
     use crate::session::SlotMode;
 

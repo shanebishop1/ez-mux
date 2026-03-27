@@ -1,6 +1,9 @@
 use crate::session::three_pane_target_widths;
 use crate::session::three_pane_widths_within_tolerance;
 
+use super::super::DEFAULT_CENTER_WIDTH_PCT;
+use super::super::LayoutPreset;
+use super::super::SessionError;
 use super::super::canonical_five_pane_column_widths;
 use super::super::command::{
     format_output_diagnostics, tmux_output, tmux_output_value, tmux_primary_window_target, tmux_run,
@@ -11,9 +14,6 @@ use super::super::options::{
 use super::super::repair::reconcile_session_damage;
 use super::super::slot_swap::validate_canonical_slot_registry;
 use super::super::style::apply_runtime_style_defaults;
-use super::super::LayoutPreset;
-use super::super::SessionError;
-use super::super::DEFAULT_CENTER_WIDTH_PCT;
 use super::LAYOUT_MODE_FIVE_PANE;
 use super::LAYOUT_MODE_KEY;
 use super::LAYOUT_MODE_THREE_PANE;
@@ -446,9 +446,9 @@ fn missing_pane_diagnostic(output: &std::process::Output) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_three_pane_mode, restore_width_key, slot_restore_cwd_key, slot_restore_mode_key,
-        slot_restore_pane_key, slot_restore_worktree_key, slot_suspended_key,
-        validate_restored_slot_continuity, SlotRestoreMetadata,
+        SlotRestoreMetadata, is_three_pane_mode, restore_width_key, slot_restore_cwd_key,
+        slot_restore_mode_key, slot_restore_pane_key, slot_restore_worktree_key,
+        slot_suspended_key, validate_restored_slot_continuity,
     };
 
     #[test]
@@ -479,58 +479,40 @@ mod tests {
             mode: String::from("lazygit"),
         };
 
-        assert!(validate_restored_slot_continuity(
-            4,
-            "4",
-            "wt-4",
-            "/repo/slot-4",
-            "lazygit",
-            &metadata
-        )
-        .is_ok());
+        assert!(
+            validate_restored_slot_continuity(4, "4", "wt-4", "/repo/slot-4", "lazygit", &metadata)
+                .is_ok()
+        );
 
-        assert!(validate_restored_slot_continuity(
-            4,
-            "9",
-            "wt-4",
-            "/repo/slot-4",
-            "lazygit",
-            &metadata
-        )
-        .expect_err("restore path must preserve canonical slot id")
-        .contains("@ezm_slot_id"));
+        assert!(
+            validate_restored_slot_continuity(4, "9", "wt-4", "/repo/slot-4", "lazygit", &metadata)
+                .expect_err("restore path must preserve canonical slot id")
+                .contains("@ezm_slot_id")
+        );
 
-        assert!(validate_restored_slot_continuity(
-            4,
-            "4",
-            "wt-remapped",
-            "/repo/slot-4",
-            "lazygit",
-            &metadata
-        )
-        .expect_err("restore path must reapply captured worktree")
-        .contains("worktree mismatch"));
+        assert!(
+            validate_restored_slot_continuity(
+                4,
+                "4",
+                "wt-remapped",
+                "/repo/slot-4",
+                "lazygit",
+                &metadata
+            )
+            .expect_err("restore path must reapply captured worktree")
+            .contains("worktree mismatch")
+        );
 
-        assert!(validate_restored_slot_continuity(
-            4,
-            "4",
-            "wt-4",
-            "/repo/other",
-            "lazygit",
-            &metadata
-        )
-        .expect_err("restore path must reapply captured cwd")
-        .contains("cwd mismatch"));
+        assert!(
+            validate_restored_slot_continuity(4, "4", "wt-4", "/repo/other", "lazygit", &metadata)
+                .expect_err("restore path must reapply captured cwd")
+                .contains("cwd mismatch")
+        );
 
-        assert!(validate_restored_slot_continuity(
-            4,
-            "4",
-            "wt-4",
-            "/repo/slot-4",
-            "shell",
-            &metadata
-        )
-        .expect_err("restore path must reapply captured mode")
-        .contains("mode mismatch"));
+        assert!(
+            validate_restored_slot_continuity(4, "4", "wt-4", "/repo/slot-4", "shell", &metadata)
+                .expect_err("restore path must reapply captured mode")
+                .contains("mode mismatch")
+        );
     }
 }

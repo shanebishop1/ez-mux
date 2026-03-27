@@ -1,10 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
-use super::resolve_session_identity;
+use super::CANONICAL_SLOT_IDS;
 use super::SessionError;
 use super::TmuxClient;
-use super::CANONICAL_SLOT_IDS;
+use super::resolve_session_identity;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionDamageAnalysis {
@@ -320,10 +320,7 @@ mod tests {
             _: &str,
             _: u8,
             _: SlotMode,
-            _: crate::session::RemoteModeContext<'_>,
-            _: Option<&crate::session::SharedServerAttachConfig>,
-            _: Option<&str>,
-            _: Option<&str>,
+            _: crate::session::SlotModeLaunchContext<'_>,
         ) -> Result<(), crate::session::SessionError> {
             Ok(())
         }
@@ -475,9 +472,11 @@ mod tests {
 
         let error =
             analyze_slot_damage(&slot_to_pane, &live_panes).expect_err("root slot should fail");
-        assert!(error
-            .to_string()
-            .contains("slot 1 pane is missing; selective reconcile is unsafe"));
+        assert!(
+            error
+                .to_string()
+                .contains("slot 1 pane is missing; selective reconcile is unsafe")
+        );
     }
 
     #[test]
@@ -570,7 +569,7 @@ mod tests {
         assert_eq!(tmux.reconcile_calls.get(), 1);
         assert_eq!(
             tmux.attach_calls.borrow().as_slice(),
-            &[expected_session.to_owned()]
+            &[expected_session.clone()]
         );
     }
 
@@ -606,7 +605,7 @@ mod tests {
         assert_eq!(tmux.reconcile_calls.get(), 0);
         assert_eq!(
             tmux.attach_calls.borrow().as_slice(),
-            &[expected_session.to_owned()]
+            &[expected_session.clone()]
         );
     }
 
@@ -641,7 +640,7 @@ mod tests {
         assert!(matches!(error, crate::session::SessionError::Interrupted));
         assert_eq!(
             tmux.attach_calls.borrow().as_slice(),
-            &[expected_session.to_owned()]
+            &[expected_session.clone()]
         );
     }
 }

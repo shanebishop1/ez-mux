@@ -2,11 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::ConfigError;
+use super::EZM_CONFIG_ENV;
 use super::EnvProvider;
 use super::FileConfig;
 use super::LoadedConfig;
 use super::OperatingSystem;
-use super::EZM_CONFIG_ENV;
 
 /// Resolves the v1 config path using `EZM_CONFIG` override or OS defaults.
 ///
