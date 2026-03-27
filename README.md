@@ -40,6 +40,7 @@ Notes:
 ## Key Docs
 
 - Canonical plan: `docs/plan.md`
+- Contributor pre-PR quality gates: `docs/contributor-quality-gates-quickstart.md`
 - Implementation staging: `docs/implementation-plan.md`
 - Epic gate order and dependencies: `docs/epics/INDEX.md`
 - Reference corpus provenance: `reference/ntm-focus5/PROVENANCE.md`
