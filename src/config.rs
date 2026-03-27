@@ -91,6 +91,7 @@ pub struct FileConfig {
     pub ezm_remote_server_url: Option<String>,
     pub opencode_server_url: Option<String>,
     pub opencode_server_password: Option<String>,
+    pub agent_command: Option<String>,
     pub opencode_slot_themes_enabled: Option<bool>,
     pub opencode_slot_themes: Option<HashMap<String, String>>,
 }
@@ -227,6 +228,16 @@ pub fn resolve_opencode_theme_runtime(file_config: &FileConfig) -> OpencodeTheme
         enabled,
         themes_by_slot,
     }
+}
+
+#[must_use]
+pub fn resolve_agent_command(file_config: &FileConfig) -> Option<String> {
+    file_config
+        .agent_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 fn default_opencode_slot_themes() -> HashMap<u8, String> {

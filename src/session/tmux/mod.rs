@@ -112,6 +112,7 @@ pub trait TmuxClient {
         mode: SlotMode,
         remote_context: RemoteModeContext<'_>,
         shared_server: Option<&SharedServerAttachConfig>,
+        agent_command: Option<&str>,
         opencode_theme: Option<&str>,
     ) -> Result<(), SessionError>;
 
@@ -250,6 +251,7 @@ impl TmuxClient for ProcessTmuxClient {
         mode: SlotMode,
         remote_context: RemoteModeContext<'_>,
         shared_server: Option<&SharedServerAttachConfig>,
+        agent_command: Option<&str>,
         opencode_theme: Option<&str>,
     ) -> Result<(), SessionError> {
         mode_runtime::switch_slot_mode(
@@ -258,6 +260,7 @@ impl TmuxClient for ProcessTmuxClient {
             mode,
             remote_context,
             shared_server,
+            agent_command,
             opencode_theme,
         )
     }

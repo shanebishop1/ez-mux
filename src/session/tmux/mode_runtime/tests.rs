@@ -188,6 +188,7 @@ fn agent_mode_without_shared_server_uses_local_launch_contract() {
         RemoteModeContext::default(),
         None,
         None,
+        None,
     )
     .expect("agent local launch should resolve");
 
@@ -210,6 +211,7 @@ fn agent_mode_uses_remote_path_mapping_without_operator() {
             url: String::from("http://127.0.0.1:4096"),
             password: None,
         }),
+        None,
         None,
     )
     .expect("agent mode should resolve");
@@ -254,6 +256,7 @@ fn agent_mode_theme_sets_custom_tui_config_for_local_launches() {
         "/tmp/local-only",
         RemoteModeContext::default(),
         None,
+        None,
         Some("catppuccin"),
     )
     .expect("agent local launch should resolve");
@@ -262,6 +265,26 @@ fn agent_mode_theme_sets_custom_tui_config_for_local_launches() {
     assert!(command.contains("OPENCODE_TUI_CONFIG"));
     assert!(command.contains("OPENCODE_TEST_MANAGED_CONFIG_DIR"));
     assert!(command.contains("slot-4"));
+}
+
+#[test]
+fn agent_mode_uses_configured_override_command_when_present() {
+    let command = launch_command_for_mode(
+        1,
+        SlotMode::Agent,
+        "exec opencode || exec \"${SHELL:-/bin/sh}\" -l",
+        "/tmp/local-only",
+        RemoteModeContext::default(),
+        Some(&SharedServerAttachConfig {
+            url: String::from("http://127.0.0.1:4096"),
+            password: Some(String::from("secret")),
+        }),
+        Some("exec claude || exec \"${SHELL:-/bin/sh}\" -l"),
+        Some("nightowl"),
+    )
+    .expect("agent override launch should resolve");
+
+    assert_eq!(command, "exec claude || exec \"${SHELL:-/bin/sh}\" -l");
 }
 
 #[test]

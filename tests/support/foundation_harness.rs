@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use portable_pty::{Child as PtyChild, CommandBuilder, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, PtySize};
 
 pub struct CmdOutput {
     pub exit_code: i32,
@@ -50,6 +50,7 @@ pub struct FoundationHarness {
     fake_bin_dir: PathBuf,
     open_capture_path: PathBuf,
     project_root: PathBuf,
+    verbose_default_launch: bool,
 }
 
 impl FoundationHarness {
@@ -102,6 +103,7 @@ impl FoundationHarness {
             fake_bin_dir,
             open_capture_path,
             project_root,
+            verbose_default_launch: suite_name != "foundation",
         };
 
         harness.start_tmux_server()?;
@@ -163,6 +165,11 @@ impl FoundationHarness {
         env_overrides: &[(&str, &str)],
         opener_exit_code: i32,
     ) -> Result<CmdOutput, String> {
+        if args.first().is_some_and(|arg| *arg == "__internal") {
+            let _ =
+                self.settle_tmux_snapshot(Duration::from_millis(25), Duration::from_millis(1_000));
+        }
+
         let state_root = self.work_dir.join("state");
         let config_root = self.work_dir.join("config");
         let home_root = self.work_dir.join("home");
@@ -178,9 +185,19 @@ impl FoundationHarness {
         let merged_path = format!("{}:{}", self.fake_bin_dir.display(), current_path);
 
         let mut command = Command::new(&self.ezm_bin);
+        if args.is_empty() && self.verbose_default_launch {
+            command.arg("-v");
+        }
         command.args(args);
         command.current_dir(project_dir);
         command.env_remove("TMUX");
+        command.env_remove("EZM_REMOTE_PATH");
+        command.env_remove("EZM_REMOTE_SERVER_URL");
+        command.env_remove("OPENCODE_SERVER_URL");
+        command.env_remove("OPENCODE_SERVER_PASSWORD");
+        command.env_remove("OPENCODE_CONFIG_DIR");
+        command.env_remove("OPENCODE_TUI_CONFIG");
+        command.env_remove("OPENCODE_TEST_MANAGED_CONFIG_DIR");
         command.env("HOME", &home_root);
         command.env("XDG_STATE_HOME", &state_root);
         command.env("XDG_CONFIG_HOME", &config_root);
@@ -238,6 +255,13 @@ impl FoundationHarness {
         command.cwd(project_dir);
         command.env("TMUX", "");
         command.env("TERM", "xterm-256color");
+        command.env("EZM_REMOTE_PATH", "");
+        command.env("EZM_REMOTE_SERVER_URL", "");
+        command.env("OPENCODE_SERVER_URL", "");
+        command.env("OPENCODE_SERVER_PASSWORD", "");
+        command.env("OPENCODE_CONFIG_DIR", "");
+        command.env("OPENCODE_TUI_CONFIG", "");
+        command.env("OPENCODE_TEST_MANAGED_CONFIG_DIR", "");
         command.env("HOME", home_root);
         command.env("XDG_STATE_HOME", state_root);
         command.env("XDG_CONFIG_HOME", config_root);

@@ -32,6 +32,7 @@ pub fn switch_slot_mode(
     mode: SlotMode,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    agent_command: Option<&str>,
     opencode_theme: Option<&str>,
     tmux: &impl TmuxClient,
 ) -> Result<SlotModeSwitchOutcome, SessionError> {
@@ -47,6 +48,7 @@ pub fn switch_slot_mode(
         mode,
         remote_context,
         shared_server,
+        agent_command,
         opencode_theme,
     )?;
 

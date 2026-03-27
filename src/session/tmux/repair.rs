@@ -49,6 +49,7 @@ struct RepairLaunchContext {
     remote_path: Option<String>,
     remote_server_url: Option<String>,
     shared_server: Option<SharedServerAttachConfig>,
+    agent_command: Option<String>,
     opencode_themes: config::OpencodeThemeRuntimeResolution,
 }
 
@@ -436,6 +437,7 @@ fn resolve_repair_launch_context() -> RepairLaunchContext {
         remote_path,
         remote_server_url,
         shared_server,
+        agent_command: config::resolve_agent_command(&file_config),
         opencode_themes: config::resolve_opencode_theme_runtime(&file_config),
     }
 }
@@ -459,6 +461,7 @@ fn restore_recreated_slot_modes(
             mode,
             remote_context,
             launch_context.shared_server.as_ref(),
+            launch_context.agent_command.as_deref(),
             launch_context.opencode_themes.theme_for_slot(*slot_id),
         )?;
     }
@@ -469,7 +472,7 @@ fn restore_recreated_slot_modes(
 fn parse_slot_mode_label(slot_id: u8, value: &str) -> SlotMode {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
-        "agent" | "opencode" => SlotMode::Agent,
+        "agent" | "opencode" | "claude" => SlotMode::Agent,
         "shell" | "sh" | "bash" | "zsh" | "fish" | "ubuntu" => SlotMode::Shell,
         "neovim" | "nvim" => SlotMode::Neovim,
         "lazygit" => SlotMode::Lazygit,
@@ -762,10 +765,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_slot_mode_label_accepts_legacy_shell_and_opencode_aliases() {
+    fn parse_slot_mode_label_accepts_legacy_shell_and_agent_aliases() {
         assert_eq!(parse_slot_mode_label(2, "bash"), SlotMode::Shell);
         assert_eq!(parse_slot_mode_label(2, "ubuntu"), SlotMode::Shell);
         assert_eq!(parse_slot_mode_label(1, "opencode"), SlotMode::Agent);
+        assert_eq!(parse_slot_mode_label(1, "claude"), SlotMode::Agent);
     }
 
     #[test]

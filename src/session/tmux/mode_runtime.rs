@@ -20,6 +20,7 @@ pub(super) fn switch_slot_mode(
     mode: SlotMode,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    agent_command: Option<&str>,
     opencode_theme: Option<&str>,
 ) -> Result<(), SessionError> {
     let startup = startup_mode_signal_present();
@@ -29,6 +30,7 @@ pub(super) fn switch_slot_mode(
         mode,
         remote_context,
         shared_server,
+        agent_command,
         opencode_theme,
         startup,
     )
@@ -40,6 +42,7 @@ pub(super) fn switch_slot_mode_for_repair(
     mode: SlotMode,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    agent_command: Option<&str>,
     opencode_theme: Option<&str>,
 ) -> Result<(), SessionError> {
     switch_slot_mode_internal(
@@ -48,6 +51,7 @@ pub(super) fn switch_slot_mode_for_repair(
         mode,
         remote_context,
         shared_server,
+        agent_command,
         opencode_theme,
         true,
     )
@@ -59,6 +63,7 @@ fn switch_slot_mode_internal(
     mode: SlotMode,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    agent_command: Option<&str>,
     opencode_theme: Option<&str>,
     prefer_assigned_worktree_cwd: bool,
 ) -> Result<(), SessionError> {
@@ -104,6 +109,7 @@ fn switch_slot_mode_internal(
         &current_cwd,
         remote_context,
         shared_server,
+        agent_command,
         opencode_theme,
     )?;
     run_teardown_hooks(&pane_id, &contract.teardown_hooks)?;
@@ -224,27 +230,40 @@ fn launch_command_for_mode(
     cwd: &str,
     remote_context: RemoteModeContext<'_>,
     shared_server: Option<&SharedServerAttachConfig>,
+    agent_command: Option<&str>,
     opencode_theme: Option<&str>,
 ) -> Result<String, SessionError> {
     match mode {
-        SlotMode::Agent => match shared_server {
-            Some(config) => launch_agent_attach_command(
-                slot_id,
-                cwd,
-                remote_context.remote_path,
-                config,
-                opencode_theme,
-            ),
-            None => Ok(with_opencode_tui_config_env(
-                launch_command.to_owned(),
-                slot_id,
-                opencode_theme,
-            )),
-        },
+        SlotMode::Agent => {
+            if let Some(command) = normalize_agent_command_override(agent_command) {
+                return Ok(command.to_owned());
+            }
+
+            match shared_server {
+                Some(config) => launch_agent_attach_command(
+                    slot_id,
+                    cwd,
+                    remote_context.remote_path,
+                    config,
+                    opencode_theme,
+                ),
+                None => Ok(with_opencode_tui_config_env(
+                    launch_command.to_owned(),
+                    slot_id,
+                    opencode_theme,
+                )),
+            }
+        }
         SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit => {
             launch_command_with_remote_dir_from_mapping(mode, launch_command, cwd, remote_context)
         }
     }
+}
+
+fn normalize_agent_command_override(agent_command: Option<&str>) -> Option<&str> {
+    agent_command
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn launch_agent_attach_command(
