@@ -1,5 +1,7 @@
 use super::SessionError;
 
+const REDACTED_SECRET_VALUE: &str = "<redacted>";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ParsedSshAuthority {
     pub(super) target: String,
@@ -183,14 +185,45 @@ fn contains_whitespace(value: &str) -> bool {
 
 fn invalid_remote_authority(value: &str, reason: impl Into<String>) -> SessionError {
     SessionError::InvalidRemoteSshAuthority {
-        value: value.to_owned(),
+        value: redact_remote_authority_value(value),
         reason: reason.into(),
     }
 }
 
+fn redact_remote_authority_value(value: &str) -> String {
+    let (scheme_prefix, remainder) = if let Some((scheme, rest)) = value.split_once("://") {
+        (format!("{scheme}://"), rest)
+    } else {
+        (String::new(), value)
+    };
+
+    let (authority, suffix) = if let Some(separator) = remainder.find('/') {
+        (&remainder[..separator], &remainder[separator..])
+    } else {
+        (remainder, "")
+    };
+
+    format!(
+        "{scheme_prefix}{}{suffix}",
+        redact_authority_userinfo_secret(authority)
+    )
+}
+
+fn redact_authority_userinfo_secret(authority: &str) -> String {
+    let Some((userinfo, host_port)) = authority.rsplit_once('@') else {
+        return authority.to_owned();
+    };
+
+    let Some((username, _secret)) = userinfo.split_once(':') else {
+        return authority.to_owned();
+    };
+
+    format!("{username}:{REDACTED_SECRET_VALUE}@{host_port}")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_remote_ssh_authority;
+    use super::{REDACTED_SECRET_VALUE, parse_remote_ssh_authority};
 
     #[test]
     fn accepts_hostname_and_port_from_url() {
@@ -231,5 +264,18 @@ mod tests {
             parse_remote_ssh_authority("2001:db8::1").expect_err("unbracketed IPv6 should fail");
         let rendered = error.to_string();
         assert!(rendered.contains("wrap IPv6 hosts in `[]`"));
+    }
+
+    #[test]
+    fn remote_authority_error_redacts_userinfo_password() {
+        let error =
+            parse_remote_ssh_authority("https://operator:super-secret@shell.remote.example:")
+                .expect_err("empty port should fail");
+        let rendered = error.to_string();
+
+        assert!(rendered.contains("operator:"));
+        assert!(rendered.contains(REDACTED_SECRET_VALUE));
+        assert!(!rendered.contains("super-secret"));
+        assert!(rendered.contains("invalid remote ssh authority"));
     }
 }
