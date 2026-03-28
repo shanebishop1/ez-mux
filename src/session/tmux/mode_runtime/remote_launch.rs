@@ -67,10 +67,15 @@ fn ssh_wrapped_launch_command(
 
     let mut ssh_invocation = String::from("ssh -tt");
     if let Some(port) = authority.port {
-        ssh_invocation.push_str(&format!(" -p {port}"));
+        ssh_invocation.push_str(" -p ");
+        ssh_invocation.push_str(&port.to_string());
     }
-    ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&authority.target)));
-    ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&remote_script)));
+    ssh_invocation.push_str(" '");
+    ssh_invocation.push_str(&escape_single_quotes(&authority.target));
+    ssh_invocation.push('\'');
+    ssh_invocation.push_str(" '");
+    ssh_invocation.push_str(&escape_single_quotes(&remote_script));
+    ssh_invocation.push('\'');
 
     Ok(Some(format!(
         "if {ssh_invocation}; then exit 0; fi; ssh_exit_code=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $ssh_exit_code\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"

@@ -238,10 +238,15 @@ fn build_auxiliary_remote_launch_command(
     let remote_script = render_auxiliary_remote_script(remote_dir);
     let mut ssh_invocation = String::from("ssh -tt");
     if let Some(port) = authority.port {
-        ssh_invocation.push_str(&format!(" -p {port}"));
+        ssh_invocation.push_str(" -p ");
+        ssh_invocation.push_str(&port.to_string());
     }
-    ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&authority.target)));
-    ssh_invocation.push_str(&format!(" '{}'", escape_single_quotes(&remote_script)));
+    ssh_invocation.push_str(" '");
+    ssh_invocation.push_str(&escape_single_quotes(&authority.target));
+    ssh_invocation.push('\'');
+    ssh_invocation.push_str(" '");
+    ssh_invocation.push_str(&escape_single_quotes(&remote_script));
+    ssh_invocation.push('\'');
     Ok(format!(
         "if {ssh_invocation}; then :; else ssh_exit_code=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $ssh_exit_code\" >&2; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
     ))

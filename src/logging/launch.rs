@@ -185,7 +185,7 @@ fn create_unique_log_file(
                 })?;
                 return Ok(path);
             }
-            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(source) if source.kind() == io::ErrorKind::AlreadyExists => {}
             Err(source) => return Err(LoggingError::CreateLogFileFailed { path, source }),
         }
     }
