@@ -25,16 +25,15 @@ pub(super) fn popup_remote_launch_command(
 
     let mut ssh_invocation = String::from("ssh -tt");
     if let Some(port) = authority.port {
-        ssh_invocation.push_str(&format!(" -p {port}"));
+        ssh_invocation.push_str(" -p ");
+        ssh_invocation.push_str(&port.to_string());
     }
-    ssh_invocation.push_str(&format!(
-        " '{}'",
-        shell_escape_single_quoted(&authority.target)
-    ));
-    ssh_invocation.push_str(&format!(
-        " '{}'",
-        shell_escape_single_quoted(&remote_script)
-    ));
+    ssh_invocation.push_str(" '");
+    ssh_invocation.push_str(&shell_escape_single_quoted(&authority.target));
+    ssh_invocation.push('\'');
+    ssh_invocation.push_str(" '");
+    ssh_invocation.push_str(&shell_escape_single_quoted(&remote_script));
+    ssh_invocation.push('\'');
 
     Ok(Some(format!(
         "sh -lc '{}'",

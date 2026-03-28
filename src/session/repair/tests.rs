@@ -312,7 +312,7 @@ fn repair_project_session_and_attach_reopens_current_session_after_reconcile() {
     assert_eq!(tmux.reconcile_calls.get(), 1);
     assert_eq!(
         tmux.attach_calls.borrow().as_slice(),
-        &[expected_session.clone()]
+        std::slice::from_ref(&expected_session)
     );
 }
 
@@ -348,7 +348,7 @@ fn repair_project_session_and_attach_reopens_even_when_noop() {
     assert_eq!(tmux.reconcile_calls.get(), 0);
     assert_eq!(
         tmux.attach_calls.borrow().as_slice(),
-        &[expected_session.clone()]
+        std::slice::from_ref(&expected_session)
     );
 }
 
@@ -383,6 +383,6 @@ fn repair_project_session_and_attach_propagates_interrupts() {
     assert!(matches!(error, crate::session::SessionError::Interrupted));
     assert_eq!(
         tmux.attach_calls.borrow().as_slice(),
-        &[expected_session.clone()]
+        std::slice::from_ref(&expected_session)
     );
 }
