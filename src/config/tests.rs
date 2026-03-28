@@ -14,7 +14,7 @@ fn linux_uses_xdg_config_home() {
     let path = resolve_config_path(&env, OperatingSystem::Linux).expect("path should resolve");
     assert_eq!(
         path,
-        std::path::PathBuf::from("/tmp/xdg/ez-mux/config.toml")
+        std::path::PathBuf::from("/tmp/xdg/ez-mux/ez-mux.toml")
     );
 }
 
@@ -26,7 +26,7 @@ fn linux_falls_back_to_home_config() {
     let path = resolve_config_path(&env, OperatingSystem::Linux).expect("path should resolve");
     assert_eq!(
         path,
-        std::path::PathBuf::from("/tmp/home/.config/ez-mux/config.toml")
+        std::path::PathBuf::from("/tmp/home/.config/ez-mux/ez-mux.toml")
     );
 }
 
@@ -38,7 +38,7 @@ fn macos_uses_application_support() {
     let path = resolve_config_path(&env, OperatingSystem::MacOs).expect("path should resolve");
     assert_eq!(
         path,
-        std::path::PathBuf::from("/Users/tester/Library/Application Support/ez-mux/config.toml")
+        std::path::PathBuf::from("/Users/tester/Library/Application Support/ez-mux/ez-mux.toml")
     );
 }
 
@@ -65,7 +65,52 @@ fn whitespace_only_env_values_are_treated_as_unset() {
     let path = resolve_config_path(&env, OperatingSystem::Linux).expect("path should resolve");
     assert_eq!(
         path,
-        std::path::PathBuf::from("/tmp/home/.config/ez-mux/config.toml")
+        std::path::PathBuf::from("/tmp/home/.config/ez-mux/ez-mux.toml")
+    );
+}
+
+#[test]
+fn load_config_prefers_local_ez_mux_toml_when_present() {
+    let dir = tempdir().expect("tempdir");
+    let local_config = dir.path().join("ez-mux.toml");
+    fs::write(&local_config, "ezm_remote_path = '/local/remotes'\n").expect("write local config");
+
+    let env = HashMap::<String, String>::new();
+    let loaded =
+        super::load::load_config_with_current_dir(&env, OperatingSystem::Linux, Some(dir.path()))
+            .expect("load should succeed");
+
+    assert_eq!(loaded.path, local_config);
+    assert_eq!(
+        loaded.values.ezm_remote_path.as_deref(),
+        Some("/local/remotes")
+    );
+}
+
+#[test]
+fn ezm_config_override_wins_over_local_ez_mux_toml() {
+    let dir = tempdir().expect("tempdir");
+    let local_config = dir.path().join("ez-mux.toml");
+    fs::write(&local_config, "ezm_remote_path = '/local/remotes'\n").expect("write local config");
+
+    let explicit_config = dir.path().join("custom.toml");
+    fs::write(&explicit_config, "ezm_remote_path = '/explicit/remotes'\n")
+        .expect("write explicit config");
+
+    let mut env = HashMap::new();
+    env.insert(
+        String::from(EZM_CONFIG_ENV),
+        explicit_config.display().to_string(),
+    );
+
+    let loaded =
+        super::load::load_config_with_current_dir(&env, OperatingSystem::Linux, Some(dir.path()))
+            .expect("load should succeed");
+
+    assert_eq!(loaded.path, explicit_config);
+    assert_eq!(
+        loaded.values.ezm_remote_path.as_deref(),
+        Some("/explicit/remotes")
     );
 }
 

@@ -34,6 +34,8 @@ Primary command:
 Notes:
 
 - Remote/shell routing and agent/shared-server attach are intentionally separate surfaces.
+- Config file discovery order: `EZM_CONFIG` override path, then `./ez-mux.toml`, then OS global default path.
+- Default global config filename is `ez-mux.toml`.
 - Effective precedence for these settings is `env > config file > default`.
 - Contract reference: `docs/contracts/v1-cli-config-contract.md`.
 
