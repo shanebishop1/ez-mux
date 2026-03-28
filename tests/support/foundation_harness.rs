@@ -142,11 +142,16 @@ impl FoundationHarness {
     #[allow(dead_code)]
     pub fn write_file(path: &Path, content: &str) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("failed creating parent directory {parent:?}: {error}"))?;
+            fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "failed creating parent directory {}: {error}",
+                    parent.display()
+                )
+            })?;
         }
 
-        fs::write(path, content).map_err(|error| format!("failed writing file {path:?}: {error}"))
+        fs::write(path, content)
+            .map_err(|error| format!("failed writing file {}: {error}", path.display()))
     }
 
     pub fn run_ezm(
@@ -667,17 +672,22 @@ fn install_tmux_wrapper(fake_bin_dir: &Path, real_tmux_bin: &Path) -> Result<(),
 }
 
 fn write_executable(path: &Path, content: &str) -> Result<(), String> {
-    fs::write(path, content).map_err(|error| format!("failed writing script {path:?}: {error}"))?;
+    fs::write(path, content)
+        .map_err(|error| format!("failed writing script {}: {error}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
 
         let mut perms = fs::metadata(path)
-            .map_err(|error| format!("failed reading metadata for {path:?}: {error}"))?
+            .map_err(|error| format!("failed reading metadata for {}: {error}", path.display()))?
             .permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(path, perms)
-            .map_err(|error| format!("failed setting executable mode for {path:?}: {error}"))?;
+        fs::set_permissions(path, perms).map_err(|error| {
+            format!(
+                "failed setting executable mode for {}: {error}",
+                path.display()
+            )
+        })?;
     }
     Ok(())
 }
