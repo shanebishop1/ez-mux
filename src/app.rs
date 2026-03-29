@@ -42,20 +42,28 @@ pub(crate) fn execute_with_opener(
     active_log_root: &std::path::Path,
     opener: &impl LogOpener,
 ) -> Result<String, AppError> {
+    let Cli {
+        verbose,
+        panes,
+        command,
+    } = cli;
+
     let loaded = config::load_config(env, os)?;
+    let pane_count = config::resolve_pane_count(panes, &loaded.values)?;
     let resolved_remote_runtime = config::resolve_remote_runtime(env, &loaded.values)?;
     let agent_command = config::resolve_agent_command(&loaded.values);
     let opencode_theme_runtime = config::resolve_opencode_theme_runtime(&loaded.values);
     let remote_path = remote_path_for_routing(&resolved_remote_runtime);
 
-    let message = match cli.command {
+    let message = match command {
         None => {
             let outcome = execute_default_session_flow(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
+                pane_count.value,
                 &session::ProcessTmuxClient,
             )?;
-            default_contract_summary_message(cli.verbose > 0, &outcome, &resolved_remote_runtime)
+            default_contract_summary_message(verbose > 0, &outcome, &resolved_remote_runtime)
         }
         Some(Command::Repair) => {
             let outcome =
@@ -70,6 +78,7 @@ pub(crate) fn execute_with_opener(
             let outcome = execute_default_session_flow(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
+                pane_count.value,
                 &tmux,
             )?;
             let preset_outcome =
@@ -95,6 +104,7 @@ pub(crate) fn execute_with_opener(
 fn execute_default_session_flow(
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    pane_count: u8,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let project_dir = std::env::current_dir().map_err(session::SessionError::CurrentDir)?;
@@ -102,6 +112,7 @@ fn execute_default_session_flow(
         project_dir.as_path(),
         remote_path,
         remote_server_url,
+        pane_count,
         tmux,
     )
 }
@@ -110,6 +121,7 @@ fn execute_default_session_flow_for_project_dir(
     project_dir: &std::path::Path,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    pane_count: u8,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let identity = session::resolve_session_identity(project_dir)?;
@@ -118,6 +130,7 @@ fn execute_default_session_flow_for_project_dir(
         project_dir,
         remote_path,
         remote_server_url,
+        pane_count,
         tmux,
     ) {
         Ok(outcome) => Ok(outcome),

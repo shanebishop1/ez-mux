@@ -44,6 +44,7 @@ impl TmuxClient for RepairTmuxStub {
         &self,
         _: &str,
         _: &Path,
+        _: u8,
     ) -> Result<(), crate::session::SessionError> {
         Ok(())
     }

@@ -6,7 +6,8 @@ use super::SessionError;
 use super::ZoomFlagSupport;
 use super::command::{tmux_output_value, tmux_run};
 use super::layout::{
-    LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_KEY, LAYOUT_MODE_THREE_PANE, SLOT_SUSPENDED_KEY_PREFIX,
+    LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_KEY, SLOT_SUSPENDED_KEY_PREFIX,
+    allowed_suspended_slots_for_layout_mode,
 };
 use super::options::{
     canonical_slot_mismatch_error, required_pane_option, required_session_option,
@@ -268,13 +269,13 @@ fn validate_slot_suspension(layout_mode: &str, slot_id: u8, suspended: bool) -> 
         return Ok(());
     }
 
-    if layout_mode != LAYOUT_MODE_THREE_PANE {
+    let Some(allowed_slots) = allowed_suspended_slots_for_layout_mode(layout_mode) else {
         return Err(format!(
             "slot {slot_id} marked suspended while layout mode is {layout_mode}"
         ));
-    }
+    };
 
-    if !matches!(slot_id, 4 | 5) {
+    if !allowed_slots.contains(&slot_id) {
         return Err(format!(
             "slot {slot_id} cannot be suspended in canonical model"
         ));

@@ -13,6 +13,8 @@ use super::resolve_session_identity;
 use crate::config::EZM_BIN_ENV;
 use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
 
+pub const DEFAULT_STARTUP_PANE_COUNT: u8 = 5;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionAction {
     Create,
@@ -65,6 +67,7 @@ pub fn ensure_project_session(
         project_dir,
         remote_path.as_deref(),
         remote_server_url.as_deref(),
+        DEFAULT_STARTUP_PANE_COUNT,
         tmux,
     )
 }
@@ -79,6 +82,29 @@ pub fn ensure_project_session_with_remote_path(
     project_dir: &Path,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    pane_count: u8,
+    tmux: &impl TmuxClient,
+) -> Result<SessionLaunchOutcome, SessionError> {
+    ensure_project_session_with_remote_path_and_pane_count(
+        project_dir,
+        remote_path,
+        remote_server_url,
+        pane_count,
+        tmux,
+    )
+}
+
+/// Ensures a session exists for the provided project directory using an
+/// explicit remote remap prefix and startup pane count.
+///
+/// # Errors
+/// Returns an error when session identity resolution fails or any tmux
+/// operation needed to create, validate, bootstrap, or attach fails.
+pub fn ensure_project_session_with_remote_path_and_pane_count(
+    project_dir: &Path,
+    remote_path: Option<&str>,
+    remote_server_url: Option<&str>,
+    pane_count: u8,
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
     let mut trace = StartupTrace::begin();
@@ -110,7 +136,7 @@ pub fn ensure_project_session_with_remote_path(
         trace.mark("tmux-session-missing");
         tmux.create_detached_session(&identity.session_name, &identity.project_dir)?;
         trace.mark("tmux-create-detached-session");
-        tmux.bootstrap_default_layout(&identity.session_name, &identity.project_dir)?;
+        tmux.bootstrap_default_layout(&identity.session_name, &identity.project_dir, pane_count)?;
         trace.mark("tmux-bootstrap-default-layout");
         SessionAction::Create
     };

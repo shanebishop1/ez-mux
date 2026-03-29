@@ -13,16 +13,27 @@ use super::style::apply_runtime_style_defaults_for_target;
 use super::worktree::discover_worktrees_for_slots;
 use crate::config::EZM_BIN_ENV;
 
+mod pane_mode;
 mod preset;
 
+use pane_mode::{apply_startup_pane_mode, pane_mode_spec};
+
 pub(super) const LAYOUT_MODE_KEY: &str = "@ezm_layout_mode";
+pub(super) const LAYOUT_MODE_ONE_PANE: &str = "one-pane";
+pub(super) const LAYOUT_MODE_TWO_PANE: &str = "two-pane";
 pub(super) const LAYOUT_MODE_FIVE_PANE: &str = "five-pane";
 pub(super) const LAYOUT_MODE_THREE_PANE: &str = "three-pane";
+pub(super) const LAYOUT_MODE_FOUR_PANE: &str = "four-pane";
 pub(super) const SLOT_SUSPENDED_KEY_PREFIX: &str = "@ezm_slot_";
+
+pub(super) fn allowed_suspended_slots_for_layout_mode(layout_mode: &str) -> Option<&'static [u8]> {
+    pane_mode::allowed_suspended_slots(layout_mode)
+}
 
 pub(super) fn bootstrap_default_layout(
     session_name: &str,
     project_dir: &Path,
+    pane_count: u8,
 ) -> Result<(), SessionError> {
     let BootstrapAnchor {
         window_target: target,
@@ -57,12 +68,13 @@ pub(super) fn bootstrap_default_layout(
         let populated_slots = discovery.worktrees.len().min(5);
         let registry =
             build_registry_for_canonical_panes(&canonical_pane_ids, &discovery.worktrees)?;
-        persist_registry(session_name, &registry, populated_slots)?;
+        persist_registry(session_name, &registry, populated_slots, pane_count)?;
+        apply_startup_pane_mode(&canonical_pane_ids, window_width, pane_count)?;
         install_runtime_keybinds()?;
         if should_apply_runtime_styles_during_bootstrap() {
             apply_runtime_style_defaults_for_target(session_name, &target)?;
         }
-        launch_startup_slot_modes(session_name, &canonical_pane_ids[0])?;
+        launch_startup_slot_modes(session_name, &canonical_pane_ids, pane_count)?;
 
         if should_validate_registry_after_bootstrap() {
             validate_canonical_slot_registry(session_name)?;
@@ -185,9 +197,11 @@ fn persist_registry(
     session_name: &str,
     registry: &SlotRegistry,
     populated_slots: usize,
+    pane_count: u8,
 ) -> Result<(), SessionError> {
     let write_strategy = bootstrap_registry_write_strategy();
     let mut commands = Vec::new();
+    let pane_mode = pane_mode_spec(pane_count);
 
     for binding in registry.bindings() {
         let mode = startup_mode_for_slot(binding.slot_id, populated_slots);
@@ -233,28 +247,48 @@ fn persist_registry(
             &worktree_value,
         ));
         commands.push(write_strategy.pane_option_command(&binding.pane_id, pane_mode_key, mode));
+
+        let suspended = pane_mode.suspended_slots.contains(&binding.slot_id);
+        commands.push(write_strategy.session_option_command(
+            session_name,
+            &preset::slot_suspended_key(binding.slot_id),
+            if suspended { "1" } else { "0" },
+        ));
+
+        if suspended {
+            let restore_pane_key = format!("@ezm_slot_{}_restore_pane", binding.slot_id);
+            let restore_worktree_key = format!("@ezm_slot_{}_restore_worktree", binding.slot_id);
+            let restore_cwd_key = format!("@ezm_slot_{}_restore_cwd", binding.slot_id);
+            let restore_mode_key = format!("@ezm_slot_{}_restore_mode", binding.slot_id);
+            commands.push(write_strategy.session_option_command(
+                session_name,
+                &restore_pane_key,
+                &binding.pane_id,
+            ));
+            commands.push(write_strategy.session_option_command(
+                session_name,
+                &restore_worktree_key,
+                &worktree_value,
+            ));
+            commands.push(write_strategy.session_option_command(
+                session_name,
+                &restore_cwd_key,
+                &worktree_value,
+            ));
+            commands.push(write_strategy.session_option_command(
+                session_name,
+                &restore_mode_key,
+                mode,
+            ));
+        }
     }
 
     commands.push(vec![
         String::from("set-option"),
         String::from("-t"),
         session_name.to_owned(),
-        preset::slot_suspended_key(4),
-        String::from("0"),
-    ]);
-    commands.push(vec![
-        String::from("set-option"),
-        String::from("-t"),
-        session_name.to_owned(),
-        preset::slot_suspended_key(5),
-        String::from("0"),
-    ]);
-    commands.push(vec![
-        String::from("set-option"),
-        String::from("-t"),
-        session_name.to_owned(),
         String::from(LAYOUT_MODE_KEY),
-        String::from(LAYOUT_MODE_FIVE_PANE),
+        String::from(pane_mode.layout_mode),
     ]);
 
     tmux_run_batch(&commands)
@@ -316,19 +350,27 @@ fn kill_created_panes(created_panes: &[String]) -> Result<(), SessionError> {
     Ok(())
 }
 
-fn launch_startup_slot_modes(session_name: &str, center_pane_id: &str) -> Result<(), SessionError> {
+fn launch_startup_slot_modes(
+    session_name: &str,
+    canonical_pane_ids: &[String; 5],
+    pane_count: u8,
+) -> Result<(), SessionError> {
     let ezm_bin = resolved_ezm_bin_shell_token();
     let mut commands = Vec::with_capacity(6);
+    let pane_mode = pane_mode_spec(pane_count);
 
-    for slot_id in 1_u8..=5 {
+    for &slot_id in pane_mode.active_slots {
         let command = startup_mode_schedule_command(&ezm_bin, session_name, slot_id);
         commands.push(vec![String::from("run-shell"), String::from("-b"), command]);
     }
 
+    let focus_slot = pane_mode.active_slots.first().copied().unwrap_or(1);
+    let focus_pane_id = canonical_pane_ids[usize::from(focus_slot - 1)].clone();
+
     commands.push(vec![
         String::from("select-pane"),
         String::from("-t"),
-        center_pane_id.to_owned(),
+        focus_pane_id,
     ]);
 
     tmux_run_batch(&commands)
