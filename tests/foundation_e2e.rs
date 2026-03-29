@@ -564,6 +564,7 @@ fn write_case_artifacts(dir: &Path, cases: &[CaseEvidence]) -> Result<(), String
 
 fn write_json(path: &PathBuf, value: &impl Serialize) -> Result<(), String> {
     let json = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("failed serializing json for {path:?}: {error}"))?;
-    fs::write(path, json).map_err(|error| format!("failed writing json {path:?}: {error}"))
+        .map_err(|error| format!("failed serializing json for {}: {error}", path.display()))?;
+    fs::write(path, json)
+        .map_err(|error| format!("failed writing json {}: {error}", path.display()))
 }
