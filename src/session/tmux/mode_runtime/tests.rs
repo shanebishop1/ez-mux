@@ -1,7 +1,7 @@
 use super::{
     launch_agent_attach_command, launch_command_for_mode,
     launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd,
-    startup_mode_signal_enabled, use_startup_fast_path,
+    resolve_persistent_transition_cwd, startup_mode_signal_enabled, use_startup_fast_path,
 };
 use crate::session::{
     RemoteModeContext, SharedServerAttachConfig, SlotMode, SlotModeLaunchContext,
@@ -378,6 +378,24 @@ fn non_startup_mode_switch_uses_captured_pane_cwd() {
         .expect("captured cwd should resolve");
 
     assert_eq!(captured, "/repo-2/src");
+}
+
+#[test]
+fn persistent_switch_uses_assigned_worktree_when_switching_away_from_agent() {
+    let resolved =
+        resolve_persistent_transition_cwd("agent", "/repo-2", || Ok(String::from("/home/shane")))
+            .expect("persistent cwd should resolve");
+
+    assert_eq!(resolved, "/repo-2");
+}
+
+#[test]
+fn persistent_switch_uses_captured_cwd_for_non_agent_modes() {
+    let resolved =
+        resolve_persistent_transition_cwd("shell", "/repo-2", || Ok(String::from("/repo-2/src")))
+            .expect("persistent cwd should resolve");
+
+    assert_eq!(resolved, "/repo-2/src");
 }
 
 #[test]

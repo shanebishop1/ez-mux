@@ -50,6 +50,10 @@ pub(super) fn set_session_option(
     tmux_run(&["set-option", "-t", session_name, key, value])
 }
 
+pub(super) fn unset_session_option(session_name: &str, key: &str) -> Result<(), SessionError> {
+    tmux_run(&["set-option", "-u", "-t", session_name, key])
+}
+
 pub(super) fn set_pane_option(pane_id: &str, key: &str, value: &str) -> Result<(), SessionError> {
     tmux_run(&["set-option", "-p", "-t", pane_id, key, value])
 }

@@ -204,11 +204,12 @@ fn persist_registry(
     let pane_mode = pane_mode_spec(pane_count);
 
     for binding in registry.bindings() {
-        let mode = startup_mode_for_slot(binding.slot_id, populated_slots);
-        let slot_pane_key = format!("@ezm_slot_{}_pane", binding.slot_id);
-        let slot_worktree_key = format!("@ezm_slot_{}_worktree", binding.slot_id);
-        let slot_cwd_key = format!("@ezm_slot_{}_cwd", binding.slot_id);
-        let slot_mode_key = format!("@ezm_slot_{}_mode", binding.slot_id);
+        let logical_slot_id = pane_mode.logical_slot_for_physical(binding.slot_id);
+        let mode = startup_mode_for_slot(logical_slot_id, populated_slots);
+        let slot_pane_key = format!("@ezm_slot_{logical_slot_id}_pane");
+        let slot_worktree_key = format!("@ezm_slot_{logical_slot_id}_worktree");
+        let slot_cwd_key = format!("@ezm_slot_{logical_slot_id}_cwd");
+        let slot_mode_key = format!("@ezm_slot_{logical_slot_id}_mode");
         let worktree_value = binding.worktree_path.display().to_string();
         commands.push(write_strategy.session_option_command(
             session_name,
@@ -234,7 +235,7 @@ fn persist_registry(
         commands.push(write_strategy.pane_option_command(
             &binding.pane_id,
             pane_slot_key,
-            &binding.slot_id.to_string(),
+            &logical_slot_id.to_string(),
         ));
         commands.push(write_strategy.pane_option_command(
             &binding.pane_id,
@@ -248,18 +249,18 @@ fn persist_registry(
         ));
         commands.push(write_strategy.pane_option_command(&binding.pane_id, pane_mode_key, mode));
 
-        let suspended = pane_mode.suspended_slots.contains(&binding.slot_id);
+        let suspended = pane_mode.suspended_slots.contains(&logical_slot_id);
         commands.push(write_strategy.session_option_command(
             session_name,
-            &preset::slot_suspended_key(binding.slot_id),
+            &preset::slot_suspended_key(logical_slot_id),
             if suspended { "1" } else { "0" },
         ));
 
         if suspended {
-            let restore_pane_key = format!("@ezm_slot_{}_restore_pane", binding.slot_id);
-            let restore_worktree_key = format!("@ezm_slot_{}_restore_worktree", binding.slot_id);
-            let restore_cwd_key = format!("@ezm_slot_{}_restore_cwd", binding.slot_id);
-            let restore_mode_key = format!("@ezm_slot_{}_restore_mode", binding.slot_id);
+            let restore_pane_key = format!("@ezm_slot_{logical_slot_id}_restore_pane");
+            let restore_worktree_key = format!("@ezm_slot_{logical_slot_id}_restore_worktree");
+            let restore_cwd_key = format!("@ezm_slot_{logical_slot_id}_restore_cwd");
+            let restore_mode_key = format!("@ezm_slot_{logical_slot_id}_restore_mode");
             commands.push(write_strategy.session_option_command(
                 session_name,
                 &restore_pane_key,
@@ -365,7 +366,8 @@ fn launch_startup_slot_modes(
     }
 
     let focus_slot = pane_mode.active_slots.first().copied().unwrap_or(1);
-    let focus_pane_id = canonical_pane_ids[usize::from(focus_slot - 1)].clone();
+    let physical_focus_slot = pane_mode.physical_slot_for_logical(focus_slot);
+    let focus_pane_id = canonical_pane_ids[usize::from(physical_focus_slot - 1)].clone();
 
     commands.push(vec![
         String::from("select-pane"),
