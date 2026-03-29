@@ -11,10 +11,17 @@ use crate::session::{LayoutPreset, SlotMode};
     long_about = None
 )]
 pub struct Cli {
-    #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
+    #[arg(
+        short = 'v',
+        long = "verbose",
+        global = true,
+        action = clap::ArgAction::Count,
+        help = "Increase diagnostic verbosity (-v, -vv, ...)"
+    )]
     pub verbose: u8,
 
     #[arg(
+        short = 'p',
         long,
         value_name = "COUNT",
         value_parser = clap::value_parser!(u8).range(1..=5),
@@ -147,6 +154,14 @@ mod tests {
         assert_eq!(parsed.command, None);
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, Some(3));
+    }
+
+    #[test]
+    fn parses_panes_short_flag() {
+        let parsed = Cli::try_parse_from(["ezm", "-p", "4"]).expect("parse should succeed");
+        assert_eq!(parsed.command, None);
+        assert_eq!(parsed.verbose, 0);
+        assert_eq!(parsed.panes, Some(4));
     }
 
     #[test]
