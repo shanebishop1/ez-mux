@@ -25,6 +25,7 @@ fn popup_parent_cleanup_hook_command_invokes_shell_cleanup_route() {
     assert!(rendered.starts_with("run-shell -b \""));
     assert!(rendered.contains("tmux has-session -t \\\"#{hook_session_name}__popup_slot_1\\\""));
     assert!(rendered.contains("tmux kill-session -t \\\"#{hook_session_name}__popup_slot_5\\\""));
+    assert!(rendered.contains("tmux has-session -t \\\"#{hook_session_name}__mode_cache\\\""));
     assert!(rendered.contains("EZM_POPUP_PARENT_CLEANUP_V2"));
     assert!(rendered.ends_with('"'));
     assert!(!rendered.contains("'\"'\"'"));

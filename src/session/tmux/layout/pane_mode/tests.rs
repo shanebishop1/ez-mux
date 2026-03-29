@@ -1,5 +1,6 @@
 use super::allowed_suspended_slots;
 use super::pane_mode_spec;
+use super::startup_three_pane_target_widths;
 
 #[test]
 fn pane_mode_spec_maps_counts_to_layout_modes() {
@@ -15,7 +16,7 @@ fn pane_mode_spec_declares_expected_active_slots() {
     assert_eq!(pane_mode_spec(1).active_slots, &[1]);
     assert_eq!(pane_mode_spec(2).active_slots, &[1, 2]);
     assert_eq!(pane_mode_spec(3).active_slots, &[1, 2, 3]);
-    assert_eq!(pane_mode_spec(4).active_slots, &[2, 3, 4, 5]);
+    assert_eq!(pane_mode_spec(4).active_slots, &[1, 2, 3, 4]);
     assert_eq!(pane_mode_spec(5).active_slots, &[1, 2, 3, 4, 5]);
 }
 
@@ -30,7 +31,34 @@ fn allowed_suspended_slots_are_defined_for_known_layout_modes() {
         Some([3, 4, 5].as_ref())
     );
     assert_eq!(allowed_suspended_slots("three-pane"), Some([4, 5].as_ref()));
-    assert_eq!(allowed_suspended_slots("four-pane"), Some([1].as_ref()));
+    assert_eq!(allowed_suspended_slots("four-pane"), Some([1, 5].as_ref()));
     assert_eq!(allowed_suspended_slots("five-pane"), Some([].as_ref()));
     assert!(allowed_suspended_slots("unknown").is_none());
+}
+
+#[test]
+fn startup_three_pane_widths_keep_center_noticeably_wider() {
+    let (left, center, right) = startup_three_pane_target_widths(100);
+
+    assert_eq!(left + center + right, 100);
+    assert!(center > left);
+    assert!(center > right);
+    assert!(center >= left + 20);
+}
+
+#[test]
+fn four_pane_mode_relabels_physical_slots_to_logical_one_through_four() {
+    let spec = pane_mode_spec(4);
+
+    assert_eq!(spec.logical_slot_for_physical(2), 1);
+    assert_eq!(spec.logical_slot_for_physical(3), 2);
+    assert_eq!(spec.logical_slot_for_physical(4), 3);
+    assert_eq!(spec.logical_slot_for_physical(5), 4);
+    assert_eq!(spec.logical_slot_for_physical(1), 5);
+
+    assert_eq!(spec.physical_slot_for_logical(1), 2);
+    assert_eq!(spec.physical_slot_for_logical(2), 3);
+    assert_eq!(spec.physical_slot_for_logical(3), 4);
+    assert_eq!(spec.physical_slot_for_logical(4), 5);
+    assert_eq!(spec.physical_slot_for_logical(5), 1);
 }

@@ -213,6 +213,7 @@ impl TmuxClient for ProcessTmuxClient {
     }
 
     fn validate_session_invariants(&self, session_name: &str) -> Result<(), SessionError> {
+        mode_runtime::cleanup_legacy_mode_cache_sessions(session_name)?;
         slot_swap::validate_canonical_slot_registry(session_name)?;
         keybinds::install_runtime_keybinds()?;
         style::apply_runtime_style_defaults(session_name)

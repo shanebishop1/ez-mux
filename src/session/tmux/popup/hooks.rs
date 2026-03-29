@@ -47,12 +47,18 @@ pub(super) fn popup_parent_cleanup_hook_command() -> String {
 }
 
 fn popup_parent_cleanup_script() -> String {
-    let mut commands = Vec::with_capacity(6);
+    let mut commands = Vec::with_capacity(12);
     for slot_id in 1_u8..=5 {
         commands.push(format!(
             "tmux has-session -t \"#{{hook_session_name}}__popup_slot_{slot_id}\" 2>/dev/null && tmux kill-session -t \"#{{hook_session_name}}__popup_slot_{slot_id}\" >/dev/null 2>&1"
         ));
+        commands.push(format!(
+            "tmux has-session -t \"#{{hook_session_name}}__mode_slot_{slot_id}\" 2>/dev/null && tmux kill-session -t \"#{{hook_session_name}}__mode_slot_{slot_id}\" >/dev/null 2>&1"
+        ));
     }
+    commands.push(
+        "tmux has-session -t \"#{hook_session_name}__mode_cache\" 2>/dev/null && tmux kill-session -t \"#{hook_session_name}__mode_cache\" >/dev/null 2>&1".to_owned(),
+    );
     commands.push(format!(": # {POPUP_PARENT_CLEANUP_HOOK_MARKER}"));
     commands.join("; ")
 }

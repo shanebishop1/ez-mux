@@ -33,6 +33,7 @@ fn suspension_policy_follows_declared_layout_mode() {
     assert!(validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 4, true).is_ok());
     assert!(validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 5, true).is_ok());
     assert!(validate_slot_suspension(LAYOUT_MODE_FOUR_PANE, 1, true).is_ok());
+    assert!(validate_slot_suspension(LAYOUT_MODE_FOUR_PANE, 5, true).is_ok());
 
     assert!(
         validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 3, true)
