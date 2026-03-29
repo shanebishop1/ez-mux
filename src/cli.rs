@@ -14,7 +14,13 @@ pub struct Cli {
     #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
-    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
+    #[arg(
+        long,
+        value_name = "COUNT",
+        value_parser = clap::value_parser!(u8).range(1..=5),
+        help = "Startup pane count (1-5); default is 5",
+        long_help = "Startup pane count for default session creation (1..=5). Overrides `panes` in ez-mux.toml when provided."
+    )]
     pub panes: Option<u8>,
 
     #[command(subcommand)]
