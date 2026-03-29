@@ -888,8 +888,9 @@ pub(super) fn write_case_artifacts(dir: &Path, cases: &[CaseEvidence]) -> Result
 
 pub(super) fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let json = serde_json::to_string_pretty(value)
-        .map_err(|error| format!("failed serializing json for {path:?}: {error}"))?;
-    fs::write(path, json).map_err(|error| format!("failed writing json {path:?}: {error}"))
+        .map_err(|error| format!("failed serializing json for {}: {error}", path.display()))?;
+    fs::write(path, json)
+        .map_err(|error| format!("failed writing json {}: {error}", path.display()))
 }
 
 pub(super) fn poll_until(
