@@ -2,7 +2,10 @@ use super::SlotContinuitySnapshot;
 use super::should_retry_without_zoom;
 use super::validate_slot_suspension;
 use super::validate_suspended_slot_restore_metadata;
-use crate::session::tmux::layout::{LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_THREE_PANE};
+use crate::session::tmux::layout::{
+    LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_FOUR_PANE, LAYOUT_MODE_ONE_PANE, LAYOUT_MODE_THREE_PANE,
+    LAYOUT_MODE_TWO_PANE,
+};
 
 #[test]
 fn retries_only_for_zoom_attempts_with_status_one() {
@@ -24,9 +27,13 @@ fn retries_only_for_zoom_attempts_with_status_one() {
 }
 
 #[test]
-fn suspension_only_allowed_for_slots_four_and_five_in_three_pane_mode() {
+fn suspension_policy_follows_declared_layout_mode() {
+    assert!(validate_slot_suspension(LAYOUT_MODE_ONE_PANE, 2, true).is_ok());
+    assert!(validate_slot_suspension(LAYOUT_MODE_TWO_PANE, 3, true).is_ok());
     assert!(validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 4, true).is_ok());
     assert!(validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 5, true).is_ok());
+    assert!(validate_slot_suspension(LAYOUT_MODE_FOUR_PANE, 1, true).is_ok());
+
     assert!(
         validate_slot_suspension(LAYOUT_MODE_THREE_PANE, 3, true)
             .expect_err("slot 3 must reject suspension")
@@ -35,7 +42,7 @@ fn suspension_only_allowed_for_slots_four_and_five_in_three_pane_mode() {
     assert!(
         validate_slot_suspension(LAYOUT_MODE_FIVE_PANE, 4, true)
             .expect_err("five-pane mode must reject suspension")
-            .contains("marked suspended")
+            .contains("cannot be suspended")
     );
     assert!(validate_slot_suspension(LAYOUT_MODE_FIVE_PANE, 4, false).is_ok());
 }

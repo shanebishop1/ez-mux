@@ -15,6 +15,9 @@ pub const EZM_REMOTE_PATH_ENV: &str = "EZM_REMOTE_PATH";
 pub const EZM_REMOTE_SERVER_URL_ENV: &str = "EZM_REMOTE_SERVER_URL";
 pub const OPENCODE_SERVER_URL_ENV: &str = "OPENCODE_SERVER_URL";
 pub const OPENCODE_SERVER_PASSWORD_ENV: &str = "OPENCODE_SERVER_PASSWORD";
+pub const MIN_PANE_COUNT: u8 = 1;
+pub const MAX_PANE_COUNT: u8 = 5;
+pub const DEFAULT_PANE_COUNT: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatingSystem {
@@ -83,10 +86,15 @@ pub enum ConfigError {
     },
     #[error("invalid OpenCode server URL from {origin}: expected absolute http(s) URL")]
     InvalidOpenCodeServerUrl { origin: &'static str },
+    #[error(
+        "invalid pane count from {origin}: expected value in range {MIN_PANE_COUNT}..={MAX_PANE_COUNT}, got {value}"
+    )]
+    InvalidPaneCount { origin: &'static str, value: u8 },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 pub struct FileConfig {
+    pub panes: Option<u8>,
     pub ezm_remote_path: Option<String>,
     pub ezm_remote_server_url: Option<String>,
     pub opencode_server_url: Option<String>,
@@ -240,11 +248,62 @@ pub fn resolve_agent_command(file_config: &FileConfig) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Resolves startup pane count from CLI/config/defaults.
+///
+/// Precedence for this setting is `cli > config > default(5)`.
+///
+/// # Errors
+///
+/// Returns [`ConfigError::InvalidPaneCount`] when a resolved value is outside `1..=5`.
+pub fn resolve_pane_count(
+    cli_pane_count: Option<u8>,
+    file_config: &FileConfig,
+) -> Result<ResolvedValue<u8>, ConfigError> {
+    let resolved = if let Some(value) = cli_pane_count {
+        ResolvedValue {
+            value,
+            source: ValueSource::Cli,
+        }
+    } else if let Some(value) = file_config.panes {
+        ResolvedValue {
+            value,
+            source: ValueSource::File,
+        }
+    } else {
+        ResolvedValue {
+            value: DEFAULT_PANE_COUNT,
+            source: ValueSource::Default,
+        }
+    };
+
+    if pane_count_in_range(resolved.value) {
+        Ok(resolved)
+    } else {
+        Err(ConfigError::InvalidPaneCount {
+            origin: pane_count_origin(resolved.source),
+            value: resolved.value,
+        })
+    }
+}
+
 fn default_opencode_slot_themes() -> HashMap<u8, String> {
     DEFAULT_OPENCODE_SLOT_THEMES
         .iter()
         .map(|(slot_id, theme)| (*slot_id, (*theme).to_owned()))
         .collect()
+}
+
+fn pane_count_in_range(value: u8) -> bool {
+    (MIN_PANE_COUNT..=MAX_PANE_COUNT).contains(&value)
+}
+
+fn pane_count_origin(source: ValueSource) -> &'static str {
+    match source {
+        ValueSource::Cli => "cli --panes",
+        ValueSource::File => "config panes",
+        ValueSource::Env => "env",
+        ValueSource::Default => "default",
+    }
 }
 
 fn apply_opencode_slot_theme_overrides(

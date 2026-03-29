@@ -88,6 +88,19 @@ fn load_config_prefers_local_ez_mux_toml_when_present() {
 }
 
 #[test]
+fn load_config_parses_panes_setting() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "panes = 4\n").expect("write config");
+
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
+
+    let loaded = load_config(&env, OperatingSystem::Linux).expect("load should succeed");
+    assert_eq!(loaded.values.panes, Some(4));
+}
+
+#[test]
 fn ezm_config_override_wins_over_local_ez_mux_toml() {
     let dir = tempdir().expect("tempdir");
     let local_config = dir.path().join("ez-mux.toml");
@@ -495,4 +508,70 @@ fn resolve_agent_command_treats_empty_value_as_unset() {
     let command = resolve_agent_command(&file);
 
     assert!(command.is_none());
+}
+
+#[test]
+fn pane_count_defaults_to_five_when_unset() {
+    let resolved = resolve_pane_count(None, &FileConfig::default()).expect("pane count resolution");
+
+    assert_eq!(
+        resolved,
+        ResolvedValue {
+            value: 5,
+            source: ValueSource::Default,
+        }
+    );
+}
+
+#[test]
+fn pane_count_uses_config_when_cli_missing() {
+    let file = FileConfig {
+        panes: Some(3),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_pane_count(None, &file).expect("pane count resolution");
+
+    assert_eq!(
+        resolved,
+        ResolvedValue {
+            value: 3,
+            source: ValueSource::File,
+        }
+    );
+}
+
+#[test]
+fn pane_count_prefers_cli_over_config() {
+    let file = FileConfig {
+        panes: Some(2),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_pane_count(Some(4), &file).expect("pane count resolution");
+
+    assert_eq!(
+        resolved,
+        ResolvedValue {
+            value: 4,
+            source: ValueSource::Cli,
+        }
+    );
+}
+
+#[test]
+fn pane_count_rejects_out_of_range_file_value() {
+    let file = FileConfig {
+        panes: Some(9),
+        ..FileConfig::default()
+    };
+
+    let error = resolve_pane_count(None, &file).expect_err("invalid pane count should fail");
+    assert!(matches!(
+        error,
+        ConfigError::InvalidPaneCount {
+            origin: "config panes",
+            value: 9,
+        }
+    ));
 }

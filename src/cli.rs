@@ -14,6 +14,9 @@ pub struct Cli {
     #[arg(short = 'v', long = "verbose", global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
+    pub panes: Option<u8>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -121,6 +124,7 @@ mod tests {
         let parsed = Cli::try_parse_from(["ezm"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
         assert_eq!(parsed.verbose, 0);
+        assert_eq!(parsed.panes, None);
     }
 
     #[test]
@@ -128,6 +132,22 @@ mod tests {
         let parsed = Cli::try_parse_from(["ezm", "-v"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
         assert_eq!(parsed.verbose, 1);
+        assert_eq!(parsed.panes, None);
+    }
+
+    #[test]
+    fn parses_panes_flag() {
+        let parsed = Cli::try_parse_from(["ezm", "--panes", "3"]).expect("parse should succeed");
+        assert_eq!(parsed.command, None);
+        assert_eq!(parsed.verbose, 0);
+        assert_eq!(parsed.panes, Some(3));
+    }
+
+    #[test]
+    fn rejects_out_of_range_panes_flag() {
+        let err = Cli::try_parse_from(["ezm", "--panes", "6"])
+            .expect_err("out-of-range pane count should fail parsing");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
     }
 
     #[test]

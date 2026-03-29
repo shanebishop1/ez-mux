@@ -24,7 +24,7 @@ use ez_mux::session::toggle_popup_shell;
 struct FakeTmux {
     sessions: RefCell<HashSet<String>>,
     created: RefCell<Vec<(String, PathBuf)>>,
-    bootstrapped: RefCell<Vec<(String, PathBuf)>>,
+    bootstrapped: RefCell<Vec<(String, PathBuf, u8)>>,
     attached: RefCell<Vec<String>>,
     attach_error: RefCell<Option<String>>,
     mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
@@ -114,10 +114,13 @@ impl TmuxClient for FakeTmux {
         &self,
         session_name: &str,
         project_dir: &Path,
+        pane_count: u8,
     ) -> Result<(), ez_mux::session::SessionError> {
-        self.bootstrapped
-            .borrow_mut()
-            .push((session_name.to_string(), project_dir.to_path_buf()));
+        self.bootstrapped.borrow_mut().push((
+            session_name.to_string(),
+            project_dir.to_path_buf(),
+            pane_count,
+        ));
         Ok(())
     }
 
@@ -479,6 +482,7 @@ fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_path_is_active
         project_dir.as_path(),
         Some("/srv/remotes"),
         Some("https://shell.remote.example:7443"),
+        5,
         &tmux,
     )
     .expect("first run");
@@ -486,6 +490,7 @@ fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_path_is_active
         project_dir.as_path(),
         Some("/srv/remotes"),
         Some("https://shell.remote.example:7443"),
+        5,
         &tmux,
     )
     .expect("second run");
