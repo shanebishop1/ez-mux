@@ -49,41 +49,41 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .unwrap_or_default();
     let slot_before = pane_geometry_by_id(&before_geometry, &slot_pane_id);
 
-    assertions.push(format!("swap slot target = {slot_id}"));
+    assertions.push(format!("focus slot target = {slot_id}"));
     assertions.push(format!("slot pane before swap = {slot_pane_id}"));
     assertions.push(format!("center pane before swap = {center_before}"));
 
-    let swap_prefix_keybind = harness
-        .tmux_capture(&["list-keys", "-T", "prefix", "g"])
+    let focus_prefix_keybind = harness
+        .tmux_capture(&["list-keys", "-T", "prefix", "f"])
         .unwrap_or_default();
-    let swap_slot_keybind = harness
-        .tmux_capture(&["list-keys", "-T", "ezm-swap", &slot_key])
+    let focus_slot_keybind = harness
+        .tmux_capture(&["list-keys", "-T", "ezm-focus", &slot_key])
         .unwrap_or_default();
-    let keybind_matrix_present = swap_prefix_keybind.contains("ezm-swap")
-        && swap_slot_keybind.contains("__internal swap")
-        && swap_slot_keybind.contains(&format!("--slot {slot_id}"));
+    let keybind_matrix_present = focus_prefix_keybind.contains("ezm-focus")
+        && focus_slot_keybind.contains("__internal focus")
+        && focus_slot_keybind.contains(&format!("--slot {slot_id}"));
     assertions.push(format!(
-        "swap keybind matrix present for prefix g -> table -> slot {slot_id} = {keybind_matrix_present}"
+        "focus keybind matrix present for prefix f -> table -> slot {slot_id} = {keybind_matrix_present}"
     ));
 
-    send_prefix_keybind(harness, &session, "g")
-        .unwrap_or_else(|error| panic!("E2E-04 failed sending swap table prefix: {error}"));
+    send_prefix_keybind(harness, &session, "f")
+        .unwrap_or_else(|error| panic!("E2E-04 failed sending focus table prefix: {error}"));
     harness
         .tmux_capture(&["send-keys", "-K", "-t", &format!("{session}:0"), &slot_key])
         .or_else(|_| harness.tmux_capture(&["send-keys", "-t", &format!("{session}:0"), &slot_key]))
-        .unwrap_or_else(|error| panic!("E2E-04 failed sending swap slot key: {error}"));
+        .unwrap_or_else(|error| panic!("E2E-04 failed sending focus slot key: {error}"));
 
-    let mut swap_applied = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+    let mut focus_applied = poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
         let geometry = read_pane_geometry(harness, &session)?;
         Ok(center_pane_from_geometry(&geometry) == slot_pane_id)
     })
-    .unwrap_or_else(|error| panic!("E2E-04 failed polling keybind swap completion: {error}"));
+    .unwrap_or_else(|error| panic!("E2E-04 failed polling keybind focus completion: {error}"));
 
-    if !swap_applied {
+    if !focus_applied {
         let slot_id_arg = slot_id.to_string();
         let fallback_args = vec![
             "__internal",
-            "swap",
+            "focus",
             "--session",
             &session,
             "--slot",
@@ -91,19 +91,19 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         ];
         let fallback = harness
             .run_ezm(&fallback_args, &[], 0)
-            .unwrap_or_else(|error| panic!("E2E-04 fallback swap invocation failed: {error}"));
+            .unwrap_or_else(|error| panic!("E2E-04 fallback focus invocation failed: {error}"));
         samples.push(sample(&fallback_args, &fallback));
-        swap_applied = fallback.exit_code == 0
+        focus_applied = fallback.exit_code == 0
             && poll_until(DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
                 let geometry = read_pane_geometry(harness, &session)?;
                 Ok(center_pane_from_geometry(&geometry) == slot_pane_id)
             })
             .unwrap_or_else(|error| {
-                panic!("E2E-04 failed polling fallback swap completion: {error}")
+                panic!("E2E-04 failed polling fallback focus completion: {error}")
             });
     }
     assertions.push(format!(
-        "swap keybind invocation moved target slot to center = {swap_applied}"
+        "focus keybind invocation moved target slot to center = {focus_applied}"
     ));
 
     let after_slots = read_slot_snapshot(harness, &session)
@@ -150,7 +150,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && session == expected_session
         && settle.stable
         && keybind_matrix_present
-        && swap_applied
+        && focus_applied
         && slot_snapshots_match(&before_slots, &after_slots)
         && slot_moved_to_center
         && slot_position_changed
