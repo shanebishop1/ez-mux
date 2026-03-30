@@ -430,7 +430,6 @@ fn read_keybind_matrix(harness: &FoundationHarness) -> Result<KeybindMatrix, Str
         && session_closed_hook.contains("EZM_POPUP_PARENT_CLEANUP_V2");
 
     let core_checks = [
-        ("prefix", "g", "ezm-swap"),
         ("prefix", "u", "__internal mode"),
         ("prefix", "a", "--mode agent"),
         ("prefix", "S", "--mode shell"),

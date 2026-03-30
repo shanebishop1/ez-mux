@@ -242,3 +242,178 @@ jobs:
             dist/ezm-${{ steps.meta.outputs.tag }}-verification.json
           fail_on_unmatched_files: true
           body_path: dist/release-notes.md
+
+  npm-publish:
+    name: Publish npm package (ez-mux)
+    needs:
+      - preflight
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve package tag
+        id: meta
+        run: |
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          if [[ ! "$TAG" =~ ^v ]]; then
+            echo "Tag must start with 'v' but got '$TAG'" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ezm-${{ steps.meta.outputs.tag }}-*
+          merge-multiple: true
+          path: dist
+
+      - name: Extract release binaries
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          ASSETS=(linux-x64 linux-arm64 macos-x64 macos-arm64)
+          for asset in "${ASSETS[@]}"; do
+            ARCHIVE="dist/ezm-${TAG}-${asset}.tar.gz"
+            if [ ! -f "$ARCHIVE" ]; then
+              echo "Missing expected archive: $ARCHIVE" >&2
+              exit 1
+            fi
+            DEST="dist/extracted/${asset}"
+            mkdir -p "$DEST"
+            tar -xzf "$ARCHIVE" -C "$DEST"
+            chmod +x "$DEST/ezm"
+          done
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Prepare npm package contents
+        run: |
+          PACKAGE_DIR="dist/npm/ez-mux"
+          mkdir -p "$PACKAGE_DIR/bin/linux-x64" "$PACKAGE_DIR/bin/linux-arm64" "$PACKAGE_DIR/bin/darwin-x64" "$PACKAGE_DIR/bin/darwin-arm64"
+
+          cp dist/extracted/linux-x64/ezm "$PACKAGE_DIR/bin/linux-x64/ezm"
+          cp dist/extracted/linux-arm64/ezm "$PACKAGE_DIR/bin/linux-arm64/ezm"
+          cp dist/extracted/macos-x64/ezm "$PACKAGE_DIR/bin/darwin-x64/ezm"
+          cp dist/extracted/macos-arm64/ezm "$PACKAGE_DIR/bin/darwin-arm64/ezm"
+          chmod +x "$PACKAGE_DIR/bin/linux-x64/ezm" "$PACKAGE_DIR/bin/linux-arm64/ezm" "$PACKAGE_DIR/bin/darwin-x64/ezm" "$PACKAGE_DIR/bin/darwin-arm64/ezm"
+
+          cat > "$PACKAGE_DIR/bin/ezm.js" <<'EOF'
+          #!/usr/bin/env node
+
+          const { spawnSync } = require('node:child_process')
+          const path = require('node:path')
+
+          const target = `${process.platform}-${process.arch}`
+          const map = {
+            'linux-x64': 'linux-x64',
+            'linux-arm64': 'linux-arm64',
+            'darwin-x64': 'darwin-x64',
+            'darwin-arm64': 'darwin-arm64',
+          }
+
+          const variant = map[target]
+          if (!variant) {
+            console.error(`ez-mux does not support platform ${target}`)
+            process.exit(1)
+          }
+
+          const binaryPath = path.join(__dirname, variant, 'ezm')
+          const result = spawnSync(binaryPath, process.argv.slice(2), { stdio: 'inherit' })
+
+          if (result.error) {
+            console.error(result.error.message)
+            process.exit(1)
+          }
+
+          process.exit(result.status ?? 1)
+          EOF
+          chmod +x "$PACKAGE_DIR/bin/ezm.js"
+
+          cat > "$PACKAGE_DIR/package.json" <<EOF
+          {
+            "name": "ez-mux",
+            "version": "${{ steps.meta.outputs.version }}",
+            "description": "Deterministic tmux workspace orchestrator",
+            "license": "MIT",
+            "repository": {
+              "type": "git",
+              "url": "git+https://github.com/${{ github.repository }}.git"
+            },
+            "bugs": {
+              "url": "https://github.com/${{ github.repository }}/issues"
+            },
+            "homepage": "https://github.com/${{ github.repository }}#readme",
+            "bin": {
+              "ezm": "bin/ezm.js"
+            },
+            "files": [
+              "bin/ezm.js",
+              "bin/linux-x64/ezm",
+              "bin/linux-arm64/ezm",
+              "bin/darwin-x64/ezm",
+              "bin/darwin-arm64/ezm",
+              "README.md"
+            ],
+            "engines": {
+              "node": ">=18"
+            },
+            "publishConfig": {
+              "access": "public"
+            }
+          }
+          EOF
+
+          cat > "$PACKAGE_DIR/README.md" <<EOF
+          # ez-mux
+
+          Install the \`ezm\` CLI via npm.
+
+          Install:
+
+          \`\`\`bash
+          npm install -g ez-mux
+          \`\`\`
+
+          Verify:
+
+          \`\`\`bash
+          ezm --version
+          \`\`\`
+
+          Source: https://github.com/${{ github.repository }}
+          EOF
+
+      - name: Smoke check packaged launcher
+        run: node bin/ezm.js --version
+        working-directory: dist/npm/ez-mux
+
+      - name: Verify npm package payload
+        run: npm pack --dry-run
+        working-directory: dist/npm/ez-mux
+
+      - name: Publish npm package
+        run: |
+          PACKAGE_NAME="ez-mux"
+          VERSION="${{ steps.meta.outputs.version }}"
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${VERSION} already exists; skipping publish."
+            exit 0
+          fi
+          npm publish --provenance --access public
+        working-directory: dist/npm/ez-mux
