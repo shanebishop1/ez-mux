@@ -9,39 +9,28 @@ The command is `ezm`.
 
 - Deterministic per-project tmux sessions (`ezm-<project>-<hash>`), so each repo reopens in its own workspace.
 - Automatic 5-slot pane bootstrap with deterministic worktree assignment (slot 1..5).
-- Slot modes built in: `agent` (OpenCode), `shell`, `neovim`, and `lazygit`.
+- Slot modes built in: `agent` (your configured agent command), `shell`, `neovim`, and `lazygit`.
 - Runtime keybinds for focus/swap/mode switching/popup, installed automatically on startup.
 - Automatic `beads-viewer` auxiliary window when `bv` is available (local or remote).
 - Built-in remote routing: path remap + SSH launch for shell/neovim/lazygit/popup flows.
-- Built-in OpenCode shared-server attach flow (`opencode attach ...`) for agent mode when remote routing is enabled.
+- Optional OpenCode shared-server attach flow (`opencode attach ...`) when using OpenCode for agent mode.
 
 ## Requirements
 
 - Linux or macOS
 - `tmux` on `PATH`
-- Rust `1.85+` (if building/installing from source)
-
-Quick checks:
-
-```bash
-tmux -V
-rustc --version
-```
 
 ## Install
 
-Install from this repository:
+Install from a GitHub release archive:
 
 ```bash
-cargo install --path .
+tar -xzf ezm-vX.Y.Z-<platform>.tar.gz
+mkdir -p ~/.local/bin
+mv ezm ~/.local/bin/ezm
 ```
 
-Or build a release binary:
-
-```bash
-cargo build --release
-./target/release/ezm --version
-```
+Then make sure `~/.local/bin` is in your `PATH`.
 
 ## Quick start
 
@@ -109,12 +98,12 @@ panes = 5
 ezm_remote_path = "/srv/remotes"
 ezm_remote_server_url = "https://remote.example:7443"
 
-# Optional OpenCode shared-server attach settings (agent mode)
+# Optional OpenCode shared-server attach settings (used only for OpenCode attach flow)
 opencode_server_url = "http://127.0.0.1:4096"
 opencode_server_password = "replace-me"
 
-# Optional agent mode override command
-agent_command = 'exec opencode || exec "${SHELL:-/bin/sh}" -l'
+# Optional agent mode command override (OpenCode, Codex, Claude Code, etc.)
+agent_command = 'exec codex || exec "${SHELL:-/bin/sh}" -l'
 
 # Optional per-slot OpenCode theming
 opencode_slot_themes_enabled = true
@@ -126,11 +115,13 @@ opencode_slot_themes_enabled = true
 "5" = "monokai"
 ```
 
-## Remote and OpenCode behavior
+## Remote and agent behavior
 
 - Remote routing turns on only when both `EZM_REMOTE_PATH` and `EZM_REMOTE_SERVER_URL` are set (or equivalent config values).
 - When remote routing is active, shell/neovim/lazygit and popup flows run through SSH against the mapped remote directory.
-- With remote routing enabled, agent mode can attach to a shared OpenCode server via `OPENCODE_SERVER_URL` and optional `OPENCODE_SERVER_PASSWORD`.
+- Agent mode runs `agent_command` when set.
+- If `agent_command` is not set, ez-mux defaults to local OpenCode launch behavior.
+- If using OpenCode shared-server attach, set `OPENCODE_SERVER_URL` and optionally `OPENCODE_SERVER_PASSWORD`.
 
 ## Environment variables
 
