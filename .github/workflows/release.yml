@@ -415,9 +415,16 @@ jobs:
           PACKAGE_NAME="ez-mux"
           VERSION="${{ steps.meta.outputs.version }}"
           unset NODE_AUTH_TOKEN
+
           if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "${PACKAGE_NAME}@${VERSION} already exists; skipping publish."
             exit 0
           fi
-          npm publish --provenance --access public
+
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "GitHub OIDC environment variables are missing; ensure id-token: write is enabled for this job." >&2
+            exit 1
+          fi
+
+          npm publish --provenance --access public --loglevel verbose
         working-directory: dist/npm/ez-mux
