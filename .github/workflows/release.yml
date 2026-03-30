@@ -304,7 +304,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Prepare npm package contents
         run: |
@@ -415,6 +414,7 @@ jobs:
         run: |
           PACKAGE_NAME="ez-mux"
           VERSION="${{ steps.meta.outputs.version }}"
+          unset NODE_AUTH_TOKEN
           if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "${PACKAGE_NAME}@${VERSION} already exists; skipping publish."
             exit 0
