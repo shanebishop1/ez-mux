@@ -9,7 +9,7 @@ pub mod session;
 
 use std::io::Write;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use config::{OperatingSystem, ProcessEnv};
 use exit_code::ExitCode;
 
@@ -84,23 +84,33 @@ where
     }
 
     match parsed_cli {
-        Ok(cli) => match app::execute_with_opener(cli, env, os, &launch_log.root, opener) {
-            Ok(message) => {
-                if !message.is_empty() {
-                    if let Err(code) = checked_write(writeln!(stdout, "{message}"), stderr) {
-                        return code;
-                    }
-                }
-                ExitCode::Success.as_i32()
-            }
-            Err(error) => {
-                append_launch_failure_event(&launch_log.file_path, &error.to_string());
-                if let Err(code) = checked_write(writeln!(stderr, "error: {error}"), stderr) {
+        Ok(cli) => {
+            if cli.version {
+                if let Err(code) = checked_write(writeln!(stdout, "{}", cli_version_line()), stderr)
+                {
                     return code;
                 }
-                ExitCode::from_app_error(&error).as_i32()
+                return ExitCode::Success.as_i32();
             }
-        },
+
+            match app::execute_with_opener(cli, env, os, &launch_log.root, opener) {
+                Ok(message) => {
+                    if !message.is_empty() {
+                        if let Err(code) = checked_write(writeln!(stdout, "{message}"), stderr) {
+                            return code;
+                        }
+                    }
+                    ExitCode::Success.as_i32()
+                }
+                Err(error) => {
+                    append_launch_failure_event(&launch_log.file_path, &error.to_string());
+                    if let Err(code) = checked_write(writeln!(stderr, "error: {error}"), stderr) {
+                        return code;
+                    }
+                    ExitCode::from_app_error(&error).as_i32()
+                }
+            }
+        }
         Err(parse_error) => match parse_error.kind() {
             clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
                 if let Err(code) = checked_write(write!(stdout, "{parse_error}"), stderr) {
@@ -123,6 +133,13 @@ fn verbose_flag_present(args: &[std::ffi::OsString]) -> bool {
     args.iter()
         .skip(1)
         .any(|arg| arg.to_string_lossy() == "--verbose")
+}
+
+fn cli_version_line() -> String {
+    let command = cli::Cli::command();
+    let name = command.get_name();
+    let version = command.get_version().unwrap_or(env!("CARGO_PKG_VERSION"));
+    format!("{name} {version}")
 }
 
 fn append_launch_failure_event(log_path: &std::path::Path, detail: &str) {
