@@ -191,7 +191,7 @@ impl FoundationHarness {
 
         let mut command = Command::new(&self.ezm_bin);
         if args.is_empty() && self.verbose_default_launch {
-            command.arg("-v");
+            command.arg("--verbose");
         }
         command.args(args);
         command.current_dir(project_dir);

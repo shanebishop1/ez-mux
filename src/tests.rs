@@ -108,7 +108,7 @@ fn each_launch_creates_a_new_log_file() {
     let mut stderr = Vec::new();
 
     let first_code = run_with_io(
-        ["ezm", "-v", "--help"],
+        ["ezm", "--verbose", "--help"],
         &env,
         OperatingSystem::Linux,
         &mut stdout,
@@ -119,7 +119,7 @@ fn each_launch_creates_a_new_log_file() {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let second_code = run_with_io(
-        ["ezm", "-v", "--help"],
+        ["ezm", "--verbose", "--help"],
         &env,
         OperatingSystem::Linux,
         &mut stdout,
@@ -159,7 +159,7 @@ fn warns_and_continues_when_primary_log_root_creation_fails() {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let code = run_with_io(
-        ["ezm", "-v", "--help"],
+        ["ezm", "--verbose", "--help"],
         &env,
         OperatingSystem::Linux,
         &mut stdout,
@@ -180,7 +180,7 @@ fn runtime_failures_write_stderr_only_and_use_runtime_code() {
     let mut stderr = Vec::new();
 
     let code = run_with_io_and_opener(
-        ["ezm", "-v", "logs", "open-latest"],
+        ["ezm", "--verbose", "logs", "open-latest"],
         &env,
         OperatingSystem::Linux,
         &mut stdout,
@@ -249,7 +249,7 @@ fn remote_path_without_remote_server_url_does_not_require_operator() {
     let code = run_with_io(
         [
             "ezm",
-            "-v",
+            "--verbose",
             "__internal",
             "mode",
             "--session",
@@ -314,7 +314,7 @@ fn verbose_mode_emits_active_log_path() {
     let mut stderr = Vec::new();
 
     let code = run_with_io(
-        ["ezm", "-v", "--help"],
+        ["ezm", "--verbose", "--help"],
         &env,
         OperatingSystem::Linux,
         &mut stdout,

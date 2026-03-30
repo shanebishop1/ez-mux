@@ -6,6 +6,7 @@ use crate::session::{LayoutPreset, SlotMode};
 #[command(
     name = "ezm",
     bin_name = "ezm",
+    disable_version_flag = true,
     version,
     about = "Deterministic tmux workspace orchestrator",
     long_about = None
@@ -13,10 +14,18 @@ use crate::session::{LayoutPreset, SlotMode};
 pub struct Cli {
     #[arg(
         short = 'v',
+        long = "version",
+        global = true,
+        action = clap::ArgAction::Version,
+        help = "Print version"
+    )]
+    pub(crate) version: Option<bool>,
+
+    #[arg(
         long = "verbose",
         global = true,
         action = clap::ArgAction::Count,
-        help = "Increase diagnostic verbosity (-v, -vv, ...)"
+        help = "Increase diagnostic verbosity (--verbose, --verbose --verbose, ...)"
     )]
     pub verbose: u8,
 
@@ -142,7 +151,7 @@ mod tests {
 
     #[test]
     fn parses_verbose_flag() {
-        let parsed = Cli::try_parse_from(["ezm", "-v"]).expect("parse should succeed");
+        let parsed = Cli::try_parse_from(["ezm", "--verbose"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
         assert_eq!(parsed.verbose, 1);
         assert_eq!(parsed.panes, None);
@@ -395,6 +404,13 @@ mod tests {
     fn supports_version_flag() {
         let err = Cli::try_parse_from(["ezm", "--version"])
             .expect_err("version exits through clap error");
+        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+    }
+
+    #[test]
+    fn supports_short_version_flag() {
+        let err =
+            Cli::try_parse_from(["ezm", "-v"]).expect_err("short version exits through clap error");
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
     }
 }

@@ -166,19 +166,19 @@ fn case_e2e_15(harness: &FoundationHarness) -> CaseEvidence {
     let mut samples = Vec::new();
 
     let run_one = harness
-        .run_ezm(&["-v"], &[], 0)
+        .run_ezm(&["--verbose"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-15 first launch failed: {error}"));
     let first_log = extract_active_log_path(&run_one.stderr)
         .unwrap_or_else(|| panic!("E2E-15 first run missing active log path in stderr"));
 
     let run_two = harness
-        .run_ezm(&["-v"], &[], 0)
+        .run_ezm(&["--verbose"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-15 second launch failed: {error}"));
     let second_log = extract_active_log_path(&run_two.stderr)
         .unwrap_or_else(|| panic!("E2E-15 second run missing active log path in stderr"));
 
-    samples.push(sample(&["-v"], &run_one));
-    samples.push(sample(&["-v"], &run_two));
+    samples.push(sample(&["--verbose"], &run_one));
+    samples.push(sample(&["--verbose"], &run_two));
 
     assertions.push(format!("first active log: {first_log}"));
     assertions.push(format!("second active log: {second_log}"));
@@ -226,9 +226,9 @@ fn case_e2e_15(harness: &FoundationHarness) -> CaseEvidence {
     ));
 
     let open_latest = harness
-        .run_ezm(&["-v", "logs", "open-latest"], &[], 0)
+        .run_ezm(&["--verbose", "logs", "open-latest"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-15 open-latest failed: {error}"));
-    samples.push(sample(&["-v", "logs", "open-latest"], &open_latest));
+    samples.push(sample(&["--verbose", "logs", "open-latest"], &open_latest));
 
     let open_outcome = evaluate_open_latest(harness, &open_latest, &second_log);
     assertions.extend(open_outcome.assertions);
@@ -323,7 +323,7 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
 
     let env_over_file = harness
         .run_ezm(
-            &["-v"],
+            &["--verbose"],
             &[
                 ("EZM_CONFIG", &config_path),
                 ("EZM_REMOTE_PATH", "/srv/env-remotes"),
@@ -332,17 +332,17 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
             0,
         )
         .unwrap_or_else(|error| panic!("E2E-17 env-over-file invocation failed: {error}"));
-    samples.push(sample(&["-v"], &env_over_file));
+    samples.push(sample(&["--verbose"], &env_over_file));
 
     let file_over_default = harness
-        .run_ezm(&["-v"], &[("EZM_CONFIG", &config_path)], 0)
+        .run_ezm(&["--verbose"], &[("EZM_CONFIG", &config_path)], 0)
         .unwrap_or_else(|error| panic!("E2E-17 file-over-default invocation failed: {error}"));
-    samples.push(sample(&["-v"], &file_over_default));
+    samples.push(sample(&["--verbose"], &file_over_default));
 
     let default_only = harness
-        .run_ezm(&["-v"], &[], 0)
+        .run_ezm(&["--verbose"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-17 default invocation failed: {error}"));
-    samples.push(sample(&["-v"], &default_only));
+    samples.push(sample(&["--verbose"], &default_only));
 
     let env_source = extract_remote_path_source(&env_over_file.stdout);
     let file_source = extract_remote_path_source(&file_over_default.stdout);
