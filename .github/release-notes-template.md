@@ -22,12 +22,3 @@ sha256sum --check "ezm-__TAG__-checksums.txt"
 # macOS
 shasum -a 256 --check "ezm-__TAG__-checksums.txt"
 ```
-
-## Collaborator feedback and install checklist
-
-Install guide: __COLLAB_INSTALL_DOC_URL__
-
-- [ ] Install the release archive for your platform.
-- [ ] Confirm `ezm --version` reports `__TAG__`.
-- [ ] Run your normal smoke test flow and report issues.
-- [ ] Note any packaging/install friction by OS + architecture.
