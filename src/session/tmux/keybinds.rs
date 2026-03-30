@@ -6,7 +6,7 @@ use crate::config::EZM_BIN_ENV;
 
 const SWAP_TABLE: &str = "ezm-swap";
 const FOCUS_TABLE: &str = "ezm-focus";
-const SWAP_PREFIX_KEY: &str = "g";
+const LEGACY_SWAP_PREFIX_KEY: &str = "g";
 const FOCUS_PREFIX_KEY: &str = "f";
 const TOGGLE_MODE_KEY: &str = "u";
 const AGENT_MODE_KEY: &str = "a";
@@ -25,6 +25,7 @@ const ACTIVE_SLOT_BORDER_STYLE_FORMAT: &str = "fg=#{?#{==:#{@ezm_slot_id},1},#5a
 pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     let ezm_bin = resolved_ezm_bin_shell_token();
     sync_runtime_env_into_tmux_server()?;
+    clear_legacy_bindings()?;
 
     if should_clear_existing_keybinds_before_install() {
         for (table, key) in clear_specs() {
@@ -43,6 +44,10 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     tmux_run_batch(&commands)
 }
 
+fn clear_legacy_bindings() -> Result<(), SessionError> {
+    unbind_key_if_present("prefix", LEGACY_SWAP_PREFIX_KEY)
+}
+
 fn should_clear_existing_keybinds_before_install() -> bool {
     false
 }
@@ -52,15 +57,6 @@ fn install_prefix_routing_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
 
     vec![
         run_shell_binding_command("prefix", THREE_PANE_PRESET_KEY, &three_pane_preset_command),
-        command(&[
-            "bind-key",
-            "-T",
-            "prefix",
-            SWAP_PREFIX_KEY,
-            "switch-client",
-            "-T",
-            SWAP_TABLE,
-        ]),
         command(&[
             "bind-key",
             "-T",
@@ -236,7 +232,6 @@ fn command(args: &[&str]) -> Vec<String> {
 fn clear_specs() -> Vec<(&'static str, String)> {
     let mut specs = vec![
         ("prefix", THREE_PANE_PRESET_KEY.to_owned()),
-        ("prefix", SWAP_PREFIX_KEY.to_owned()),
         ("prefix", FOCUS_PREFIX_KEY.to_owned()),
         ("prefix", TOGGLE_MODE_KEY.to_owned()),
         ("prefix", AGENT_MODE_KEY.to_owned()),

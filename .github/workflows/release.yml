@@ -208,7 +208,6 @@ jobs:
           RELEASE_SHA: ${{ steps.meta.outputs.sha }}
           RELEASE_RUN_URL: ${{ steps.meta.outputs.run_url }}
           RELEASE_SBOM_STATUS: ${{ steps.sbom.outputs.status }}
-          RELEASE_COLLAB_INSTALL_DOC_URL: https://github.com/${{ github.repository }}/blob/${{ steps.meta.outputs.tag }}/docs/testing/github-release-install.md
         run: |
           python - <<'PY'
           import os
@@ -222,7 +221,6 @@ jobs:
               '__COMMIT_SHA__': os.environ['RELEASE_SHA'],
               '__WORKFLOW_RUN_URL__': os.environ['RELEASE_RUN_URL'],
               '__SBOM_STATUS__': os.environ['RELEASE_SBOM_STATUS'],
-              '__COLLAB_INSTALL_DOC_URL__': os.environ['RELEASE_COLLAB_INSTALL_DOC_URL'],
           }
 
           content = template_path.read_text(encoding='utf-8')
