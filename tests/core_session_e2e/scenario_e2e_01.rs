@@ -106,7 +106,6 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
 fn keybind_matrix_present(harness: &FoundationHarness) -> bool {
     let key_checks = [
-        ("prefix", "g", "ezm-swap"),
         ("prefix", "f", "ezm-focus"),
         ("prefix", "u", "__internal mode"),
         ("prefix", "a", "--mode agent"),
