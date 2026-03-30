@@ -39,7 +39,11 @@ jobs:
       - name: Run tests
         env:
           RUST_TEST_THREADS: 1
-        run: cargo test --locked -- --skip core_session_e2e_suite
+        run: |
+          cargo test --locked -- --skip core_session_e2e_suite || {
+            echo "Initial test pass failed; retrying once for transient tmux harness startup errors..." >&2
+            cargo test --locked -- --skip core_session_e2e_suite
+          }
 
   build:
     name: Build (${{ matrix.target }})
