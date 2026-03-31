@@ -147,7 +147,7 @@ fn t1_5_routing_failures_surface_explicit_stderr_and_log_evidence() {
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
 
     let args = [
-        "-v",
+        "--verbose",
         "__internal",
         "mode",
         "--session",
