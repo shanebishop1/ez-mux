@@ -120,19 +120,9 @@ where
 }
 
 fn verbose_flag_present(args: &[std::ffi::OsString]) -> bool {
-    args.iter().skip(1).any(|arg| {
-        let value = arg.to_string_lossy();
-        if value == "--verbose" {
-            return true;
-        }
-
-        if value.starts_with('-') && !value.starts_with("--") {
-            let flags = &value[1..];
-            return !flags.is_empty() && flags.chars().all(|flag| flag == 'v');
-        }
-
-        false
-    })
+    args.iter()
+        .skip(1)
+        .any(|arg| arg.to_string_lossy() == "--verbose")
 }
 
 fn append_launch_failure_event(log_path: &std::path::Path, detail: &str) {

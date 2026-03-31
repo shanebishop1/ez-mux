@@ -46,6 +46,7 @@ pub(crate) fn execute_with_opener(
         verbose,
         panes,
         command,
+        ..
     } = cli;
 
     let loaded = config::load_config(env, os)?;
