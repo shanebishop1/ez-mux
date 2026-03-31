@@ -45,12 +45,13 @@ pub(crate) fn execute_with_opener(
     let Cli {
         verbose,
         panes,
+        pane_shortcut,
         command,
         ..
     } = cli;
 
     let loaded = config::load_config(env, os)?;
-    let pane_count = config::resolve_pane_count(panes, &loaded.values)?;
+    let pane_count = config::resolve_pane_count(panes.or(pane_shortcut), &loaded.values)?;
     let resolved_remote_runtime = config::resolve_remote_runtime(env, &loaded.values)?;
     let agent_command = config::resolve_agent_command(&loaded.values);
     let opencode_theme_runtime = config::resolve_opencode_theme_runtime(&loaded.values);
@@ -65,6 +66,10 @@ pub(crate) fn execute_with_opener(
                 &session::ProcessTmuxClient,
             )?;
             default_contract_summary_message(verbose > 0, &outcome, &resolved_remote_runtime)
+        }
+        Some(Command::Kill) => {
+            let outcome = execute_kill_session_flow(&session::ProcessTmuxClient)?;
+            format_kill_message(&outcome)
         }
         Some(Command::Repair) => {
             let outcome =
@@ -116,6 +121,21 @@ fn execute_default_session_flow(
         pane_count,
         tmux,
     )
+}
+
+fn execute_kill_session_flow(
+    tmux: &impl session::TmuxClient,
+) -> Result<session::TeardownOutcome, AppError> {
+    let project_dir = std::env::current_dir().map_err(session::SessionError::CurrentDir)?;
+    execute_kill_session_flow_for_project_dir(project_dir.as_path(), tmux)
+}
+
+fn execute_kill_session_flow_for_project_dir(
+    project_dir: &std::path::Path,
+    tmux: &impl session::TmuxClient,
+) -> Result<session::TeardownOutcome, AppError> {
+    let identity = session::resolve_session_identity(project_dir)?;
+    session::teardown_session(&identity.session_name, tmux).map_err(AppError::Session)
 }
 
 fn execute_default_session_flow_for_project_dir(
@@ -260,6 +280,16 @@ fn execute_internal(
 fn internal_swap_success_message(session_name: &str, slot_id: u8) -> String {
     let _ = (session_name, slot_id);
     String::new()
+}
+
+fn format_kill_message(outcome: &session::TeardownOutcome) -> String {
+    format!(
+        "kill complete: session={}; project_session_removed={}; helper_sessions_removed={}; helper_processes_removed={}",
+        outcome.session_name,
+        outcome.project_session_removed,
+        outcome.helper_sessions_removed,
+        outcome.helper_processes_removed
+    )
 }
 
 fn internal_focus_success_message(session_name: &str, slot_id: u8) -> String {

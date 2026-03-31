@@ -34,10 +34,19 @@ pub struct Cli {
         long,
         value_name = "COUNT",
         value_parser = clap::value_parser!(u8).range(1..=5),
+        conflicts_with = "pane_shortcut",
         help = "Startup pane count (1-5); default is 5",
         long_help = "Startup pane count for default session creation (1..=5). Overrides `panes` in ez-mux.toml when provided."
     )]
     pub panes: Option<u8>,
+
+    #[arg(
+        value_name = "PANES",
+        value_parser = clap::value_parser!(u8).range(1..=5),
+        conflicts_with = "panes",
+        help = "Shortcut for --panes (1-5)"
+    )]
+    pub pane_shortcut: Option<u8>,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -45,6 +54,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
+    /// Kill the current project session and helper processes.
+    Kill,
+
     /// Repair the current project session.
     Repair,
 
@@ -148,6 +160,7 @@ mod tests {
         assert!(!parsed.version);
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, None);
+        assert_eq!(parsed.pane_shortcut, None);
     }
 
     #[test]
@@ -157,6 +170,7 @@ mod tests {
         assert!(!parsed.version);
         assert_eq!(parsed.verbose, 1);
         assert_eq!(parsed.panes, None);
+        assert_eq!(parsed.pane_shortcut, None);
     }
 
     #[test]
@@ -166,6 +180,7 @@ mod tests {
         assert!(!parsed.version);
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, Some(3));
+        assert_eq!(parsed.pane_shortcut, None);
     }
 
     #[test]
@@ -175,6 +190,17 @@ mod tests {
         assert!(!parsed.version);
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, Some(4));
+        assert_eq!(parsed.pane_shortcut, None);
+    }
+
+    #[test]
+    fn parses_pane_count_shortcut_positional() {
+        let parsed = Cli::try_parse_from(["ezm", "3"]).expect("parse should succeed");
+        assert_eq!(parsed.command, None);
+        assert!(!parsed.version);
+        assert_eq!(parsed.verbose, 0);
+        assert_eq!(parsed.panes, None);
+        assert_eq!(parsed.pane_shortcut, Some(3));
     }
 
     #[test]
@@ -188,6 +214,12 @@ mod tests {
     fn parses_repair_subcommand() {
         let parsed = Cli::try_parse_from(["ezm", "repair"]).expect("parse should succeed");
         assert_eq!(parsed.command, Some(Command::Repair));
+    }
+
+    #[test]
+    fn parses_kill_subcommand() {
+        let parsed = Cli::try_parse_from(["ezm", "kill"]).expect("parse should succeed");
+        assert_eq!(parsed.command, Some(Command::Kill));
     }
 
     #[test]
