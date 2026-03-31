@@ -16,10 +16,10 @@ pub struct Cli {
         short = 'v',
         long = "version",
         global = true,
-        action = clap::ArgAction::Version,
+        action = clap::ArgAction::SetTrue,
         help = "Print version"
     )]
-    pub(crate) version: Option<bool>,
+    pub version: bool,
 
     #[arg(
         long = "verbose",
@@ -145,6 +145,7 @@ mod tests {
     fn parses_default_invocation() {
         let parsed = Cli::try_parse_from(["ezm"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
+        assert!(!parsed.version);
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, None);
     }
@@ -153,6 +154,7 @@ mod tests {
     fn parses_verbose_flag() {
         let parsed = Cli::try_parse_from(["ezm", "--verbose"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
+        assert!(!parsed.version);
         assert_eq!(parsed.verbose, 1);
         assert_eq!(parsed.panes, None);
     }
@@ -161,6 +163,7 @@ mod tests {
     fn parses_panes_flag() {
         let parsed = Cli::try_parse_from(["ezm", "--panes", "3"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
+        assert!(!parsed.version);
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, Some(3));
     }
@@ -169,6 +172,7 @@ mod tests {
     fn parses_panes_short_flag() {
         let parsed = Cli::try_parse_from(["ezm", "-p", "4"]).expect("parse should succeed");
         assert_eq!(parsed.command, None);
+        assert!(!parsed.version);
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, Some(4));
     }
@@ -402,15 +406,15 @@ mod tests {
 
     #[test]
     fn supports_version_flag() {
-        let err = Cli::try_parse_from(["ezm", "--version"])
-            .expect_err("version exits through clap error");
-        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+        let parsed = Cli::try_parse_from(["ezm", "--version"]).expect("parse should succeed");
+        assert!(parsed.version);
+        assert_eq!(parsed.command, None);
     }
 
     #[test]
     fn supports_short_version_flag() {
-        let err =
-            Cli::try_parse_from(["ezm", "-v"]).expect_err("short version exits through clap error");
-        assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
+        let parsed = Cli::try_parse_from(["ezm", "-v"]).expect("parse should succeed");
+        assert!(parsed.version);
+        assert_eq!(parsed.command, None);
     }
 }

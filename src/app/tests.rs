@@ -50,7 +50,7 @@ fn open_latest_succeeds_and_reports_opened_path() {
 
     let message = execute_with_opener(
         Cli {
-            version: None,
+            version: false,
             verbose: 0,
             panes: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
@@ -74,7 +74,7 @@ fn open_latest_errors_when_no_logs_exist() {
 
     let error = execute_with_opener(
         Cli {
-            version: None,
+            version: false,
             verbose: 0,
             panes: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
@@ -98,7 +98,7 @@ fn open_latest_missing_logs_is_typed_logging_error() {
 
     let error = execute_with_opener(
         Cli {
-            version: None,
+            version: false,
             verbose: 0,
             panes: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
@@ -125,7 +125,7 @@ fn open_latest_errors_when_open_command_fails() {
 
     let error = execute_with_opener(
         Cli {
-            version: None,
+            version: false,
             verbose: 0,
             panes: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
