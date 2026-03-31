@@ -26,3 +26,11 @@ target
 # Python bytecode caches
 __pycache__/
 *.pyc
+
+# Planning / AI config
+docs
+.agents
+.beads
+.opencode
+opencode.jsonc
+AGENTS.md
