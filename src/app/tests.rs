@@ -8,7 +8,9 @@ use tempfile::tempdir;
 use super::AppError;
 use super::default_contract_summary_message;
 use super::execute_default_session_flow_for_project_dir;
+use super::execute_kill_session_flow_for_project_dir;
 use super::execute_with_opener;
+use super::format_kill_message;
 use super::format_repair_message;
 use super::internal_focus_success_message;
 use super::internal_swap_success_message;
@@ -53,6 +55,7 @@ fn open_latest_succeeds_and_reports_opened_path() {
             version: false,
             verbose: 0,
             panes: None,
+            pane_shortcut: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -77,6 +80,7 @@ fn open_latest_errors_when_no_logs_exist() {
             version: false,
             verbose: 0,
             panes: None,
+            pane_shortcut: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -101,6 +105,7 @@ fn open_latest_missing_logs_is_typed_logging_error() {
             version: false,
             verbose: 0,
             panes: None,
+            pane_shortcut: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -128,6 +133,7 @@ fn open_latest_errors_when_open_command_fails() {
             version: false,
             verbose: 0,
             panes: None,
+            pane_shortcut: None,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -158,6 +164,21 @@ fn repair_message_reports_action_and_slot_lists() {
     assert!(rendered.contains("missing_visible_slots=4"));
     assert!(rendered.contains("missing_backing_slots=none"));
     assert!(rendered.contains("recreated_slots=4"));
+}
+
+#[test]
+fn kill_message_reports_session_and_teardown_counts() {
+    let rendered = format_kill_message(&crate::session::TeardownOutcome {
+        session_name: String::from("ezm-project-session"),
+        helper_sessions_removed: 2,
+        helper_processes_removed: 3,
+        project_session_removed: true,
+    });
+
+    assert!(rendered.contains("kill complete: session=ezm-project-session"));
+    assert!(rendered.contains("project_session_removed=true"));
+    assert!(rendered.contains("helper_sessions_removed=2"));
+    assert!(rendered.contains("helper_processes_removed=3"));
 }
 
 struct InterruptingTmuxClient {
@@ -290,6 +311,24 @@ fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
         .expect_err("interrupt should map to app error");
 
     assert!(matches!(error, AppError::Interrupted));
+    assert_eq!(tmux.teardown_calls(), vec![expected_session]);
+}
+
+#[test]
+fn kill_flow_targets_project_scoped_session_identity() {
+    let temp = tempdir().expect("tempdir");
+    let project_dir = temp.path().join("project");
+    std::fs::create_dir(&project_dir).expect("project dir");
+
+    let expected_session = crate::session::resolve_session_identity(&project_dir)
+        .expect("session identity")
+        .session_name;
+
+    let tmux = InterruptingTmuxClient::new();
+    let outcome = execute_kill_session_flow_for_project_dir(&project_dir, &tmux)
+        .expect("kill flow should succeed");
+
+    assert_eq!(outcome.session_name, expected_session);
     assert_eq!(tmux.teardown_calls(), vec![expected_session]);
 }
 
