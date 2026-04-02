@@ -34,14 +34,41 @@ fn ensure_opencode_tui_config_directory(
     slot_id: u8,
     theme: &str,
 ) -> Result<std::path::PathBuf, std::io::Error> {
-    let directory = std::env::temp_dir()
-        .join("ez-mux")
+    let directory = opencode_tui_root_directory()
         .join("opencode-tui")
         .join(format!("slot-{slot_id}"));
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("tui.json");
     std::fs::write(path, render_opencode_tui_config(theme))?;
     Ok(directory)
+}
+
+fn opencode_tui_root_directory() -> std::path::PathBuf {
+    let user_scope = resolve_temp_directory_scope();
+    std::env::temp_dir().join(format!("ez-mux-{user_scope}"))
+}
+
+fn resolve_temp_directory_scope() -> String {
+    ["UID", "USER", "LOGNAME"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .map(|value| normalize_scope_value(&value))
+        .find(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("pid-{}", std::process::id()))
+}
+
+fn normalize_scope_value(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn render_opencode_tui_config(theme: &str) -> String {
