@@ -394,11 +394,73 @@ fn resolved_ezm_bin_shell_token() -> String {
         .ok()
         .map(|path| path.display().to_string());
 
-    shell_single_quote(
-        &env_ezm_bin
-            .or(current_exe)
-            .unwrap_or_else(|| String::from("ezm")),
-    )
+    let resolved = [env_ezm_bin, current_exe]
+        .into_iter()
+        .flatten()
+        .find_map(|value| normalize_shell_binary_hint(&value))
+        .unwrap_or_else(|| String::from("ezm"));
+
+    shell_single_quote(&resolved)
+}
+
+fn normalize_shell_binary_hint(value: &str) -> Option<String> {
+    let mut normalized = value.trim();
+
+    loop {
+        let previous = normalized;
+        normalized = strip_quote_like_prefix(normalized);
+        normalized = strip_quote_like_suffix(normalized);
+        normalized = normalized.trim();
+        if normalized == previous {
+            break;
+        }
+    }
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized.to_owned())
+    }
+}
+
+fn strip_quote_like_prefix(value: &str) -> &str {
+    if let Some(stripped) = value.strip_prefix("\\\"") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_prefix("\\'") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_prefix('"') {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_prefix('\'') {
+        return stripped;
+    }
+
+    value
+}
+
+fn strip_quote_like_suffix(value: &str) -> &str {
+    if let Some(stripped) = value.strip_suffix("\\\"") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix("\\'") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix('"') {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix('\'') {
+        return stripped;
+    }
+
+    value
 }
 
 fn shell_single_quote(value: &str) -> String {
