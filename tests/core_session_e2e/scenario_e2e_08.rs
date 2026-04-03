@@ -39,7 +39,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         .unwrap_or_else(|error| panic!("E2E-08 second open failed to execute: {error}"));
     samples.push(sample(&open_args, &open_second));
 
-    let window_name = "beads-viewer";
+    let window_name = "perles";
     let windows_after_open = harness
         .tmux_capture(&[
             "list-windows",

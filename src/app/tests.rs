@@ -258,7 +258,7 @@ impl TmuxClient for InterruptingTmuxClient {
         Ok(AuxiliaryViewerOutcome {
             session_name: String::from("ezm-session"),
             action: crate::session::AuxiliaryViewerAction::SkippedUnavailable,
-            window_name: String::from("beads-viewer"),
+            window_name: String::from("perles"),
             window_id: None,
         })
     }

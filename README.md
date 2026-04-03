@@ -11,7 +11,7 @@ The command is `ezm`.
 - Automatic 5-slot pane bootstrap with deterministic worktree assignment (slot 1..5).
 - Slot modes built in: `agent` (your configured agent command), `shell`, `neovim`, and `lazygit`.
 - Runtime keybinds for focus/swap/mode switching/popup, installed automatically on startup.
-- Automatic `beads-viewer` auxiliary window when `bv` is available (local or remote).
+- Automatic `perles` auxiliary window when `perles` is available (local or remote).
 - Built-in remote routing: path remap + SSH launch for shell/neovim/lazygit/popup flows.
 - Optional OpenCode shared-server attach flow (`opencode attach ...`) when using OpenCode for agent mode.
 
