@@ -272,7 +272,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             "display-message",
             "-p",
             "-t",
-            &format!("{session}:beads-viewer.0"),
+            &format!("{session}:perles.0"),
             "#{pane_start_command}",
         ])
         .unwrap_or_else(|error| {
@@ -335,12 +335,12 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && popup_pane_start_command.contains(&expected_mapped_path);
     let auxiliary_uses_ssh_remote = auxiliary_pane_start_command.contains("if ssh -tt")
         && auxiliary_pane_start_command.contains("shell.remote.example")
-        && auxiliary_pane_start_command.contains("command -v bv");
+        && auxiliary_pane_start_command.contains("command -v perles");
     let auxiliary_command_continues_to_shell = auxiliary_pane_start_command.contains("exec")
         && auxiliary_pane_start_command.contains("${SHELL:-/bin/sh}");
-    let auxiliary_command_omits_beads_exports = !auxiliary_pane_start_command
-        .contains("export BEADS_DIR=")
-        && !auxiliary_pane_start_command.contains("export BEADS_DB=");
+    let auxiliary_command_omits_perles_exports = !auxiliary_pane_start_command
+        .contains("export PERLES_DIR=")
+        && !auxiliary_pane_start_command.contains("export PERLES_DB=");
     let agent_attach_url_matches = !agent_pane_start_command.contains("opencode attach");
     let agent_launch_omits_attach_dir_flag = !agent_pane_start_command.contains("--dir");
     let agent_mode_avoids_opencode_attach = !agent_pane_start_command.contains("opencode attach");
@@ -431,10 +431,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "auxiliary success branch launch command routes via ssh remote target = {auxiliary_uses_ssh_remote}"
     ));
     assertions.push(format!(
-        "auxiliary success branch launch command returns to shell context after bv exit = {auxiliary_command_continues_to_shell}"
+        "auxiliary success branch launch command returns to shell context after perles exit = {auxiliary_command_continues_to_shell}"
     ));
     assertions.push(format!(
-        "auxiliary success branch launch command omits local BEADS_* exports for remote ssh execution = {auxiliary_command_omits_beads_exports}"
+        "auxiliary success branch launch command omits local PERLES_* exports for remote ssh execution = {auxiliary_command_omits_perles_exports}"
     ));
     assertions.push(format!(
         "agent success branch selected slot id = {agent_slot_id}"
@@ -485,7 +485,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && auxiliary_open.exit_code == 0
         && auxiliary_uses_ssh_remote
         && auxiliary_command_continues_to_shell
-        && auxiliary_command_omits_beads_exports
+        && auxiliary_command_omits_perles_exports
         && agent_switch_success.exit_code == 0
         && agent_mode_avoids_opencode_attach
         && agent_attach_url_matches

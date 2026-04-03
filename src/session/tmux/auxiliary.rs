@@ -8,9 +8,11 @@ use crate::session::resolve_remote_path;
 use crate::session::{AuxiliaryViewerAction, AuxiliaryViewerOutcome};
 use std::path::{Path, PathBuf};
 
-const AUXILIARY_WINDOW_NAME: &str = "beads-viewer";
-const BEADS_DIR_ENV: &str = "BEADS_DIR";
-const BEADS_DB_ENV: &str = "BEADS_DB";
+const AUXILIARY_WINDOW_NAME: &str = "perles";
+const PERLES_DIR_ENV: &str = "PERLES_DIR";
+const PERLES_DB_ENV: &str = "PERLES_DB";
+const LEGACY_BEADS_DIR_ENV: &str = "BEADS_DIR";
+const LEGACY_BEADS_DB_ENV: &str = "BEADS_DB";
 
 pub(super) fn auxiliary_viewer(
     session_name: &str,
@@ -46,13 +48,13 @@ fn open_auxiliary_viewer(
         remote_server_url.as_deref(),
     )?;
 
-    let local_bv_executable = if remote_launch.is_none() {
-        discover_executable_in_path("bv")
+    let local_perles_executable = if remote_launch.is_none() {
+        discover_executable_in_path("perles")
     } else {
         None
     };
 
-    if existing.is_none() && remote_launch.is_none() && local_bv_executable.is_none() {
+    if existing.is_none() && remote_launch.is_none() && local_perles_executable.is_none() {
         return Ok(AuxiliaryViewerOutcome {
             session_name: session_name.to_owned(),
             action: AuxiliaryViewerAction::SkippedUnavailable,
@@ -65,7 +67,7 @@ fn open_auxiliary_viewer(
         validate_canonical_slot_registry(session_name)?;
     }
 
-    let command = build_auxiliary_launch_command(remote_launch.as_ref(), local_bv_executable)?;
+    let command = build_auxiliary_launch_command(remote_launch.as_ref(), local_perles_executable)?;
     let window_id = tmux_output_value(&[
         "new-window",
         "-d",
@@ -121,22 +123,27 @@ fn close_auxiliary_viewer(
 
 fn build_auxiliary_launch_command(
     remote_launch: Option<&AuxiliaryRemoteLaunch>,
-    local_bv_executable: Option<PathBuf>,
+    local_perles_executable: Option<PathBuf>,
 ) -> Result<String, SessionError> {
     if let Some(remote_launch) = remote_launch {
         return build_auxiliary_command_for_remote(remote_launch);
     }
 
-    let beads_dir = std::env::var(BEADS_DIR_ENV).ok();
-    let beads_db = std::env::var(BEADS_DB_ENV).ok();
-    let bv_executable = local_bv_executable.ok_or_else(|| SessionError::TmuxCommandFailed {
-        command: String::from("auxiliary-viewer discover bv"),
-        stderr: String::from("bv executable disappeared during startup reconciliation"),
-    })?;
+    let perles_dir = std::env::var(PERLES_DIR_ENV)
+        .ok()
+        .or_else(|| std::env::var(LEGACY_BEADS_DIR_ENV).ok());
+    let perles_db = std::env::var(PERLES_DB_ENV)
+        .ok()
+        .or_else(|| std::env::var(LEGACY_BEADS_DB_ENV).ok());
+    let perles_executable =
+        local_perles_executable.ok_or_else(|| SessionError::TmuxCommandFailed {
+            command: String::from("auxiliary-viewer discover perles"),
+            stderr: String::from("perles executable disappeared during startup reconciliation"),
+        })?;
     Ok(build_auxiliary_local_launch_command(
-        &bv_executable,
-        beads_dir.as_deref(),
-        beads_db.as_deref(),
+        &perles_executable,
+        perles_dir.as_deref(),
+        perles_db.as_deref(),
     ))
 }
 
@@ -215,15 +222,15 @@ fn find_window_id_by_name(
 
 fn build_auxiliary_local_launch_command(
     executable_path: &Path,
-    beads_dir: Option<&str>,
-    beads_db: Option<&str>,
+    perles_dir: Option<&str>,
+    perles_db: Option<&str>,
 ) -> String {
     let escaped_path = escape_single_quotes(&executable_path.to_string_lossy());
-    let mut segments = render_auxiliary_env_exports(beads_dir, beads_db);
+    let mut segments = render_auxiliary_env_exports(perles_dir, perles_db);
     segments.push(format!("'{escaped_path}'"));
     segments.push(String::from("exit_code=$?"));
     segments.push(String::from(
-        "if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi",
+        "if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer perles exited with status $exit_code\" >&2; fi",
     ));
     segments.push(String::from("exec \"${SHELL:-/bin/sh}\" -l"));
     segments.join("; ")
@@ -256,15 +263,15 @@ fn render_auxiliary_remote_script(remote_dir: &str) -> String {
     let mut segments = Vec::new();
     segments.push(format!("cd '{}'", escape_single_quotes(remote_dir)));
     segments.push(String::from(
-        "\"${SHELL:-/bin/sh}\" -lic 'if command -v bv >/dev/null 2>&1; then bv; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf \"%s\\n\" \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; else printf \"%s\\n\" \"ez-mux auxiliary viewer command not found: bv\" >&2; fi'",
+        "\"${SHELL:-/bin/sh}\" -lic 'if command -v perles >/dev/null 2>&1; then perles; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf \"%s\\n\" \"ez-mux auxiliary viewer perles exited with status $exit_code\" >&2; fi; else printf \"%s\\n\" \"ez-mux auxiliary viewer command not found: perles\" >&2; fi'",
     ));
     segments.push(String::from("exec \"${SHELL:-/bin/sh}\" -l"));
     segments.join("; ")
 }
 
-fn render_auxiliary_env_exports(beads_dir: Option<&str>, beads_db: Option<&str>) -> Vec<String> {
+fn render_auxiliary_env_exports(perles_dir: Option<&str>, perles_db: Option<&str>) -> Vec<String> {
     let mut rendered = Vec::new();
-    for (key, value) in [(BEADS_DIR_ENV, beads_dir), (BEADS_DB_ENV, beads_db)] {
+    for (key, value) in [(PERLES_DIR_ENV, perles_dir), (PERLES_DB_ENV, perles_db)] {
         let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
             continue;
         };

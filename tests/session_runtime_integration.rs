@@ -252,7 +252,7 @@ impl TmuxClient for FakeTmux {
         Ok(ez_mux::session::AuxiliaryViewerOutcome {
             session_name: session_name.to_owned(),
             action,
-            window_name: String::from("beads-viewer"),
+            window_name: String::from("perles"),
             window_id,
         })
     }
@@ -440,7 +440,7 @@ fn runtime_attach_path_is_non_interactive_safe() {
 }
 
 #[test]
-fn runtime_bv_missing_skips_auxiliary_window_without_failing_startup() {
+fn runtime_perles_missing_skips_auxiliary_window_without_failing_startup() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project_dir = temp.path();
     let tmux = FakeTmux {
@@ -458,7 +458,7 @@ fn runtime_bv_missing_skips_auxiliary_window_without_failing_startup() {
     assert_eq!(tmux.attached.borrow().len(), 2);
     assert_eq!(tmux.auxiliary_calls.borrow().len(), 2);
 
-    let skipped = auxiliary_viewer("ezm-session-bv-missing", true, &tmux).expect("skip");
+    let skipped = auxiliary_viewer("ezm-session-perles-missing", true, &tmux).expect("skip");
     assert_eq!(
         skipped.action,
         ez_mux::session::AuxiliaryViewerAction::SkippedUnavailable

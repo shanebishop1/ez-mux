@@ -5,25 +5,25 @@ use super::{
 };
 
 #[test]
-fn auxiliary_launch_command_uses_resolved_bv_path() {
+fn auxiliary_launch_command_uses_resolved_perles_path() {
     let command =
-        build_auxiliary_local_launch_command(std::path::Path::new("/tmp/tools/bv"), None, None);
+        build_auxiliary_local_launch_command(std::path::Path::new("/tmp/tools/perles"), None, None);
     assert_eq!(
         command,
-        "'/tmp/tools/bv'; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; exec \"${SHELL:-/bin/sh}\" -l"
+        "'/tmp/tools/perles'; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer perles exited with status $exit_code\" >&2; fi; exec \"${SHELL:-/bin/sh}\" -l"
     );
 }
 
 #[test]
 fn auxiliary_launch_command_escapes_single_quote_sensitive_characters() {
     let command = build_auxiliary_local_launch_command(
-        std::path::Path::new("/tmp/tools/space and 'quote'/$HOME/`cmd`/bv"),
+        std::path::Path::new("/tmp/tools/space and 'quote'/$HOME/`cmd`/perles"),
         Some("  /tmp/beads dir/it's $HOME  "),
         Some("/tmp/beads-db/`cmd`-'set'.jsonl"),
     );
     assert_eq!(
         command,
-        "export BEADS_DIR='/tmp/beads dir/it'\"'\"'s $HOME'; export BEADS_DB='/tmp/beads-db/`cmd`-'\"'\"'set'\"'\"'.jsonl'; '/tmp/tools/space and '\"'\"'quote'\"'\"'/$HOME/`cmd`/bv'; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer bv exited with status $exit_code\" >&2; fi; exec \"${SHELL:-/bin/sh}\" -l"
+        "export PERLES_DIR='/tmp/beads dir/it'\"'\"'s $HOME'; export PERLES_DB='/tmp/beads-db/`cmd`-'\"'\"'set'\"'\"'.jsonl'; '/tmp/tools/space and '\"'\"'quote'\"'\"'/$HOME/`cmd`/perles'; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux auxiliary viewer perles exited with status $exit_code\" >&2; fi; exec \"${SHELL:-/bin/sh}\" -l"
     );
 }
 
@@ -38,24 +38,24 @@ fn auxiliary_remote_launch_command_routes_over_ssh_with_remote_directory() {
     assert!(command.contains("ssh -tt -p 7443 'shell.remote.example'"));
     assert!(command.contains("/srv/remotes/ez-mux"));
     assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic '"));
-    assert!(command.contains("command -v bv"));
+    assert!(command.contains("command -v perles"));
     assert!(command.contains("exec \"${SHELL:-/bin/sh}\" -l"));
 }
 
 #[test]
-fn auxiliary_remote_launch_command_does_not_export_beads_paths() {
+fn auxiliary_remote_launch_command_does_not_export_perles_paths() {
     let command = build_auxiliary_remote_launch_command(
         "/srv/remotes/ez-mux",
         "https://shell.remote.example",
     )
     .expect("remote command should build");
 
-    assert!(!command.contains("export BEADS_DIR="));
-    assert!(!command.contains("export BEADS_DB="));
+    assert!(!command.contains("export PERLES_DIR="));
+    assert!(!command.contains("export PERLES_DB="));
 }
 
 #[test]
-fn auxiliary_remote_launch_bootstraps_shell_before_running_bv() {
+fn auxiliary_remote_launch_bootstraps_shell_before_running_perles() {
     let command = build_auxiliary_remote_launch_command(
         "/srv/remotes/ez-mux",
         "https://shell.remote.example",
@@ -65,10 +65,10 @@ fn auxiliary_remote_launch_bootstraps_shell_before_running_bv() {
     let bootstrap_index = command
         .find("\"${SHELL:-/bin/sh}\" -lic '")
         .expect("remote command should use login+interactive shell bootstrap");
-    let bv_index = command
-        .find("command -v bv")
-        .expect("remote command should invoke bv discovery");
-    assert!(bootstrap_index < bv_index);
+    let perles_index = command
+        .find("command -v perles")
+        .expect("remote command should invoke perles discovery");
+    assert!(bootstrap_index < perles_index);
 }
 
 #[test]
