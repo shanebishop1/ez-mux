@@ -267,16 +267,85 @@ fn spawn_auxiliary_viewer_open(session_name: &str) -> Result<(), std::io::Error>
 fn resolve_ezm_binary_for_internal_command() -> PathBuf {
     std::env::var(EZM_BIN_ENV)
         .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
+        .and_then(|value| normalize_shell_binary_hint(&value))
+        .filter(|candidate| binary_hint_looks_like_single_executable(candidate))
         .map(PathBuf::from)
         .or_else(|| std::env::current_exe().ok())
         .unwrap_or_else(|| PathBuf::from("ezm"))
 }
 
+fn normalize_shell_binary_hint(value: &str) -> Option<String> {
+    let mut normalized = value.trim();
+
+    loop {
+        let previous = normalized;
+        normalized = strip_quote_like_prefix(normalized);
+        normalized = strip_quote_like_suffix(normalized);
+        normalized = normalized.trim();
+        if normalized == previous {
+            break;
+        }
+    }
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized.to_owned())
+    }
+}
+
+fn binary_hint_looks_like_single_executable(value: &str) -> bool {
+    !value.is_empty()
+        && !value
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '\'' | '"' | '\0'))
+}
+
+fn strip_quote_like_prefix(value: &str) -> &str {
+    if let Some(stripped) = value.strip_prefix("\\\"") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_prefix("\\'") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_prefix('"') {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_prefix('\'') {
+        return stripped;
+    }
+
+    value
+}
+
+fn strip_quote_like_suffix(value: &str) -> &str {
+    if let Some(stripped) = value.strip_suffix("\\\"") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix("\\'") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix('"') {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix('\'') {
+        return stripped;
+    }
+
+    value
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_enabled_value;
+    use super::{
+        binary_hint_looks_like_single_executable, normalize_shell_binary_hint, parse_enabled_value,
+    };
 
     #[test]
     fn recognizes_common_enabled_values() {
@@ -296,5 +365,21 @@ mod tests {
                 "expected value `{value}` to be disabled"
             );
         }
+    }
+
+    #[test]
+    fn normalizes_binary_hint_quotes_and_rejects_multi_token_values() {
+        assert_eq!(
+            normalize_shell_binary_hint("'/tmp/ezm'"),
+            Some(String::from("/tmp/ezm"))
+        );
+        assert_eq!(
+            normalize_shell_binary_hint("\\\"/tmp/ezm\\\""),
+            Some(String::from("/tmp/ezm"))
+        );
+        assert!(binary_hint_looks_like_single_executable("/tmp/ezm"));
+        assert!(!binary_hint_looks_like_single_executable(
+            "/tmp/ezm __internal focus"
+        ));
     }
 }

@@ -346,8 +346,18 @@ fn resolve_ezm_bin(env_ezm_bin: Option<String>, current_exe: Option<String>) -> 
     [env_ezm_bin, current_exe]
         .into_iter()
         .flatten()
-        .find_map(|value| normalize_shell_binary_hint(&value))
+        .find_map(|value| {
+            normalize_shell_binary_hint(&value)
+                .filter(|candidate| binary_hint_looks_like_single_executable(candidate))
+        })
         .unwrap_or_else(|| String::from("ezm"))
+}
+
+fn binary_hint_looks_like_single_executable(value: &str) -> bool {
+    !value.is_empty()
+        && !value
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '\'' | '"' | '\0'))
 }
 
 fn normalize_shell_binary_hint(value: &str) -> Option<String> {

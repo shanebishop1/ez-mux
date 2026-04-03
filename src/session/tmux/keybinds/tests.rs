@@ -183,6 +183,17 @@ fn resolve_ezm_bin_strips_backslash_escaped_boundary_quotes_from_env_hint() {
 }
 
 #[test]
+fn resolve_ezm_bin_ignores_multi_token_env_hint_and_falls_back() {
+    assert_eq!(
+        resolve_ezm_bin(
+            Some(String::from("/tmp/ezm __internal focus")),
+            Some(String::from("/bin/ezm"))
+        ),
+        String::from("/bin/ezm")
+    );
+}
+
+#[test]
 fn shell_command_token_leaves_shell_safe_paths_unquoted() {
     let rendered = shell_command_token("/tmp/ezm-bin");
     assert_eq!(rendered, String::from("/tmp/ezm-bin"));
