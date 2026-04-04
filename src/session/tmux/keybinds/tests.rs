@@ -5,8 +5,9 @@ use std::os::unix::process::ExitStatusExt;
 
 use super::{
     ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings, popup_command,
-    popup_hard_close_action, popup_toggle_open_action, resolve_ezm_bin, shell_command_token,
-    should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
+    popup_hard_close_action, popup_toggle_open_action, preset_command, resolve_ezm_bin,
+    shell_command_token, should_clear_existing_keybinds_before_install, swap_command,
+    toggle_mode_command,
 };
 
 #[test]
@@ -46,7 +47,7 @@ fn mode_commands_target_focused_slot_metadata() {
     assert!(rendered.contains("__internal mode"));
     assert!(rendered.contains("--mode neovim"));
     assert!(rendered.contains("#{@ezm_slot_id}"));
-    assert!(rendered.contains(">/dev/null"));
+    assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
     assert!(rendered.starts_with("'ezm' __internal mode"));
     assert!(!rendered.contains("'#{session_name}'"));
     assert!(!rendered.contains("'#{@ezm_slot_id}'"));
@@ -58,7 +59,7 @@ fn toggle_mode_command_switches_between_shell_and_agent() {
     let rendered = toggle_mode_command("'ezm'");
     assert!(rendered.contains("__internal mode"));
     assert!(rendered.contains("#{?#{==:#{@ezm_slot_mode},agent},shell,agent}"));
-    assert!(rendered.contains(">/dev/null"));
+    assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
     assert!(rendered.starts_with("'ezm' __internal mode"));
     assert!(!rendered.contains("'#{session_name}'"));
     assert!(!rendered.contains("'#{@ezm_slot_id}'"));
@@ -113,6 +114,14 @@ fn popup_hard_close_action_targets_current_popup_session() {
 }
 
 #[test]
+fn preset_command_runs_quietly_in_background() {
+    let rendered = preset_command("'ezm'");
+    assert!(rendered.contains("__internal preset"));
+    assert!(rendered.contains("--preset three-pane"));
+    assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
+}
+
+#[test]
 fn startup_keybind_install_skips_unbind_clear_phase() {
     assert!(!should_clear_existing_keybinds_before_install());
 }
@@ -145,6 +154,30 @@ fn resolve_ezm_bin_strips_wrapping_quotes_from_env_hint() {
     );
     assert_eq!(
         resolve_ezm_bin(Some(String::from("'\"/tmp/ezm\"'")), None),
+        String::from("/tmp/ezm")
+    );
+}
+
+#[test]
+fn resolve_ezm_bin_strips_unbalanced_boundary_quotes_from_env_hint() {
+    assert_eq!(
+        resolve_ezm_bin(Some(String::from("'/tmp/ezm")), None),
+        String::from("/tmp/ezm")
+    );
+    assert_eq!(
+        resolve_ezm_bin(Some(String::from("/tmp/ezm'")), None),
+        String::from("/tmp/ezm")
+    );
+}
+
+#[test]
+fn resolve_ezm_bin_strips_backslash_escaped_boundary_quotes_from_env_hint() {
+    assert_eq!(
+        resolve_ezm_bin(Some(String::from("\\\"/tmp/ezm\\\"")), None),
+        String::from("/tmp/ezm")
+    );
+    assert_eq!(
+        resolve_ezm_bin(Some(String::from("\\'/tmp/ezm\\'")), None),
         String::from("/tmp/ezm")
     );
 }

@@ -294,7 +294,9 @@ fn missing_binding_diagnostic(output: &std::process::Output) -> bool {
 }
 
 fn preset_command(ezm_bin: &str) -> String {
-    format!("{ezm_bin} __internal preset --session \"#{{session_name}}\" --preset three-pane")
+    format!(
+        "{ezm_bin} __internal preset --session \"#{{session_name}}\" --preset three-pane </dev/null >/dev/null 2>&1"
+    )
 }
 
 fn swap_command(ezm_bin: &str, slot_id: u8) -> String {
@@ -311,13 +313,13 @@ fn focus_command(ezm_bin: &str, slot_id: u8) -> String {
 
 fn mode_command(ezm_bin: &str, mode: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode} >/dev/null"
+        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn toggle_mode_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode \"#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}\" >/dev/null"
+        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode \"#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}\" </dev/null >/dev/null 2>&1"
     )
 }
 
@@ -351,8 +353,14 @@ fn resolve_ezm_bin(env_ezm_bin: Option<String>, current_exe: Option<String>) -> 
 fn normalize_shell_binary_hint(value: &str) -> Option<String> {
     let mut normalized = value.trim();
 
-    while let Some(stripped) = strip_surrounding_quotes(normalized) {
-        normalized = stripped;
+    loop {
+        let previous = normalized;
+        normalized = strip_quote_like_prefix(normalized);
+        normalized = strip_quote_like_suffix(normalized);
+        normalized = normalized.trim();
+        if normalized == previous {
+            break;
+        }
     }
 
     if normalized.is_empty() {
@@ -362,19 +370,44 @@ fn normalize_shell_binary_hint(value: &str) -> Option<String> {
     }
 }
 
-fn strip_surrounding_quotes(value: &str) -> Option<&str> {
-    if value.len() < 2 {
-        return None;
+fn strip_quote_like_prefix(value: &str) -> &str {
+    if let Some(stripped) = value.strip_prefix("\\\"") {
+        return stripped;
     }
 
-    let bytes = value.as_bytes();
-    let first = bytes[0];
-    let last = bytes[value.len() - 1];
-    if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
-        return Some(&value[1..value.len() - 1]);
+    if let Some(stripped) = value.strip_prefix("\\'") {
+        return stripped;
     }
 
-    None
+    if let Some(stripped) = value.strip_prefix('"') {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_prefix('\'') {
+        return stripped;
+    }
+
+    value
+}
+
+fn strip_quote_like_suffix(value: &str) -> &str {
+    if let Some(stripped) = value.strip_suffix("\\\"") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix("\\'") {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix('"') {
+        return stripped;
+    }
+
+    if let Some(stripped) = value.strip_suffix('\'') {
+        return stripped;
+    }
+
+    value
 }
 
 fn shell_command_token(value: &str) -> String {

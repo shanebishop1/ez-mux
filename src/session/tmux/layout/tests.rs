@@ -1,7 +1,7 @@
 use super::{
-    RegistryWriteStrategy, bootstrap_registry_write_strategy, parse_bootstrap_anchor,
-    should_apply_runtime_styles_during_bootstrap, should_validate_registry_after_bootstrap,
-    startup_mode_for_slot, startup_mode_schedule_command,
+    RegistryWriteStrategy, bootstrap_registry_write_strategy, normalize_shell_binary_hint,
+    parse_bootstrap_anchor, should_apply_runtime_styles_during_bootstrap,
+    should_validate_registry_after_bootstrap, startup_mode_for_slot, startup_mode_schedule_command,
 };
 
 #[test]
@@ -49,4 +49,28 @@ fn parse_bootstrap_anchor_reads_window_pane_and_width() {
     assert_eq!(parsed.window_target, String::from("@9"));
     assert_eq!(parsed.pane_id, String::from("%42"));
     assert_eq!(parsed.window_width, 192);
+}
+
+#[test]
+fn normalize_shell_binary_hint_strips_quoted_boundary_variants() {
+    assert_eq!(
+        normalize_shell_binary_hint("'/tmp/ezm'"),
+        Some(String::from("/tmp/ezm"))
+    );
+    assert_eq!(
+        normalize_shell_binary_hint("\"/tmp/ezm\""),
+        Some(String::from("/tmp/ezm"))
+    );
+    assert_eq!(
+        normalize_shell_binary_hint("'/tmp/ezm"),
+        Some(String::from("/tmp/ezm"))
+    );
+    assert_eq!(
+        normalize_shell_binary_hint("/tmp/ezm'"),
+        Some(String::from("/tmp/ezm"))
+    );
+    assert_eq!(
+        normalize_shell_binary_hint("\\\"/tmp/ezm\\\""),
+        Some(String::from("/tmp/ezm"))
+    );
 }
