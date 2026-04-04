@@ -102,6 +102,8 @@ pub(super) fn parse_switch_table(binding: &str) -> Option<String> {
         .next()
         .map(str::trim)
         .map(|value| value.trim_matches(';'))
+        .map(|value| value.trim_matches('"'))
+        .map(|value| value.trim_matches('\''))
         .unwrap_or_default();
     if table.is_empty() {
         None

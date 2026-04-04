@@ -1,5 +1,5 @@
 use super::SessionError;
-use super::command::{tmux_output, tmux_run_batch};
+use super::command::{tmux_output, tmux_run, tmux_run_batch};
 use super::popup::popup_parent_cleanup_hook_install_command;
 use super::remote_env::sync_runtime_env_into_tmux_server;
 use crate::config::EZM_BIN_ENV;
@@ -45,7 +45,54 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
 }
 
 fn clear_legacy_bindings() -> Result<(), SessionError> {
-    unbind_key_if_present("prefix", LEGACY_SWAP_PREFIX_KEY)
+    unbind_key_if_present("prefix", LEGACY_SWAP_PREFIX_KEY)?;
+    clear_legacy_prefix_slot_bindings()
+}
+
+fn clear_legacy_prefix_slot_bindings() -> Result<(), SessionError> {
+    for slot in 1_u8..=5 {
+        let key = slot.to_string();
+        if prefix_slot_binding_is_legacy_internal(&key)? {
+            restore_prefix_digit_default_binding(&key)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn prefix_slot_binding_is_legacy_internal(key: &str) -> Result<bool, SessionError> {
+    let output = tmux_output(&["list-keys", "-T", "prefix", key])?;
+    if output.status.success() {
+        let binding = String::from_utf8_lossy(&output.stdout);
+        return Ok(binding_contains_legacy_internal_slot_command(&binding));
+    }
+
+    if missing_binding_diagnostic(&output) {
+        return Ok(false);
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: format!("list-keys -T prefix {key}"),
+        stderr: super::command::format_output_diagnostics(&output),
+    })
+}
+
+fn restore_prefix_digit_default_binding(key: &str) -> Result<(), SessionError> {
+    let target = format!(":={key}");
+    tmux_run(&[
+        "bind-key",
+        "-T",
+        "prefix",
+        key,
+        "select-window",
+        "-t",
+        &target,
+    ])
+}
+
+fn binding_contains_legacy_internal_slot_command(binding: &str) -> bool {
+    binding.contains("run-shell")
+        && (binding.contains("__internal focus") || binding.contains("__internal swap"))
 }
 
 fn should_clear_existing_keybinds_before_install() -> bool {
@@ -56,15 +103,21 @@ fn install_prefix_routing_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
     let three_pane_preset_command = preset_command(ezm_bin);
 
     vec![
-        run_shell_binding_command("prefix", THREE_PANE_PRESET_KEY, &three_pane_preset_command),
+        guarded_run_shell_binding_command(
+            "prefix",
+            THREE_PANE_PRESET_KEY,
+            "#{@ezm_slot_1_pane}",
+            &three_pane_preset_command,
+        ),
         command(&[
             "bind-key",
             "-T",
             "prefix",
             FOCUS_PREFIX_KEY,
-            "switch-client",
-            "-T",
-            FOCUS_TABLE,
+            "if-shell",
+            "-F",
+            "#{@ezm_slot_1_pane}",
+            &format!("switch-client -T {FOCUS_TABLE}"),
         ]),
     ]
 }
@@ -94,34 +147,20 @@ fn install_slot_table_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
     for slot in 1_u8..=5 {
         let key = slot.to_string();
         let swap_command = swap_command(ezm_bin, slot);
-        commands.push(command(&[
-            "bind-key",
-            "-T",
+        commands.push(guarded_table_run_shell_binding_command(
             SWAP_TABLE,
             &key,
-            "run-shell",
-            "-b",
+            "#{@ezm_slot_1_pane}",
             &swap_command,
-            "\\;",
-            "switch-client",
-            "-T",
-            "root",
-        ]));
+        ));
 
         let focus_command = focus_command(ezm_bin, slot);
-        commands.push(command(&[
-            "bind-key",
-            "-T",
+        commands.push(guarded_table_run_shell_binding_command(
             FOCUS_TABLE,
             &key,
-            "run-shell",
-            "-b",
+            "#{@ezm_slot_1_pane}",
             &focus_command,
-            "\\;",
-            "switch-client",
-            "-T",
-            "root",
-        ]));
+        ));
     }
 
     commands
@@ -164,7 +203,12 @@ fn install_mode_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
 
     let mut commands = Vec::with_capacity(mode_bindings.len() + 2);
     for (key, command) in mode_bindings {
-        commands.push(run_shell_binding_command("prefix", key, &command));
+        commands.push(guarded_run_shell_binding_command(
+            "prefix",
+            key,
+            "#{@ezm_slot_id}",
+            &command,
+        ));
     }
     commands.push(popup_toggle_binding_command(ezm_bin));
     commands.push(popup_context_detach_binding_command());
@@ -203,26 +247,58 @@ fn popup_context_detach_binding_command() -> Vec<String> {
 
 fn popup_toggle_open_action(ezm_bin: &str) -> String {
     let popup_open_command = popup_command(ezm_bin);
-    format!(
-        "run-shell -b \"{}\"",
-        shell_escape_double_quoted(&popup_open_command)
-    )
+    run_shell_action(&popup_open_command)
 }
 
 fn popup_hard_close_action() -> &'static str {
     "kill-session"
 }
 
-fn run_shell_binding_command(table: &str, key: &str, shell_command: &str) -> Vec<String> {
+fn guarded_run_shell_binding_command(
+    table: &str,
+    key: &str,
+    condition: &str,
+    shell_command: &str,
+) -> Vec<String> {
     command(&[
         "bind-key",
         "-T",
         table,
         key,
-        "run-shell",
-        "-b",
-        shell_command,
+        "if-shell",
+        "-F",
+        condition,
+        &run_shell_action(shell_command),
     ])
+}
+
+fn guarded_table_run_shell_binding_command(
+    table: &str,
+    key: &str,
+    condition: &str,
+    shell_command: &str,
+) -> Vec<String> {
+    command(&[
+        "bind-key",
+        "-T",
+        table,
+        key,
+        "if-shell",
+        "-F",
+        condition,
+        &run_shell_action(shell_command),
+        "\\;",
+        "switch-client",
+        "-T",
+        "root",
+    ])
+}
+
+fn run_shell_action(shell_command: &str) -> String {
+    format!(
+        "run-shell -b \"{}\"",
+        shell_escape_double_quoted(shell_command)
+    )
 }
 
 fn command(args: &[&str]) -> Vec<String> {
@@ -295,31 +371,31 @@ fn missing_binding_diagnostic(output: &std::process::Output) -> bool {
 
 fn preset_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal preset --session \"#{{session_name}}\" --preset three-pane </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal preset --session #{{session_name}} --preset three-pane </dev/null >/dev/null 2>&1"
     )
 }
 
 fn swap_command(ezm_bin: &str, slot_id: u8) -> String {
     format!(
-        "{ezm_bin} __internal swap --session \"#{{session_name}}\" --slot {slot_id} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal swap --session #{{session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn focus_command(ezm_bin: &str, slot_id: u8) -> String {
     format!(
-        "{ezm_bin} __internal focus --session \"#{{session_name}}\" --slot {slot_id} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal focus --session #{{session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn mode_command(ezm_bin: &str, mode: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode {mode} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal mode --session #{{session_name}} --slot #{{@ezm_slot_id}} --mode {mode} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn toggle_mode_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session \"#{{session_name}}\" --slot \"#{{@ezm_slot_id}}\" --mode \"#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}\" </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal mode --session #{{session_name}} --slot #{{@ezm_slot_id}} --mode #{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}} </dev/null >/dev/null 2>&1"
     )
 }
 

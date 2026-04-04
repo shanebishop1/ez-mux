@@ -4,10 +4,11 @@ use std::process::{ExitStatus, Output};
 use std::os::unix::process::ExitStatusExt;
 
 use super::{
-    ACTIVE_SLOT_BORDER_STYLE_FORMAT, focus_command, mode_command, pane_nav_bindings, popup_command,
-    popup_hard_close_action, popup_toggle_open_action, preset_command, resolve_ezm_bin,
-    shell_command_token, should_clear_existing_keybinds_before_install, swap_command,
-    toggle_mode_command,
+    ACTIVE_SLOT_BORDER_STYLE_FORMAT, binding_contains_legacy_internal_slot_command, focus_command,
+    guarded_run_shell_binding_command, guarded_table_run_shell_binding_command, mode_command,
+    pane_nav_bindings, popup_command, popup_hard_close_action, popup_toggle_open_action,
+    preset_command, resolve_ezm_bin, shell_command_token,
+    should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
 };
 
 #[test]
@@ -122,6 +123,35 @@ fn preset_command_runs_quietly_in_background() {
 }
 
 #[test]
+fn guarded_prefix_binding_skips_non_ezm_sessions() {
+    let binding = guarded_run_shell_binding_command(
+        "prefix",
+        "a",
+        "#{@ezm_slot_id}",
+        "/tmp/ezm __internal mode --session #{session_name}",
+    );
+
+    assert_eq!(binding[0], "bind-key");
+    assert!(binding.iter().any(|part| part == "if-shell"));
+    assert!(binding.iter().any(|part| part == "#{@ezm_slot_id}"));
+    assert!(binding.iter().any(|part| part.contains("run-shell -b")));
+}
+
+#[test]
+fn guarded_table_binding_returns_to_root_after_attempt() {
+    let binding = guarded_table_run_shell_binding_command(
+        "ezm-focus",
+        "1",
+        "#{@ezm_slot_1_pane}",
+        "/tmp/ezm __internal focus --session #{session_name} --slot 1",
+    );
+
+    assert!(binding.iter().any(|part| part == "if-shell"));
+    assert!(binding.iter().any(|part| part == "switch-client"));
+    assert!(binding.iter().any(|part| part == "root"));
+}
+
+#[test]
 fn startup_keybind_install_skips_unbind_clear_phase() {
     assert!(!should_clear_existing_keybinds_before_install());
 }
@@ -221,6 +251,19 @@ fn active_slot_border_style_format_maps_all_five_slot_colors() {
     assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#7fd77a"));
     assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#b58df2"));
     assert!(ACTIVE_SLOT_BORDER_STYLE_FORMAT.contains("#f2cd72"));
+}
+
+#[test]
+fn legacy_prefix_slot_binding_detection_matches_old_internal_routes_only() {
+    assert!(binding_contains_legacy_internal_slot_command(
+        "bind-key -T prefix 1 run-shell -b \"/tmp/ezm __internal focus --session #{session_name} --slot 1\""
+    ));
+    assert!(binding_contains_legacy_internal_slot_command(
+        "bind-key -T prefix 3 run-shell -b \"/tmp/ezm __internal swap --session #{session_name} --slot 3\""
+    ));
+    assert!(!binding_contains_legacy_internal_slot_command(
+        "bind-key -T prefix 1 select-window -t :=1"
+    ));
 }
 
 #[cfg(unix)]

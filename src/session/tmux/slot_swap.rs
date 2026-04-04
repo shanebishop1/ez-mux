@@ -146,6 +146,10 @@ fn resolve_center_slot_pane(session_name: &str) -> Result<String, SessionError> 
     let mut samples = Vec::with_capacity(CANONICAL_SLOT_IDS.len());
 
     for slot_id in CANONICAL_SLOT_IDS {
+        if slot_is_suspended(session_name, slot_id)? {
+            continue;
+        }
+
         let pane_key = format!("@ezm_slot_{slot_id}_pane");
         let pane_id = required_session_option(session_name, &pane_key)?;
 
@@ -168,6 +172,17 @@ fn resolve_center_slot_pane(session_name: &str) -> Result<String, SessionError> 
             stderr: String::from("no live canonical panes were available to resolve center pane"),
         }),
     }
+}
+
+fn slot_is_suspended(session_name: &str, slot_id: u8) -> Result<bool, SessionError> {
+    Ok(session_option_indicates_suspended(show_session_option(
+        session_name,
+        &format!("{SLOT_SUSPENDED_KEY_PREFIX}{slot_id}_suspended"),
+    )?))
+}
+
+fn session_option_indicates_suspended(value: Option<String>) -> bool {
+    value.is_some_and(|value| value == "1")
 }
 
 fn pane_is_dead(pane_id: &str) -> Result<bool, SessionError> {
