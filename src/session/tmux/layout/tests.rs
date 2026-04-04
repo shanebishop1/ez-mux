@@ -1,7 +1,8 @@
 use super::{
-    RegistryWriteStrategy, bootstrap_registry_write_strategy, normalize_shell_binary_hint,
-    parse_bootstrap_anchor, should_apply_runtime_styles_during_bootstrap,
-    should_validate_registry_after_bootstrap, startup_mode_for_slot, startup_mode_schedule_command,
+    RegistryWriteStrategy, binary_hint_looks_like_single_executable,
+    bootstrap_registry_write_strategy, normalize_shell_binary_hint, parse_bootstrap_anchor,
+    should_apply_runtime_styles_during_bootstrap, should_validate_registry_after_bootstrap,
+    startup_mode_for_slot, startup_mode_schedule_command,
 };
 
 #[test]
@@ -73,4 +74,8 @@ fn normalize_shell_binary_hint_strips_quoted_boundary_variants() {
         normalize_shell_binary_hint("\\\"/tmp/ezm\\\""),
         Some(String::from("/tmp/ezm"))
     );
+    assert!(binary_hint_looks_like_single_executable("/tmp/ezm"));
+    assert!(!binary_hint_looks_like_single_executable(
+        "/tmp/ezm __internal focus"
+    ));
 }

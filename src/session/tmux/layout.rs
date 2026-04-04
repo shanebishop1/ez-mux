@@ -397,7 +397,10 @@ fn resolved_ezm_bin_shell_token() -> String {
     let resolved = [env_ezm_bin, current_exe]
         .into_iter()
         .flatten()
-        .find_map(|value| normalize_shell_binary_hint(&value))
+        .find_map(|value| {
+            normalize_shell_binary_hint(&value)
+                .filter(|candidate| binary_hint_looks_like_single_executable(candidate))
+        })
         .unwrap_or_else(|| String::from("ezm"));
 
     shell_single_quote(&resolved)
@@ -421,6 +424,13 @@ fn normalize_shell_binary_hint(value: &str) -> Option<String> {
     } else {
         Some(normalized.to_owned())
     }
+}
+
+fn binary_hint_looks_like_single_executable(value: &str) -> bool {
+    !value.is_empty()
+        && !value
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '\'' | '"' | '\0'))
 }
 
 fn strip_quote_like_prefix(value: &str) -> &str {
