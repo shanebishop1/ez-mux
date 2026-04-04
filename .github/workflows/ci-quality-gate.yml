@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   quality-gate:
     name: Rust quality gate + structure audit
