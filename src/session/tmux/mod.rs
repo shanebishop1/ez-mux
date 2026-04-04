@@ -94,7 +94,7 @@ pub trait TmuxClient {
     /// outside the canonical range, or tmux swap/select operations fail.
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError>;
 
-    /// Moves one canonical slot pane into center focus position.
+    /// Moves one canonical slot pane into the main focus position.
     ///
     /// # Errors
     /// Returns an error when slot metadata is invalid, target slot is

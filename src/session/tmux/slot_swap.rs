@@ -51,12 +51,21 @@ pub(super) fn swap_slot_with_center(session_name: &str, slot_id: u8) -> Result<(
 
     validate_canonical_slot_registry(session_name)?;
 
-    let slot_pane_key = format!("@ezm_slot_{slot_id}_pane");
-    let slot_pane_id = required_session_option(session_name, &slot_pane_key)?;
     let center_pane_id = resolve_center_slot_pane(session_name)?;
 
-    if slot_pane_id != center_pane_id {
-        swap_panes_preserve_zoom(&slot_pane_id, &center_pane_id)?;
+    swap_slot_with_target_pane(session_name, slot_id, &center_pane_id)
+}
+
+pub(super) fn swap_slot_with_target_pane(
+    session_name: &str,
+    slot_id: u8,
+    target_pane_id: &str,
+) -> Result<(), SessionError> {
+    let slot_pane_key = format!("@ezm_slot_{slot_id}_pane");
+    let slot_pane_id = required_session_option(session_name, &slot_pane_key)?;
+
+    if slot_pane_id != target_pane_id {
+        swap_panes_preserve_zoom(&slot_pane_id, target_pane_id)?;
     }
 
     refresh_active_border_for_slot(session_name, slot_id)?;

@@ -76,7 +76,7 @@ ezm --help
 
 | Key | Action |
 | --- | --- |
-| `prefix f` then `1..5` | Move selected slot pane to center (swap-to-center) and focus it |
+| `prefix f` then `1..5` | Move selected slot pane to the main focus position and focus it |
 | `prefix u` | Toggle current slot mode (`agent` <-> `shell`) |
 | `prefix a` | Set current slot to `agent` mode |
 | `prefix S` | Set current slot to `shell` mode |

@@ -8,7 +8,7 @@ pub struct FocusSlotOutcome {
     pub slot_id: u8,
 }
 
-/// Moves one canonical slot pane into the center focus position.
+/// Moves one canonical slot pane into the main focus position.
 ///
 /// # Errors
 /// Returns an error when the slot is outside canonical range or tmux cannot
