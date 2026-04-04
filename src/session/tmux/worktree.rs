@@ -86,7 +86,11 @@ fn normalize_worktrees(project_dir: &Path, candidates: Vec<PathBuf>) -> Vec<Path
     let mut ordered = unique
         .into_iter()
         .filter(|candidate| {
-            *candidate == canonical_project || !excluded_worktree_candidate(candidate)
+            if *candidate == canonical_project {
+                return true;
+            }
+
+            !excluded_worktree_candidate(candidate) && slot_suffix_priority(candidate).is_some()
         })
         .collect::<Vec<_>>();
 
@@ -153,6 +157,32 @@ mod tests {
         assert_eq!(ordered[1], wt_2.canonicalize().expect("canonical wt-2"));
         assert_eq!(
             ordered[2],
+            project_dir.canonicalize().expect("canonical project")
+        );
+    }
+
+    #[test]
+    fn normalize_worktrees_ignores_non_suffix_extra_worktrees() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        let generic = temp.path().join("release-preview");
+        let suffixed = temp.path().join("feature-2");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        std::fs::create_dir_all(&generic).expect("generic dir");
+        std::fs::create_dir_all(&suffixed).expect("suffixed dir");
+
+        let ordered = normalize_worktrees(
+            &project_dir,
+            vec![generic.clone(), suffixed.clone(), project_dir.clone()],
+        );
+
+        assert_eq!(ordered.len(), 2);
+        assert_eq!(
+            ordered[0],
+            suffixed.canonicalize().expect("canonical suffix")
+        );
+        assert_eq!(
+            ordered[1],
             project_dir.canonicalize().expect("canonical project")
         );
     }

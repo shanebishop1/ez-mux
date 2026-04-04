@@ -1,4 +1,5 @@
 use super::SlotContinuitySnapshot;
+use super::session_option_indicates_suspended;
 use super::should_retry_without_zoom;
 use super::validate_slot_suspension;
 use super::validate_suspended_slot_restore_metadata;
@@ -137,4 +138,11 @@ fn suspended_slots_require_restore_metadata_to_match_slot_identity() {
         .expect_err("suspended metadata must keep mode")
         .contains("mode mismatch")
     );
+}
+
+#[test]
+fn suspended_flag_parsing_only_accepts_one() {
+    assert!(session_option_indicates_suspended(Some(String::from("1"))));
+    assert!(!session_option_indicates_suspended(Some(String::from("0"))));
+    assert!(!session_option_indicates_suspended(None));
 }
