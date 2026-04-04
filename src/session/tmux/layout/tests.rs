@@ -45,11 +45,12 @@ fn bootstrap_applies_runtime_style_on_first_attach() {
 }
 
 #[test]
-fn parse_bootstrap_anchor_reads_window_pane_and_width() {
-    let parsed = parse_bootstrap_anchor("@9|%42|192\n").expect("parse bootstrap anchor");
+fn parse_bootstrap_anchor_reads_window_pane_width_and_height() {
+    let parsed = parse_bootstrap_anchor("@9|%42|192|54\n").expect("parse bootstrap anchor");
     assert_eq!(parsed.window_target, String::from("@9"));
     assert_eq!(parsed.pane_id, String::from("%42"));
     assert_eq!(parsed.window_width, 192);
+    assert_eq!(parsed.window_height, 54);
 }
 
 #[test]

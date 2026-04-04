@@ -39,6 +39,7 @@ pub(super) fn bootstrap_default_layout(
         window_target: target,
         pane_id: initial_pane,
         window_width,
+        window_height,
     } = resolve_bootstrap_anchor(session_name)?;
     let (_left_width, center_width, right_width) =
         canonical_five_pane_column_widths(window_width, DEFAULT_CENTER_WIDTH_PCT);
@@ -69,7 +70,7 @@ pub(super) fn bootstrap_default_layout(
         let registry =
             build_registry_for_canonical_panes(&canonical_pane_ids, &discovery.worktrees)?;
         persist_registry(session_name, &registry, populated_slots, pane_count)?;
-        apply_startup_pane_mode(&canonical_pane_ids, window_width, pane_count)?;
+        apply_startup_pane_mode(&canonical_pane_ids, window_width, window_height, pane_count)?;
         install_runtime_keybinds()?;
         if should_apply_runtime_styles_during_bootstrap() {
             apply_runtime_style_defaults_for_target(session_name, &target)?;
@@ -138,18 +139,19 @@ struct BootstrapAnchor {
     window_target: String,
     pane_id: String,
     window_width: u16,
+    window_height: u16,
 }
 
 fn resolve_bootstrap_anchor(session_name: &str) -> Result<BootstrapAnchor, SessionError> {
     let command = format!(
-        "display-message -p -t {session_name} #{{window_id}}|#{{pane_id}}|#{{window_width}}"
+        "display-message -p -t {session_name} #{{window_id}}|#{{pane_id}}|#{{window_width}}|#{{window_height}}"
     );
     let output = tmux_output_value(&[
         "display-message",
         "-p",
         "-t",
         session_name,
-        "#{window_id}|#{pane_id}|#{window_width}",
+        "#{window_id}|#{pane_id}|#{window_width}|#{window_height}",
     ])?;
     parse_bootstrap_anchor(&output).map_err(|reason| SessionError::TmuxCommandFailed {
         command,
@@ -185,11 +187,20 @@ fn parse_bootstrap_anchor(output: &str) -> Result<BootstrapAnchor, String> {
     let window_width = window_width_raw.parse::<u16>().map_err(|error| {
         format!("invalid window width `{window_width_raw}` in bootstrap row `{row}`: {error}")
     })?;
+    let window_height_raw = parts
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("missing window height in bootstrap row: {row}"))?
+        .trim();
+    let window_height = window_height_raw.parse::<u16>().map_err(|error| {
+        format!("invalid window height `{window_height_raw}` in bootstrap row `{row}`: {error}")
+    })?;
 
     Ok(BootstrapAnchor {
         window_target,
         pane_id,
         window_width,
+        window_height,
     })
 }
 
