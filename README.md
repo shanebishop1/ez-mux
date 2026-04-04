@@ -5,6 +5,20 @@
 
 The command is `ezm`.
 
+## Why not just tmuxinator?
+
+If you only want "start this tmux layout from config", tmuxinator is simpler and a great fit.
+
+`ez-mux` is for multitasking agentic workflows across multiple worktrees, with built-in support for work tracking (`perles`/beads), OpenCode shared-server attach, and SSH-backed remote execution.
+
+Use `ez-mux` when you want an opinionated runtime workflow after startup:
+
+- Stable 5-slot identity (`1..5`) with deterministic worktree assignment for multi-agent workflows.
+- Built-in slot modes (`agent`, `shell`, `neovim`, `lazygit`) for fast agent/tool switching in-session.
+- Built-in OpenCode shared-server attach support for agent mode when you want centralized sessions.
+- Built-in SSH remote routing (with path remap) so shell/neovim/lazygit/popup flows run remotely when configured.
+- Runtime actions as first-class behavior: swap-to-center, slot focus, popup shell, and presets.
+
 ## What you get
 
 - Deterministic per-project tmux sessions (`ezm-<project>-<hash>`), so each repo reopens in its own workspace.
