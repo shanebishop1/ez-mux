@@ -341,9 +341,40 @@ fn resolved_ezm_bin_shell_token() -> String {
 }
 
 fn resolve_ezm_bin(env_ezm_bin: Option<String>, current_exe: Option<String>) -> String {
-    env_ezm_bin
-        .or(current_exe)
+    [env_ezm_bin, current_exe]
+        .into_iter()
+        .flatten()
+        .find_map(|value| normalize_shell_binary_hint(&value))
         .unwrap_or_else(|| String::from("ezm"))
+}
+
+fn normalize_shell_binary_hint(value: &str) -> Option<String> {
+    let mut normalized = value.trim();
+
+    while let Some(stripped) = strip_surrounding_quotes(normalized) {
+        normalized = stripped;
+    }
+
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized.to_owned())
+    }
+}
+
+fn strip_surrounding_quotes(value: &str) -> Option<&str> {
+    if value.len() < 2 {
+        return None;
+    }
+
+    let bytes = value.as_bytes();
+    let first = bytes[0];
+    let last = bytes[value.len() - 1];
+    if (first == b'\'' && last == b'\'') || (first == b'"' && last == b'"') {
+        return Some(&value[1..value.len() - 1]);
+    }
+
+    None
 }
 
 fn shell_command_token(value: &str) -> String {

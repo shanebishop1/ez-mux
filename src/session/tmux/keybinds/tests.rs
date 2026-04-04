@@ -134,6 +134,22 @@ fn resolve_ezm_bin_prefers_env_then_current_exe_then_literal_ezm() {
 }
 
 #[test]
+fn resolve_ezm_bin_strips_wrapping_quotes_from_env_hint() {
+    assert_eq!(
+        resolve_ezm_bin(Some(String::from("'/tmp/ezm'")), None),
+        String::from("/tmp/ezm")
+    );
+    assert_eq!(
+        resolve_ezm_bin(Some(String::from("\"/tmp/ezm\"")), None),
+        String::from("/tmp/ezm")
+    );
+    assert_eq!(
+        resolve_ezm_bin(Some(String::from("'\"/tmp/ezm\"'")), None),
+        String::from("/tmp/ezm")
+    );
+}
+
+#[test]
 fn shell_command_token_leaves_shell_safe_paths_unquoted() {
     let rendered = shell_command_token("/tmp/ezm-bin");
     assert_eq!(rendered, String::from("/tmp/ezm-bin"));
