@@ -13,6 +13,7 @@ pub const EZM_CONFIG_ENV: &str = "EZM_CONFIG";
 pub const EZM_BIN_ENV: &str = "EZM_BIN";
 pub const EZM_REMOTE_PATH_ENV: &str = "EZM_REMOTE_PATH";
 pub const EZM_REMOTE_SERVER_URL_ENV: &str = "EZM_REMOTE_SERVER_URL";
+pub const EZM_USE_MOSH_ENV: &str = "EZM_USE_MOSH";
 pub const OPENCODE_SERVER_URL_ENV: &str = "OPENCODE_SERVER_URL";
 pub const OPENCODE_SERVER_PASSWORD_ENV: &str = "OPENCODE_SERVER_PASSWORD";
 pub const MIN_PANE_COUNT: u8 = 1;
@@ -97,6 +98,7 @@ pub struct FileConfig {
     pub panes: Option<u8>,
     pub ezm_remote_path: Option<String>,
     pub ezm_remote_server_url: Option<String>,
+    pub ezm_use_mosh: Option<bool>,
     pub opencode_server_url: Option<String>,
     pub opencode_server_password: Option<String>,
     pub agent_command: Option<String>,
@@ -146,6 +148,7 @@ pub struct SharedServerRuntimeResolution {
 pub struct RemoteRuntimeResolution {
     pub remote_path: ResolvedValue<Option<String>>,
     pub remote_server_url: ResolvedValue<Option<String>>,
+    pub use_mosh: ResolvedValue<bool>,
     pub shared_server: SharedServerRuntimeResolution,
 }
 
@@ -191,6 +194,12 @@ pub fn resolve_remote_runtime(
         env.get_var(EZM_REMOTE_SERVER_URL_ENV),
         file_config.ezm_remote_server_url.clone(),
     );
+    let use_mosh = resolve_optional_bool_setting(
+        None,
+        env.get_var(EZM_USE_MOSH_ENV),
+        file_config.ezm_use_mosh,
+        false,
+    );
 
     let server_url = resolve_optional_setting(
         None,
@@ -216,6 +225,7 @@ pub fn resolve_remote_runtime(
     Ok(RemoteRuntimeResolution {
         remote_path,
         remote_server_url,
+        use_mosh,
         shared_server: SharedServerRuntimeResolution {
             url: server_url,
             password: server_password,
@@ -392,6 +402,52 @@ fn resolve_optional_setting(
         value: None,
         source: ValueSource::Default,
     }
+}
+
+fn resolve_optional_bool_setting(
+    cli_value: Option<bool>,
+    env_value: Option<String>,
+    file_value: Option<bool>,
+    default: bool,
+) -> ResolvedValue<bool> {
+    if let Some(value) = cli_value {
+        return ResolvedValue {
+            value,
+            source: ValueSource::Cli,
+        };
+    }
+
+    if let Some(value) = normalize_optional_bool_env_value(env_value) {
+        return ResolvedValue {
+            value,
+            source: ValueSource::Env,
+        };
+    }
+
+    if let Some(value) = file_value {
+        return ResolvedValue {
+            value,
+            source: ValueSource::File,
+        };
+    }
+
+    ResolvedValue {
+        value: default,
+        source: ValueSource::Default,
+    }
+}
+
+fn normalize_optional_bool_env_value(value: Option<String>) -> Option<bool> {
+    let value = value?.trim().to_ascii_lowercase();
+    if value.is_empty() {
+        return None;
+    }
+
+    if matches!(value.as_str(), "0" | "false" | "no" | "off") {
+        return Some(false);
+    }
+
+    Some(true)
 }
 
 fn source_scope(

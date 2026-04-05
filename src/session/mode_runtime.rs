@@ -21,6 +21,7 @@ pub struct SlotModeLaunchContext<'a> {
 pub struct RemoteModeContext<'a> {
     pub remote_path: Option<&'a str>,
     pub remote_server_url: Option<&'a str>,
+    pub use_mosh: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

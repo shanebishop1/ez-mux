@@ -1,6 +1,7 @@
 use super::super::SessionError;
 use super::super::SlotMode;
 use super::super::remote_authority::parse_remote_ssh_authority;
+use super::super::remote_transport::{build_remote_invocation, remote_transport_label};
 use crate::session::{RemoteModeContext, resolve_remote_path};
 
 pub(super) fn launch_command_with_remote_dir_from_mapping(
@@ -15,13 +16,14 @@ pub(super) fn launch_command_with_remote_dir_from_mapping(
         return Ok(launch_command.to_owned());
     }
 
-    if let Some(ssh_command) = ssh_wrapped_launch_command(
+    if let Some(remote_command) = remote_wrapped_launch_command(
         mode,
         &resolved.effective_path.display().to_string(),
         launch_command,
         remote_context.remote_server_url,
+        remote_context.use_mosh,
     )? {
-        return Ok(ssh_command);
+        return Ok(remote_command);
     }
 
     let mut exports = vec![format!(
@@ -42,11 +44,12 @@ pub(super) fn launch_command_with_remote_dir_from_mapping(
     Ok(format!("{}; {launch_command}", exports.join("; ")))
 }
 
-fn ssh_wrapped_launch_command(
+fn remote_wrapped_launch_command(
     mode: SlotMode,
     remote_dir: &str,
     launch_command: &str,
     remote_server_url: Option<&str>,
+    use_mosh: bool,
 ) -> Result<Option<String>, SessionError> {
     if !matches!(mode, SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit) {
         return Ok(None);
@@ -65,20 +68,11 @@ fn ssh_wrapped_launch_command(
         escape_single_quotes(remote_dir)
     );
 
-    let mut ssh_invocation = String::from("ssh -tt");
-    if let Some(port) = authority.port {
-        ssh_invocation.push_str(" -p ");
-        ssh_invocation.push_str(&port.to_string());
-    }
-    ssh_invocation.push_str(" '");
-    ssh_invocation.push_str(&escape_single_quotes(&authority.target));
-    ssh_invocation.push('\'');
-    ssh_invocation.push_str(" '");
-    ssh_invocation.push_str(&escape_single_quotes(&remote_script));
-    ssh_invocation.push('\'');
+    let remote_invocation = build_remote_invocation(&authority, &remote_script, use_mosh);
+    let transport = remote_transport_label(use_mosh);
 
     Ok(Some(format!(
-        "if {ssh_invocation}; then exit 0; fi; ssh_exit_code=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $ssh_exit_code\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"
+        "if {remote_invocation}; then exit 0; fi; remote_exit_code=$?; printf '%s\\n' \"ez-mux remote {transport} launch failed with status $remote_exit_code\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"
     )))
 }
 

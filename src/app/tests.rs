@@ -257,6 +257,7 @@ impl TmuxClient for InterruptingTmuxClient {
         _: Option<&str>,
         _: Option<&str>,
         _: Option<&str>,
+        _: bool,
     ) -> Result<PopupShellOutcome, SessionError> {
         Err(SessionError::TmuxCommandFailed {
             command: String::from("toggle-popup"),
@@ -264,7 +265,12 @@ impl TmuxClient for InterruptingTmuxClient {
         })
     }
 
-    fn auxiliary_viewer(&self, _: &str, _: bool) -> Result<AuxiliaryViewerOutcome, SessionError> {
+    fn auxiliary_viewer(
+        &self,
+        _: &str,
+        _: bool,
+        _: bool,
+    ) -> Result<AuxiliaryViewerOutcome, SessionError> {
         Ok(AuxiliaryViewerOutcome {
             session_name: String::from("ezm-session"),
             action: crate::session::AuxiliaryViewerAction::SkippedUnavailable,
@@ -317,9 +323,16 @@ fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
         .session_name;
 
     let tmux = InterruptingTmuxClient::new();
-    let error =
-        execute_default_session_flow_for_project_dir(&project_dir, None, None, 5, false, &tmux)
-            .expect_err("interrupt should map to app error");
+    let error = execute_default_session_flow_for_project_dir(
+        &project_dir,
+        None,
+        None,
+        false,
+        5,
+        false,
+        &tmux,
+    )
+    .expect_err("interrupt should map to app error");
 
     assert!(matches!(error, AppError::Interrupted));
     assert_eq!(tmux.teardown_calls(), vec![expected_session]);
@@ -380,6 +393,10 @@ fn shared_server_attach_config_stays_disabled_when_remote_server_url_is_missing(
             value: None,
             source: ValueSource::Default,
         },
+        use_mosh: ResolvedValue {
+            value: false,
+            source: ValueSource::Default,
+        },
         shared_server: SharedServerRuntimeResolution {
             url: ResolvedValue {
                 value: Some(String::from("http://devbox-ez-1:4096")),
@@ -405,6 +422,10 @@ fn shared_server_attach_config_accepts_hostname_remote_server_url_with_remote_pa
         remote_server_url: ResolvedValue {
             value: Some(String::from("devbox-ez-1")),
             source: ValueSource::Env,
+        },
+        use_mosh: ResolvedValue {
+            value: false,
+            source: ValueSource::Default,
         },
         shared_server: SharedServerRuntimeResolution {
             url: ResolvedValue {
@@ -462,6 +483,10 @@ fn remote_runtime_resolution(remote_path: Option<&str>) -> RemoteRuntimeResoluti
         remote_server_url: ResolvedValue {
             value: Some(String::from("https://shell.remote.example:7443")),
             source: ValueSource::Env,
+        },
+        use_mosh: ResolvedValue {
+            value: false,
+            source: ValueSource::Default,
         },
         shared_server: SharedServerRuntimeResolution {
             url: ResolvedValue {

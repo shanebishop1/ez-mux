@@ -11,7 +11,7 @@ use super::TmuxClient;
 use super::resolve_remote_path;
 use super::resolve_session_identity;
 use crate::config::EZM_BIN_ENV;
-use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
+use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV, EZM_USE_MOSH_ENV};
 
 pub const DEFAULT_STARTUP_PANE_COUNT: u8 = 5;
 
@@ -62,11 +62,15 @@ pub fn ensure_project_session(
 ) -> Result<SessionLaunchOutcome, SessionError> {
     let remote_path = std::env::var(EZM_REMOTE_PATH_ENV).ok();
     let remote_server_url = std::env::var(EZM_REMOTE_SERVER_URL_ENV).ok();
+    let remote_use_mosh = std::env::var(EZM_USE_MOSH_ENV)
+        .ok()
+        .is_some_and(|value| parse_enabled_value(&value));
 
     ensure_project_session_with_remote_path(
         project_dir,
         remote_path.as_deref(),
         remote_server_url.as_deref(),
+        remote_use_mosh,
         DEFAULT_STARTUP_PANE_COUNT,
         tmux,
     )
@@ -82,6 +86,7 @@ pub fn ensure_project_session_with_remote_path(
     project_dir: &Path,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    remote_use_mosh: bool,
     pane_count: u8,
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
@@ -89,6 +94,7 @@ pub fn ensure_project_session_with_remote_path(
         project_dir,
         remote_path,
         remote_server_url,
+        remote_use_mosh,
         pane_count,
         false,
         tmux,
@@ -105,6 +111,7 @@ pub fn ensure_project_session_with_remote_path_and_options(
     project_dir: &Path,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    remote_use_mosh: bool,
     pane_count: u8,
     no_worktrees: bool,
     tmux: &impl TmuxClient,
@@ -148,13 +155,13 @@ pub fn ensure_project_session_with_remote_path_and_options(
         SessionAction::Create
     };
     if should_open_auxiliary_synchronously() {
-        tmux.auxiliary_viewer(&identity.session_name, true)?;
+        tmux.auxiliary_viewer(&identity.session_name, true, remote_use_mosh)?;
         trace.mark("tmux-auxiliary-viewer-sync-non-interactive");
     } else if let Err(source) = spawn_auxiliary_viewer_open(&identity.session_name) {
         eprintln!(
             "warning: failed scheduling auxiliary viewer open in background; falling back to synchronous open: {source}"
         );
-        tmux.auxiliary_viewer(&identity.session_name, true)?;
+        tmux.auxiliary_viewer(&identity.session_name, true, remote_use_mosh)?;
         trace.mark("tmux-auxiliary-viewer-sync-fallback");
     } else {
         trace.mark("tmux-auxiliary-viewer-scheduled");

@@ -37,7 +37,8 @@ pub struct AuxiliaryViewerOutcome {
 pub fn auxiliary_viewer(
     session_name: &str,
     open: bool,
+    use_mosh: bool,
     tmux: &impl TmuxClient,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
-    tmux.auxiliary_viewer(session_name, open)
+    tmux.auxiliary_viewer(session_name, open, use_mosh)
 }

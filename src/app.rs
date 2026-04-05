@@ -63,6 +63,7 @@ pub(crate) fn execute_with_opener(
             let outcome = execute_default_session_flow(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
+                resolved_remote_runtime.use_mosh.value,
                 pane_count.value,
                 no_worktrees,
                 &session::ProcessTmuxClient,
@@ -86,6 +87,7 @@ pub(crate) fn execute_with_opener(
             let outcome = execute_default_session_flow(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
+                resolved_remote_runtime.use_mosh.value,
                 pane_count.value,
                 no_worktrees,
                 &tmux,
@@ -113,6 +115,7 @@ pub(crate) fn execute_with_opener(
 fn execute_default_session_flow(
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    remote_use_mosh: bool,
     pane_count: u8,
     no_worktrees: bool,
     tmux: &impl session::TmuxClient,
@@ -122,6 +125,7 @@ fn execute_default_session_flow(
         project_dir.as_path(),
         remote_path,
         remote_server_url,
+        remote_use_mosh,
         pane_count,
         no_worktrees,
         tmux,
@@ -147,6 +151,7 @@ fn execute_default_session_flow_for_project_dir(
     project_dir: &std::path::Path,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    remote_use_mosh: bool,
     pane_count: u8,
     no_worktrees: bool,
     tmux: &impl session::TmuxClient,
@@ -157,6 +162,7 @@ fn execute_default_session_flow_for_project_dir(
         project_dir,
         remote_path,
         remote_server_url,
+        remote_use_mosh,
         pane_count,
         no_worktrees,
         tmux,
@@ -210,6 +216,7 @@ fn execute_internal(
             let remote_context = session::RemoteModeContext {
                 remote_path,
                 remote_server_url: remote_runtime.remote_server_url.value.as_deref(),
+                use_mosh: remote_runtime.use_mosh.value,
             };
             let launch_context = session::SlotModeLaunchContext {
                 remote_context,
@@ -237,6 +244,7 @@ fn execute_internal(
                 client.as_deref(),
                 remote_path,
                 remote_runtime.remote_server_url.value.as_deref(),
+                remote_runtime.use_mosh.value,
                 &tmux,
             )?;
             Ok(format!(
@@ -252,7 +260,8 @@ fn execute_internal(
         InternalCommand::Auxiliary { session, action } => {
             let tmux = session::ProcessTmuxClient;
             let open = matches!(action, AuxiliaryAction::Open);
-            let outcome = session::auxiliary_viewer(&session, open, &tmux)?;
+            let outcome =
+                session::auxiliary_viewer(&session, open, remote_runtime.use_mosh.value, &tmux)?;
             Ok(format!(
                 "internal auxiliary complete: session={}; action={}; window_name={}; window_id={}",
                 outcome.session_name,
@@ -363,9 +372,15 @@ fn default_contract_summary_message(
     let attach_visibility = attach_visibility_label();
     if outcome.remote_routing_active {
         format!(
-            "ezm contract locked; session={}; session_action={}; routing_mode=remote; remote_routing_active=true; attach_visibility={}; remote_project_dir={}; remote_path={}; remote_path_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
+            "ezm contract locked; session={}; session_action={}; routing_mode=remote; remote_routing_active=true; remote_transport={}; ezm_use_mosh_source={}; attach_visibility={}; remote_project_dir={}; remote_path={}; remote_path_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
             outcome.identity.session_name,
             outcome.action.label(),
+            if resolved_remote_runtime.use_mosh.value {
+                "mosh"
+            } else {
+                "ssh"
+            },
+            source_label(resolved_remote_runtime.use_mosh.source),
             attach_visibility,
             outcome.remote_project_dir.display(),
             optional_value_label(resolved_remote_runtime.remote_path.value.as_deref()),

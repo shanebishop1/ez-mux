@@ -83,6 +83,7 @@ impl TmuxClient for RepairTmuxStub {
         _: Option<&str>,
         _: Option<&str>,
         _: Option<&str>,
+        _: bool,
     ) -> Result<PopupShellOutcome, crate::session::SessionError> {
         unreachable!()
     }
@@ -90,6 +91,7 @@ impl TmuxClient for RepairTmuxStub {
     fn auxiliary_viewer(
         &self,
         _: &str,
+        _: bool,
         _: bool,
     ) -> Result<AuxiliaryViewerOutcome, crate::session::SessionError> {
         unreachable!()

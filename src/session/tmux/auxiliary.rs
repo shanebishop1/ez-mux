@@ -2,6 +2,7 @@ use super::SessionError;
 use super::command::{tmux_output_value, tmux_run};
 use super::options::show_session_option;
 use super::remote_authority::parse_remote_ssh_authority;
+use super::remote_transport::{build_remote_invocation, remote_transport_label};
 use super::slot_swap::validate_canonical_slot_registry;
 use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
 use crate::session::resolve_remote_path;
@@ -17,10 +18,11 @@ const LEGACY_BEADS_DB_ENV: &str = "BEADS_DB";
 pub(super) fn auxiliary_viewer(
     session_name: &str,
     open: bool,
+    use_mosh: bool,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
     let existing = find_window_id_by_name(session_name, AUXILIARY_WINDOW_NAME)?;
     if open {
-        return open_auxiliary_viewer(session_name, existing);
+        return open_auxiliary_viewer(session_name, existing, use_mosh);
     }
 
     close_auxiliary_viewer(session_name, existing)
@@ -29,6 +31,7 @@ pub(super) fn auxiliary_viewer(
 fn open_auxiliary_viewer(
     session_name: &str,
     existing: Option<String>,
+    use_mosh: bool,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
     if let Some(window_id) = existing {
         return Ok(AuxiliaryViewerOutcome {
@@ -46,6 +49,7 @@ fn open_auxiliary_viewer(
         &cwd,
         remote_path.as_deref(),
         remote_server_url.as_deref(),
+        use_mosh,
     )?;
 
     let local_perles_executable = if remote_launch.is_none() {
@@ -153,6 +157,7 @@ fn build_auxiliary_command_for_remote(
     build_auxiliary_remote_launch_command(
         &remote_launch.remote_dir,
         &remote_launch.remote_server_url,
+        remote_launch.use_mosh,
     )
 }
 
@@ -239,23 +244,15 @@ fn build_auxiliary_local_launch_command(
 fn build_auxiliary_remote_launch_command(
     remote_dir: &str,
     remote_server_url: &str,
+    use_mosh: bool,
 ) -> Result<String, SessionError> {
     let authority = parse_remote_ssh_authority(remote_server_url)?;
 
     let remote_script = render_auxiliary_remote_script(remote_dir);
-    let mut ssh_invocation = String::from("ssh -tt");
-    if let Some(port) = authority.port {
-        ssh_invocation.push_str(" -p ");
-        ssh_invocation.push_str(&port.to_string());
-    }
-    ssh_invocation.push_str(" '");
-    ssh_invocation.push_str(&escape_single_quotes(&authority.target));
-    ssh_invocation.push('\'');
-    ssh_invocation.push_str(" '");
-    ssh_invocation.push_str(&escape_single_quotes(&remote_script));
-    ssh_invocation.push('\'');
+    let remote_invocation = build_remote_invocation(&authority, &remote_script, use_mosh);
+    let transport = remote_transport_label(use_mosh);
     Ok(format!(
-        "if {ssh_invocation}; then :; else ssh_exit_code=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $ssh_exit_code\" >&2; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
+        "if {remote_invocation}; then :; else remote_exit_code=$?; printf '%s\\n' \"ez-mux remote {transport} launch failed with status $remote_exit_code\" >&2; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
     ))
 }
 
@@ -284,6 +281,7 @@ fn resolve_auxiliary_remote_launch(
     cwd: &str,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    use_mosh: bool,
 ) -> Result<Option<AuxiliaryRemoteLaunch>, SessionError> {
     let server_url = remote_server_url
         .map(str::trim)
@@ -300,6 +298,7 @@ fn resolve_auxiliary_remote_launch(
     Ok(Some(AuxiliaryRemoteLaunch {
         remote_dir: resolved.effective_path.display().to_string(),
         remote_server_url: server_url.to_owned(),
+        use_mosh,
     }))
 }
 
@@ -363,6 +362,7 @@ fn is_executable_file(path: &Path) -> bool {
 struct AuxiliaryRemoteLaunch {
     remote_dir: String,
     remote_server_url: String,
+    use_mosh: bool,
 }
 
 #[cfg(test)]
