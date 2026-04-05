@@ -106,7 +106,7 @@ fn shell_mode_remote_prefix_uses_mosh_when_enabled() {
     )
     .expect("command should resolve");
 
-    assert!(command.contains("if mosh --ssh='ssh -p 7443' 'shell.remote.example'"));
+    assert!(command.contains("if mosh --no-init --ssh='ssh -p 7443' 'shell.remote.example'"));
     assert!(!command.contains("if ssh -tt -p 7443 'shell.remote.example'"));
 }
 

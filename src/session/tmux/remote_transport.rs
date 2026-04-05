@@ -32,7 +32,7 @@ fn build_ssh_invocation(authority: &ParsedSshAuthority, remote_script: &str) -> 
 }
 
 fn build_mosh_invocation(authority: &ParsedSshAuthority, remote_script: &str) -> String {
-    let mut invocation = String::from("mosh");
+    let mut invocation = String::from("mosh --no-init");
     if let Some(port) = authority.port {
         invocation.push_str(" --ssh='ssh -p ");
         invocation.push_str(&port.to_string());
@@ -82,7 +82,7 @@ mod tests {
             parse_remote_ssh_authority("https://shell.remote.example:7443").expect("authority");
         let invocation = build_remote_invocation(&authority, "cd '/srv/remotes' && nvim", true);
 
-        assert!(invocation.contains("mosh --ssh='ssh -p 7443'"));
+        assert!(invocation.contains("mosh --no-init --ssh='ssh -p 7443'"));
         assert!(invocation.contains("'shell.remote.example' -- 'sh' '-lc' '"));
         assert!(invocation.contains("cd '"));
     }
