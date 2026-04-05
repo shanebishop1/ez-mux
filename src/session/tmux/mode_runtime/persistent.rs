@@ -1,13 +1,31 @@
+use std::sync::OnceLock;
+
 use super::super::SessionError;
 use super::super::command::{format_output_diagnostics, tmux_output, tmux_output_value, tmux_run};
 use super::super::options::{
     set_pane_option, set_session_option, show_pane_option, show_session_option,
     unset_session_option,
 };
+use super::super::{ZoomFlagSupport, tmux_diagnostics_exit_status, zoom_flag_support_for_command};
 use super::pane_runtime::respawn_slot_mode;
 
 const MODE_CACHE_SESSION_SUFFIX: &str = "__mode_cache";
 const LEGACY_MODE_CACHE_WINDOW_NAME: &str = "__ezm_mode_cache";
+
+#[derive(Debug, Clone, Copy)]
+struct ZoomFlagCapabilities {
+    swap_pane: ZoomFlagSupport,
+}
+
+impl Default for ZoomFlagCapabilities {
+    fn default() -> Self {
+        Self {
+            swap_pane: ZoomFlagSupport::Unknown,
+        }
+    }
+}
+
+static ZOOM_FLAG_CAPABILITIES: OnceLock<ZoomFlagCapabilities> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ActivatedModePane {
@@ -254,14 +272,71 @@ fn swap_visible_with_backing(
     current_pane_id: &str,
     target_pane_id: &str,
 ) -> Result<(), SessionError> {
-    tmux_run(&[
+    let capabilities = zoom_flag_capabilities();
+    let with_zoom_args = swap_visible_with_backing_args(current_pane_id, target_pane_id, true);
+    let without_zoom_args = swap_visible_with_backing_args(current_pane_id, target_pane_id, false);
+
+    run_with_zoom_fallback(
         "swap-pane",
-        "-d",
-        "-s",
-        target_pane_id,
-        "-t",
-        current_pane_id,
-    ])
+        capabilities.swap_pane,
+        &with_zoom_args,
+        &without_zoom_args,
+    )
+}
+
+fn swap_visible_with_backing_args<'a>(
+    current_pane_id: &'a str,
+    target_pane_id: &'a str,
+    preserve_zoom: bool,
+) -> Vec<&'a str> {
+    let mut args = vec!["swap-pane", "-d"];
+    if preserve_zoom {
+        args.push("-Z");
+    }
+    args.extend(["-s", target_pane_id, "-t", current_pane_id]);
+    args
+}
+
+fn zoom_flag_capabilities() -> ZoomFlagCapabilities {
+    *ZOOM_FLAG_CAPABILITIES.get_or_init(|| match tmux_output_value(&["list-commands"]) {
+        Ok(command_listing) => ZoomFlagCapabilities {
+            swap_pane: zoom_flag_support_for_command(&command_listing, "swap-pane"),
+        },
+        Err(_) => ZoomFlagCapabilities::default(),
+    })
+}
+
+fn run_with_zoom_fallback(
+    command_name: &str,
+    zoom_support: ZoomFlagSupport,
+    with_zoom_args: &[&str],
+    without_zoom_args: &[&str],
+) -> Result<(), SessionError> {
+    if zoom_support == ZoomFlagSupport::Unsupported {
+        return tmux_run(without_zoom_args);
+    }
+
+    match tmux_run(with_zoom_args) {
+        Ok(()) => Ok(()),
+        Err(SessionError::TmuxCommandFailed { command, stderr })
+            if should_retry_without_zoom(command_name, &command, &stderr) =>
+        {
+            tmux_run(without_zoom_args)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn should_retry_without_zoom(command_name: &str, command: &str, stderr: &str) -> bool {
+    command_starts_with_zoom_flag(command_name, command)
+        && tmux_diagnostics_exit_status(stderr) == Some(1)
+}
+
+fn command_starts_with_zoom_flag(command_name: &str, command: &str) -> bool {
+    let mut parts = command.split_ascii_whitespace();
+    matches!(parts.next(), Some(name) if name == command_name)
+        && matches!(parts.next(), Some(flag) if flag == "-d")
+        && matches!(parts.next(), Some(flag) if flag == "-Z")
 }
 
 fn slot_pane_key(slot_id: u8) -> String {
@@ -284,7 +359,8 @@ fn legacy_mode_cache_session_name(session_name: &str, slot_id: u8) -> String {
 mod tests {
     use super::{
         LEGACY_MODE_CACHE_WINDOW_NAME, MODE_CACHE_SESSION_SUFFIX, backing_pane_key,
-        legacy_mode_cache_session_name, mode_cache_session_name,
+        legacy_mode_cache_session_name, mode_cache_session_name, should_retry_without_zoom,
+        swap_visible_with_backing_args,
     };
 
     #[test]
@@ -303,5 +379,36 @@ mod tests {
         );
         assert_eq!(MODE_CACHE_SESSION_SUFFIX, "__mode_cache");
         assert_eq!(LEGACY_MODE_CACHE_WINDOW_NAME, "__ezm_mode_cache");
+    }
+
+    #[test]
+    fn visible_backing_swap_preserves_zoom_without_changing_active_target() {
+        assert_eq!(
+            swap_visible_with_backing_args("%1", "%9", true),
+            vec!["swap-pane", "-d", "-Z", "-s", "%9", "-t", "%1"]
+        );
+        assert_eq!(
+            swap_visible_with_backing_args("%1", "%9", false),
+            vec!["swap-pane", "-d", "-s", "%9", "-t", "%1"]
+        );
+    }
+
+    #[test]
+    fn mode_backing_swap_retries_only_for_zoom_attempts_with_status_one() {
+        assert!(should_retry_without_zoom(
+            "swap-pane",
+            "swap-pane -d -Z -s %9 -t %1",
+            "status=1; stdout=\"\"; stderr=\"unknown option -- Z\""
+        ));
+        assert!(!should_retry_without_zoom(
+            "swap-pane",
+            "swap-pane -d -s %9 -t %1",
+            "status=1; stdout=\"\"; stderr=\"pane not found\""
+        ));
+        assert!(!should_retry_without_zoom(
+            "swap-pane",
+            "swap-pane -d -Z -s %9 -t %1",
+            "status=127; stdout=\"\"; stderr=\"pane not found\""
+        ));
     }
 }
