@@ -85,26 +85,28 @@ pub fn ensure_project_session_with_remote_path(
     pane_count: u8,
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
-    ensure_project_session_with_remote_path_and_pane_count(
+    ensure_project_session_with_remote_path_and_options(
         project_dir,
         remote_path,
         remote_server_url,
         pane_count,
+        false,
         tmux,
     )
 }
 
-/// Ensures a session exists for the provided project directory using an
-/// explicit remote remap prefix and startup pane count.
+/// Ensures a session exists for the provided project directory using explicit
+/// startup options.
 ///
 /// # Errors
 /// Returns an error when session identity resolution fails or any tmux
 /// operation needed to create, validate, bootstrap, or attach fails.
-pub fn ensure_project_session_with_remote_path_and_pane_count(
+pub fn ensure_project_session_with_remote_path_and_options(
     project_dir: &Path,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
     pane_count: u8,
+    no_worktrees: bool,
     tmux: &impl TmuxClient,
 ) -> Result<SessionLaunchOutcome, SessionError> {
     let mut trace = StartupTrace::begin();
@@ -136,7 +138,12 @@ pub fn ensure_project_session_with_remote_path_and_pane_count(
         trace.mark("tmux-session-missing");
         tmux.create_detached_session(&identity.session_name, &identity.project_dir)?;
         trace.mark("tmux-create-detached-session");
-        tmux.bootstrap_default_layout(&identity.session_name, &identity.project_dir, pane_count)?;
+        tmux.bootstrap_default_layout(
+            &identity.session_name,
+            &identity.project_dir,
+            pane_count,
+            no_worktrees,
+        )?;
         trace.mark("tmux-bootstrap-default-layout");
         SessionAction::Create
     };

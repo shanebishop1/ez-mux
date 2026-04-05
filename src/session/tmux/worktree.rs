@@ -7,7 +7,17 @@ pub(super) struct WorktreeDiscovery {
     pub(super) warning: Option<String>,
 }
 
-pub(super) fn discover_worktrees_for_slots(project_dir: &Path) -> WorktreeDiscovery {
+pub(super) fn discover_worktrees_for_slots(
+    project_dir: &Path,
+    no_worktrees: bool,
+) -> WorktreeDiscovery {
+    if no_worktrees {
+        return WorktreeDiscovery {
+            worktrees: vec![project_dir.to_path_buf()],
+            warning: None,
+        };
+    }
+
     let mut discovered = Vec::new();
     let mut warning = None;
 
@@ -123,8 +133,21 @@ fn slot_suffix_priority(candidate: &Path) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    use super::discover_worktrees_for_slots;
     use super::normalize_worktrees;
     use super::slot_suffix_priority;
+
+    #[test]
+    fn no_worktrees_mode_reuses_project_dir_only() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let project_dir = temp.path().join("project");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+
+        let discovery = discover_worktrees_for_slots(&project_dir, true);
+
+        assert_eq!(discovery.warning, None);
+        assert_eq!(discovery.worktrees, vec![project_dir]);
+    }
 
     #[test]
     fn normalize_worktrees_applies_exclusion_and_suffix_priority() {

@@ -34,6 +34,7 @@ pub(super) fn bootstrap_default_layout(
     session_name: &str,
     project_dir: &Path,
     pane_count: u8,
+    no_worktrees: bool,
 ) -> Result<(), SessionError> {
     let BootstrapAnchor {
         window_target: target,
@@ -62,7 +63,7 @@ pub(super) fn bootstrap_default_layout(
             left_bottom,
             right_bottom,
         ];
-        let discovery = discover_worktrees_for_slots(project_dir);
+        let discovery = discover_worktrees_for_slots(project_dir, no_worktrees);
         if let Some(warning) = &discovery.warning {
             eprintln!("warning: {warning}");
         }

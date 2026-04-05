@@ -75,6 +75,7 @@ pub trait TmuxClient {
         session_name: &str,
         project_dir: &Path,
         pane_count: u8,
+        no_worktrees: bool,
     ) -> Result<(), SessionError>;
 
     /// Applies one supported layout preset to an existing session.
@@ -224,8 +225,9 @@ impl TmuxClient for ProcessTmuxClient {
         session_name: &str,
         project_dir: &Path,
         pane_count: u8,
+        no_worktrees: bool,
     ) -> Result<(), SessionError> {
-        layout::bootstrap_default_layout(session_name, project_dir, pane_count)
+        layout::bootstrap_default_layout(session_name, project_dir, pane_count, no_worktrees)
     }
 
     fn swap_slot_with_center(&self, session_name: &str, slot_id: u8) -> Result<(), SessionError> {
