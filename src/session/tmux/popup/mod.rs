@@ -22,6 +22,7 @@ pub(super) fn toggle_popup_shell(
     client_tty: Option<&str>,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    remote_use_mosh: bool,
 ) -> Result<PopupShellOutcome, SessionError> {
     validate_canonical_slot_registry(session_name)?;
     reconcile_popup_parent_cleanup_hook()?;
@@ -29,8 +30,12 @@ pub(super) fn toggle_popup_shell(
     let origin_slot_pane =
         required_session_option(session_name, &format!("@ezm_slot_{slot_id}_pane"))?;
     let cwd = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_cwd"))?;
-    let remote_context =
-        context::resolve_popup_remote_context(&cwd, remote_path, remote_server_url)?;
+    let remote_context = context::resolve_popup_remote_context(
+        &cwd,
+        remote_path,
+        remote_server_url,
+        remote_use_mosh,
+    )?;
     let popup_session = session::popup_session_name(session_name, slot_id);
 
     if session::session_exists(&popup_session)? {

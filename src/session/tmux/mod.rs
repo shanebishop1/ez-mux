@@ -29,6 +29,7 @@ mod options;
 mod popup;
 mod remote_authority;
 mod remote_env;
+mod remote_transport;
 mod repair;
 mod slot_focus;
 mod slot_swap;
@@ -127,6 +128,7 @@ pub trait TmuxClient {
         client_tty: Option<&str>,
         remote_path: Option<&str>,
         remote_server_url: Option<&str>,
+        remote_use_mosh: bool,
     ) -> Result<PopupShellOutcome, SessionError>;
 
     /// Creates/reuses or closes the auxiliary viewer window.
@@ -137,6 +139,7 @@ pub trait TmuxClient {
         &self,
         session_name: &str,
         open: bool,
+        use_mosh: bool,
     ) -> Result<AuxiliaryViewerOutcome, SessionError>;
 
     /// Removes helper sessions/processes and the project session.
@@ -263,6 +266,7 @@ impl TmuxClient for ProcessTmuxClient {
         client_tty: Option<&str>,
         remote_path: Option<&str>,
         remote_server_url: Option<&str>,
+        remote_use_mosh: bool,
     ) -> Result<PopupShellOutcome, SessionError> {
         popup::toggle_popup_shell(
             session_name,
@@ -270,6 +274,7 @@ impl TmuxClient for ProcessTmuxClient {
             client_tty,
             remote_path,
             remote_server_url,
+            remote_use_mosh,
         )
     }
 
@@ -277,8 +282,9 @@ impl TmuxClient for ProcessTmuxClient {
         &self,
         session_name: &str,
         open: bool,
+        use_mosh: bool,
     ) -> Result<AuxiliaryViewerOutcome, SessionError> {
-        auxiliary::auxiliary_viewer(session_name, open)
+        auxiliary::auxiliary_viewer(session_name, open, use_mosh)
     }
 
     fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError> {

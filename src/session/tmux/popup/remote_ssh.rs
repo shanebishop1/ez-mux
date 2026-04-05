@@ -1,5 +1,6 @@
 use super::super::SessionError;
 use super::super::remote_authority::parse_remote_ssh_authority;
+use super::super::remote_transport::{build_remote_invocation, remote_transport_label};
 use super::context::PopupRemoteContext;
 
 pub(super) fn popup_remote_launch_command(
@@ -23,22 +24,13 @@ pub(super) fn popup_remote_launch_command(
         shell_escape_single_quoted(&context.remote_dir)
     );
 
-    let mut ssh_invocation = String::from("ssh -tt");
-    if let Some(port) = authority.port {
-        ssh_invocation.push_str(" -p ");
-        ssh_invocation.push_str(&port.to_string());
-    }
-    ssh_invocation.push_str(" '");
-    ssh_invocation.push_str(&shell_escape_single_quoted(&authority.target));
-    ssh_invocation.push('\'');
-    ssh_invocation.push_str(" '");
-    ssh_invocation.push_str(&shell_escape_single_quoted(&remote_script));
-    ssh_invocation.push('\'');
+    let remote_invocation = build_remote_invocation(&authority, &remote_script, context.use_mosh);
+    let transport = remote_transport_label(context.use_mosh);
 
     Ok(Some(format!(
         "sh -lc '{}'",
         shell_escape_single_quoted(&format!(
-            "if {ssh_invocation}; then exit 0; fi; ssh_exit_code=$?; printf '%s\\n' \"ez-mux remote ssh launch failed with status $ssh_exit_code\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"
+            "if {remote_invocation}; then exit 0; fi; remote_exit_code=$?; printf '%s\\n' \"ez-mux remote {transport} launch failed with status $remote_exit_code\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"
         ))
     )))
 }

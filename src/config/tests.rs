@@ -101,6 +101,19 @@ fn load_config_parses_panes_setting() {
 }
 
 #[test]
+fn load_config_parses_ezm_use_mosh_setting() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "ezm_use_mosh = true\n").expect("write config");
+
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
+
+    let loaded = load_config(&env, OperatingSystem::Linux).expect("load should succeed");
+    assert_eq!(loaded.values.ezm_use_mosh, Some(true));
+}
+
+#[test]
 fn ezm_config_override_wins_over_local_ez_mux_toml() {
     let dir = tempdir().expect("tempdir");
     let local_config = dir.path().join("ez-mux.toml");
@@ -283,6 +296,83 @@ fn remote_runtime_prefers_ezm_remote_server_url_env_over_file() {
 }
 
 #[test]
+fn remote_runtime_prefers_ezm_use_mosh_env_over_file() {
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_USE_MOSH_ENV), String::from("1"));
+
+    let file = FileConfig {
+        ezm_use_mosh: Some(false),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.use_mosh,
+        ResolvedValue {
+            value: true,
+            source: ValueSource::Env,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_allows_env_to_disable_file_ezm_use_mosh() {
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_USE_MOSH_ENV), String::from("false"));
+
+    let file = FileConfig {
+        ezm_use_mosh: Some(true),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.use_mosh,
+        ResolvedValue {
+            value: false,
+            source: ValueSource::Env,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_uses_file_ezm_use_mosh_when_env_missing() {
+    let env = HashMap::<String, String>::new();
+    let file = FileConfig {
+        ezm_use_mosh: Some(true),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.use_mosh,
+        ResolvedValue {
+            value: true,
+            source: ValueSource::File,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_defaults_ezm_use_mosh_to_false() {
+    let env = HashMap::<String, String>::new();
+
+    let resolved =
+        resolve_remote_runtime(&env, &FileConfig::default()).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.use_mosh,
+        ResolvedValue {
+            value: false,
+            source: ValueSource::Default,
+        }
+    );
+}
+
+#[test]
 fn remote_runtime_uses_ezm_remote_server_url_file_when_env_missing() {
     let env = HashMap::<String, String>::new();
     let file = FileConfig {
@@ -410,6 +500,7 @@ fn invalid_server_url_fails_fast() {
 fn remote_shared_server_env_constants_are_contract_stable() {
     assert_eq!(EZM_REMOTE_PATH_ENV, "EZM_REMOTE_PATH");
     assert_eq!(EZM_REMOTE_SERVER_URL_ENV, "EZM_REMOTE_SERVER_URL");
+    assert_eq!(EZM_USE_MOSH_ENV, "EZM_USE_MOSH");
     assert_eq!(OPENCODE_SERVER_URL_ENV, "OPENCODE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_PASSWORD_ENV, "OPENCODE_SERVER_PASSWORD");
 }

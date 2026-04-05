@@ -24,6 +24,7 @@ fn popup_new_session_uses_remote_ssh_shell_when_remote_routing_is_active() {
         &nested.display().to_string(),
         Some("/srv/remotes"),
         Some("https://shell.remote.example:7443"),
+        false,
     )
     .expect("context should resolve");
 
@@ -47,6 +48,7 @@ fn popup_remote_launch_command_returns_none_without_server_url() {
     let context = PopupRemoteContext {
         remote_dir: String::from("/srv/remotes/alpha"),
         remote_server_url: None,
+        use_mosh: false,
     };
 
     let command = popup_remote_launch_command(Some(&context)).expect("command should resolve");
@@ -58,6 +60,7 @@ fn popup_new_session_args_fail_fast_for_invalid_remote_authority() {
     let context = PopupRemoteContext {
         remote_dir: String::from("/srv/remotes/alpha"),
         remote_server_url: Some(String::from("https://shell.remote.example:")),
+        use_mosh: false,
     };
 
     let error = popup_new_session_args("ezm-s100__popup_slot_4", "/tmp/popup-cwd", Some(&context))
@@ -65,4 +68,22 @@ fn popup_new_session_args_fail_fast_for_invalid_remote_authority() {
     let rendered = error.to_string();
     assert!(rendered.contains("invalid remote ssh authority"));
     assert!(rendered.contains("EZM_REMOTE_SERVER_URL"));
+}
+
+#[test]
+fn popup_remote_launch_command_uses_mosh_when_enabled() {
+    let context = PopupRemoteContext {
+        remote_dir: String::from("/srv/remotes/alpha"),
+        remote_server_url: Some(String::from("https://shell.remote.example:7443")),
+        use_mosh: true,
+    };
+
+    let command = popup_remote_launch_command(Some(&context))
+        .expect("command should resolve")
+        .expect("remote command should exist");
+
+    assert!(command.contains("mosh --ssh='"));
+    assert!(command.contains("ssh -p 7443"));
+    assert!(command.contains("shell.remote.example"));
+    assert!(!command.contains("ssh -tt -p 7443"));
 }

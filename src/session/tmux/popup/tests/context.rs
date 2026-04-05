@@ -2,8 +2,8 @@ use super::super::context::resolve_popup_remote_context;
 
 #[test]
 fn popup_remote_context_is_none_when_remote_remap_is_inactive() {
-    let context =
-        resolve_popup_remote_context("/tmp/local", None, None).expect("context should resolve");
+    let context = resolve_popup_remote_context("/tmp/local", None, None, false)
+        .expect("context should resolve");
     assert!(context.is_none());
 }
 
@@ -15,10 +15,14 @@ fn popup_remote_context_resolves_when_remote_path_is_active() {
     std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
     std::fs::create_dir_all(&nested).expect("create nested");
 
-    let context =
-        resolve_popup_remote_context(&nested.display().to_string(), Some("/srv/remotes"), None)
-            .expect("context should resolve")
-            .expect("context should be present");
+    let context = resolve_popup_remote_context(
+        &nested.display().to_string(),
+        Some("/srv/remotes"),
+        None,
+        false,
+    )
+    .expect("context should resolve")
+    .expect("context should be present");
 
     assert_eq!(
         context.remote_dir,
@@ -39,6 +43,7 @@ fn popup_remote_context_includes_optional_server_url_when_configured() {
         &nested.display().to_string(),
         Some("/srv/remotes"),
         Some(" https://shell.remote.example:7443 "),
+        true,
     )
     .expect("context should resolve")
     .expect("context should be present");
@@ -51,4 +56,5 @@ fn popup_remote_context_includes_optional_server_url_when_configured() {
         context.remote_server_url,
         Some(String::from("https://shell.remote.example:7443"))
     );
+    assert!(context.use_mosh);
 }
