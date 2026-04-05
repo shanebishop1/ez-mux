@@ -55,6 +55,7 @@ pub use runtime::SessionLaunchOutcome;
 pub use runtime::ensure_current_project_session;
 pub use runtime::ensure_project_session;
 pub use runtime::ensure_project_session_with_remote_path;
+pub use runtime::ensure_project_session_with_remote_path_and_options;
 pub use slot_registry::CANONICAL_SLOT_IDS;
 pub use slot_registry::SlotBinding;
 pub use slot_registry::SlotRegistry;

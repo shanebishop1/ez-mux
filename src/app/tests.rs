@@ -56,6 +56,7 @@ fn open_latest_succeeds_and_reports_opened_path() {
             verbose: 0,
             panes: None,
             pane_shortcut: None,
+            no_worktrees: false,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -81,6 +82,7 @@ fn open_latest_errors_when_no_logs_exist() {
             verbose: 0,
             panes: None,
             pane_shortcut: None,
+            no_worktrees: false,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -106,6 +108,7 @@ fn open_latest_missing_logs_is_typed_logging_error() {
             verbose: 0,
             panes: None,
             pane_shortcut: None,
+            no_worktrees: false,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -134,6 +137,7 @@ fn open_latest_errors_when_open_command_fails() {
             verbose: 0,
             panes: None,
             pane_shortcut: None,
+            no_worktrees: false,
             command: Some(Command::Logs(LogsCommand::OpenLatest)),
         },
         &env,
@@ -214,7 +218,13 @@ impl TmuxClient for InterruptingTmuxClient {
         Ok(())
     }
 
-    fn bootstrap_default_layout(&self, _: &str, _: &Path, _: u8) -> Result<(), SessionError> {
+    fn bootstrap_default_layout(
+        &self,
+        _: &str,
+        _: &Path,
+        _: u8,
+        _: bool,
+    ) -> Result<(), SessionError> {
         Ok(())
     }
 
@@ -307,8 +317,9 @@ fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
         .session_name;
 
     let tmux = InterruptingTmuxClient::new();
-    let error = execute_default_session_flow_for_project_dir(&project_dir, None, None, 5, &tmux)
-        .expect_err("interrupt should map to app error");
+    let error =
+        execute_default_session_flow_for_project_dir(&project_dir, None, None, 5, false, &tmux)
+            .expect_err("interrupt should map to app error");
 
     assert!(matches!(error, AppError::Interrupted));
     assert_eq!(tmux.teardown_calls(), vec![expected_session]);

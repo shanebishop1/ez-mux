@@ -46,6 +46,7 @@ pub(crate) fn execute_with_opener(
         verbose,
         panes,
         pane_shortcut,
+        no_worktrees,
         command,
         ..
     } = cli;
@@ -63,6 +64,7 @@ pub(crate) fn execute_with_opener(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
                 pane_count.value,
+                no_worktrees,
                 &session::ProcessTmuxClient,
             )?;
             default_contract_summary_message(verbose > 0, &outcome, &resolved_remote_runtime)
@@ -85,6 +87,7 @@ pub(crate) fn execute_with_opener(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
                 pane_count.value,
+                no_worktrees,
                 &tmux,
             )?;
             let preset_outcome =
@@ -111,6 +114,7 @@ fn execute_default_session_flow(
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
     pane_count: u8,
+    no_worktrees: bool,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let project_dir = std::env::current_dir().map_err(session::SessionError::CurrentDir)?;
@@ -119,6 +123,7 @@ fn execute_default_session_flow(
         remote_path,
         remote_server_url,
         pane_count,
+        no_worktrees,
         tmux,
     )
 }
@@ -143,15 +148,17 @@ fn execute_default_session_flow_for_project_dir(
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
     pane_count: u8,
+    no_worktrees: bool,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let identity = session::resolve_session_identity(project_dir)?;
 
-    match session::ensure_project_session_with_remote_path(
+    match session::ensure_project_session_with_remote_path_and_options(
         project_dir,
         remote_path,
         remote_server_url,
         pane_count,
+        no_worktrees,
         tmux,
     ) {
         Ok(outcome) => Ok(outcome),

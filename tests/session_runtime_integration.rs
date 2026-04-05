@@ -13,6 +13,7 @@ use ez_mux::session::analyze_session_damage;
 use ez_mux::session::auxiliary_viewer;
 use ez_mux::session::ensure_project_session;
 use ez_mux::session::ensure_project_session_with_remote_path;
+use ez_mux::session::ensure_project_session_with_remote_path_and_options;
 use ez_mux::session::focus_slot;
 use ez_mux::session::mode_launch_contract;
 use ez_mux::session::reconcile_session_damage;
@@ -24,7 +25,7 @@ use ez_mux::session::toggle_popup_shell;
 struct FakeTmux {
     sessions: RefCell<HashSet<String>>,
     created: RefCell<Vec<(String, PathBuf)>>,
-    bootstrapped: RefCell<Vec<(String, PathBuf, u8)>>,
+    bootstrapped: RefCell<Vec<(String, PathBuf, u8, bool)>>,
     attached: RefCell<Vec<String>>,
     attach_error: RefCell<Option<String>>,
     mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
@@ -115,11 +116,13 @@ impl TmuxClient for FakeTmux {
         session_name: &str,
         project_dir: &Path,
         pane_count: u8,
+        no_worktrees: bool,
     ) -> Result<(), ez_mux::session::SessionError> {
         self.bootstrapped.borrow_mut().push((
             session_name.to_string(),
             project_dir.to_path_buf(),
             pane_count,
+            no_worktrees,
         ));
         Ok(())
     }
@@ -509,7 +512,36 @@ fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_path_is_active
     assert_eq!(tmux.created.borrow()[0].1, first.identity.project_dir);
     assert_eq!(tmux.bootstrapped.borrow().len(), 1);
     assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
+    assert!(!tmux.bootstrapped.borrow()[0].3);
     assert_eq!(tmux.attached.borrow().len(), 2);
+}
+
+#[test]
+fn runtime_can_disable_worktree_bootstrap_assignment() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    let outcome = ensure_project_session_with_remote_path_and_options(
+        project_dir,
+        None,
+        None,
+        5,
+        true,
+        &tmux,
+    )
+    .expect("run should succeed");
+
+    assert_eq!(outcome.action, SessionAction::Create);
+    assert_eq!(tmux.bootstrapped.borrow().len(), 1);
+    assert_eq!(
+        tmux.bootstrapped.borrow()[0].1,
+        outcome.identity.project_dir
+    );
+    assert!(tmux.bootstrapped.borrow()[0].3);
 }
 
 #[test]

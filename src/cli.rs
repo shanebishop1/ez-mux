@@ -48,6 +48,14 @@ pub struct Cli {
     )]
     pub pane_shortcut: Option<u8>,
 
+    #[arg(
+        long = "no-worktrees",
+        global = true,
+        action = clap::ArgAction::SetTrue,
+        help = "Reuse the current directory for every pane instead of assigning per-slot worktrees"
+    )]
+    pub no_worktrees: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -161,6 +169,7 @@ mod tests {
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, None);
         assert_eq!(parsed.pane_shortcut, None);
+        assert!(!parsed.no_worktrees);
     }
 
     #[test]
@@ -171,6 +180,7 @@ mod tests {
         assert_eq!(parsed.verbose, 1);
         assert_eq!(parsed.panes, None);
         assert_eq!(parsed.pane_shortcut, None);
+        assert!(!parsed.no_worktrees);
     }
 
     #[test]
@@ -181,6 +191,7 @@ mod tests {
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, Some(3));
         assert_eq!(parsed.pane_shortcut, None);
+        assert!(!parsed.no_worktrees);
     }
 
     #[test]
@@ -191,6 +202,7 @@ mod tests {
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, Some(4));
         assert_eq!(parsed.pane_shortcut, None);
+        assert!(!parsed.no_worktrees);
     }
 
     #[test]
@@ -201,6 +213,18 @@ mod tests {
         assert_eq!(parsed.verbose, 0);
         assert_eq!(parsed.panes, None);
         assert_eq!(parsed.pane_shortcut, Some(3));
+        assert!(!parsed.no_worktrees);
+    }
+
+    #[test]
+    fn parses_no_worktrees_flag() {
+        let parsed = Cli::try_parse_from(["ezm", "--no-worktrees"]).expect("parse should succeed");
+        assert_eq!(parsed.command, None);
+        assert!(!parsed.version);
+        assert_eq!(parsed.verbose, 0);
+        assert_eq!(parsed.panes, None);
+        assert_eq!(parsed.pane_shortcut, None);
+        assert!(parsed.no_worktrees);
     }
 
     #[test]
