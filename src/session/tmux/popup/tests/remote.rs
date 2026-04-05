@@ -82,7 +82,8 @@ fn popup_remote_launch_command_uses_mosh_when_enabled() {
         .expect("command should resolve")
         .expect("remote command should exist");
 
-    assert!(command.contains("mosh --ssh='"));
+    assert!(command.contains("mosh --no-init"));
+    assert!(command.contains("--ssh='"));
     assert!(command.contains("ssh -p 7443"));
     assert!(command.contains("shell.remote.example"));
     assert!(!command.contains("ssh -tt -p 7443"));

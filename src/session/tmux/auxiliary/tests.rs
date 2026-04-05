@@ -124,7 +124,7 @@ fn auxiliary_remote_launch_command_uses_mosh_when_enabled() {
     )
     .expect("remote command should build");
 
-    assert!(command.contains("mosh --ssh='ssh -p 7443' 'shell.remote.example'"));
+    assert!(command.contains("mosh --no-init --ssh='ssh -p 7443' 'shell.remote.example'"));
     assert!(!command.contains("ssh -tt -p 7443 'shell.remote.example'"));
 }
 
