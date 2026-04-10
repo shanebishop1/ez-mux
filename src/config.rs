@@ -13,6 +13,7 @@ pub const EZM_CONFIG_ENV: &str = "EZM_CONFIG";
 pub const EZM_BIN_ENV: &str = "EZM_BIN";
 pub const EZM_REMOTE_PATH_ENV: &str = "EZM_REMOTE_PATH";
 pub const EZM_REMOTE_SERVER_URL_ENV: &str = "EZM_REMOTE_SERVER_URL";
+pub const EZM_USE_TSSH_ENV: &str = "EZM_USE_TSSH";
 pub const EZM_USE_MOSH_ENV: &str = "EZM_USE_MOSH";
 pub const OPENCODE_SERVER_URL_ENV: &str = "OPENCODE_SERVER_URL";
 pub const OPENCODE_SERVER_PASSWORD_ENV: &str = "OPENCODE_SERVER_PASSWORD";
@@ -98,6 +99,7 @@ pub struct FileConfig {
     pub panes: Option<u8>,
     pub ezm_remote_path: Option<String>,
     pub ezm_remote_server_url: Option<String>,
+    pub ezm_use_tssh: Option<bool>,
     pub ezm_use_mosh: Option<bool>,
     pub opencode_server_url: Option<String>,
     pub opencode_server_password: Option<String>,
@@ -148,6 +150,7 @@ pub struct SharedServerRuntimeResolution {
 pub struct RemoteRuntimeResolution {
     pub remote_path: ResolvedValue<Option<String>>,
     pub remote_server_url: ResolvedValue<Option<String>>,
+    pub use_tssh: ResolvedValue<bool>,
     pub use_mosh: ResolvedValue<bool>,
     pub shared_server: SharedServerRuntimeResolution,
 }
@@ -200,6 +203,12 @@ pub fn resolve_remote_runtime(
         file_config.ezm_use_mosh,
         false,
     );
+    let use_tssh = resolve_optional_bool_setting(
+        None,
+        env.get_var(EZM_USE_TSSH_ENV),
+        file_config.ezm_use_tssh,
+        false,
+    );
 
     let server_url = resolve_optional_setting(
         None,
@@ -225,6 +234,7 @@ pub fn resolve_remote_runtime(
     Ok(RemoteRuntimeResolution {
         remote_path,
         remote_server_url,
+        use_tssh,
         use_mosh,
         shared_server: SharedServerRuntimeResolution {
             url: server_url,

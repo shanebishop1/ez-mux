@@ -33,6 +33,7 @@ fn auxiliary_remote_launch_command_routes_over_ssh_with_remote_directory() {
         "/srv/remotes/ez-mux",
         "https://shell.remote.example:7443",
         false,
+        false,
     )
     .expect("remote command should build");
 
@@ -49,6 +50,7 @@ fn auxiliary_remote_launch_command_does_not_export_perles_paths() {
         "/srv/remotes/ez-mux",
         "https://shell.remote.example",
         false,
+        false,
     )
     .expect("remote command should build");
 
@@ -61,6 +63,7 @@ fn auxiliary_remote_launch_bootstraps_shell_before_running_perles() {
     let command = build_auxiliary_remote_launch_command(
         "/srv/remotes/ez-mux",
         "https://shell.remote.example",
+        false,
         false,
     )
     .expect("remote command should build");
@@ -80,6 +83,7 @@ fn auxiliary_remote_launch_command_fails_fast_for_invalid_remote_authority() {
         "/srv/remotes/ez-mux",
         "https://shell.remote.example:",
         false,
+        false,
     )
     .expect_err("invalid authority should fail");
 
@@ -95,6 +99,7 @@ fn auxiliary_remote_launch_resolves_when_remote_path_and_server_url_are_present(
         Some("/srv/remotes"),
         Some("https://shell.remote.example:7443"),
         false,
+        false,
     )
     .expect("remote launch should resolve")
     .expect("remote launch should be active");
@@ -104,14 +109,20 @@ fn auxiliary_remote_launch_resolves_when_remote_path_and_server_url_are_present(
         resolved.remote_server_url,
         "https://shell.remote.example:7443"
     );
+    assert!(!resolved.use_tssh);
     assert!(!resolved.use_mosh);
 }
 
 #[test]
 fn auxiliary_remote_launch_is_inactive_without_server_url() {
-    let resolved =
-        resolve_auxiliary_remote_launch("/tmp/repo/worktree", Some("/srv/remotes"), None, false)
-            .expect("missing server url should not fail");
+    let resolved = resolve_auxiliary_remote_launch(
+        "/tmp/repo/worktree",
+        Some("/srv/remotes"),
+        None,
+        false,
+        false,
+    )
+    .expect("missing server url should not fail");
     assert!(resolved.is_none());
 }
 
@@ -120,12 +131,27 @@ fn auxiliary_remote_launch_command_uses_mosh_when_enabled() {
     let command = build_auxiliary_remote_launch_command(
         "/srv/remotes/ez-mux",
         "https://shell.remote.example:7443",
+        false,
         true,
     )
     .expect("remote command should build");
 
     assert!(command.contains("mosh --no-init --ssh='ssh -p 7443' 'shell.remote.example'"));
     assert!(!command.contains("ssh -tt -p 7443 'shell.remote.example'"));
+}
+
+#[test]
+fn auxiliary_remote_launch_command_uses_tssh_when_enabled() {
+    let command = build_auxiliary_remote_launch_command(
+        "/srv/remotes/ez-mux",
+        "https://shell.remote.example:7443",
+        true,
+        true,
+    )
+    .expect("remote command should build");
+
+    assert!(command.contains("tssh -tt -p 7443 'shell.remote.example'"));
+    assert!(!command.contains("mosh --no-init"));
 }
 
 #[test]

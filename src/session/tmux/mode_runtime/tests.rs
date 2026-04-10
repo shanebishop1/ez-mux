@@ -14,6 +14,7 @@ fn remote_context<'a>(
     RemoteModeContext {
         remote_path,
         remote_server_url,
+        use_tssh: false,
         use_mosh: false,
     }
 }
@@ -21,11 +22,13 @@ fn remote_context<'a>(
 fn remote_context_with_transport<'a>(
     remote_path: Option<&'a str>,
     remote_server_url: Option<&'a str>,
+    use_tssh: bool,
     use_mosh: bool,
 ) -> RemoteModeContext<'a> {
     RemoteModeContext {
         remote_path,
         remote_server_url,
+        use_tssh,
         use_mosh,
     }
 }
@@ -101,6 +104,7 @@ fn shell_mode_remote_prefix_uses_mosh_when_enabled() {
         remote_context_with_transport(
             Some("/srv/remotes"),
             Some("https://shell.remote.example:7443"),
+            false,
             true,
         ),
     )
@@ -108,6 +112,31 @@ fn shell_mode_remote_prefix_uses_mosh_when_enabled() {
 
     assert!(command.contains("if mosh --no-init --ssh='ssh -p 7443' 'shell.remote.example'"));
     assert!(!command.contains("if ssh -tt -p 7443 'shell.remote.example'"));
+}
+
+#[test]
+fn shell_mode_remote_prefix_uses_tssh_when_enabled() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo_root = temp.path().join("alpha");
+    let nested = repo_root.join("worktrees").join("feature-x");
+    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+    std::fs::create_dir_all(&nested).expect("create nested");
+
+    let command = launch_command_with_remote_dir_from_mapping(
+        SlotMode::Shell,
+        "exec \"${SHELL:-/bin/sh}\" -l",
+        &nested.display().to_string(),
+        remote_context_with_transport(
+            Some("/srv/remotes"),
+            Some("https://shell.remote.example:7443"),
+            true,
+            true,
+        ),
+    )
+    .expect("command should resolve");
+
+    assert!(command.contains("if tssh -tt -p 7443 'shell.remote.example'"));
+    assert!(!command.contains("if mosh --no-init"));
 }
 
 #[test]

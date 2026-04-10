@@ -22,7 +22,7 @@ pub(super) fn toggle_popup_shell(
     client_tty: Option<&str>,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
-    remote_use_mosh: bool,
+    remote_transport: crate::session::RemoteTransportFlags,
 ) -> Result<PopupShellOutcome, SessionError> {
     validate_canonical_slot_registry(session_name)?;
     reconcile_popup_parent_cleanup_hook()?;
@@ -34,7 +34,8 @@ pub(super) fn toggle_popup_shell(
         &cwd,
         remote_path,
         remote_server_url,
-        remote_use_mosh,
+        remote_transport.use_tssh,
+        remote_transport.use_mosh,
     )?;
     let popup_session = session::popup_session_name(session_name, slot_id);
 

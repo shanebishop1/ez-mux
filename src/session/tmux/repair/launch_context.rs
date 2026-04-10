@@ -9,6 +9,7 @@ use crate::session::{
 pub(super) struct RepairLaunchContext {
     pub(super) remote_path: Option<String>,
     pub(super) remote_server_url: Option<String>,
+    pub(super) use_tssh: bool,
     pub(super) use_mosh: bool,
     pub(super) shared_server: Option<SharedServerAttachConfig>,
     pub(super) agent_command: Option<String>,
@@ -30,6 +31,9 @@ pub(super) fn resolve_repair_launch_context() -> RepairLaunchContext {
     let use_mosh = remote_runtime
         .as_ref()
         .is_some_and(|runtime| runtime.use_mosh.value);
+    let use_tssh = remote_runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.use_tssh.value);
     let remote_routing_active = remote_path.is_some() && remote_server_url.is_some();
     let shared_server = if remote_routing_active {
         remote_runtime.as_ref().and_then(|runtime| {
@@ -50,6 +54,7 @@ pub(super) fn resolve_repair_launch_context() -> RepairLaunchContext {
     RepairLaunchContext {
         remote_path,
         remote_server_url,
+        use_tssh,
         use_mosh,
         shared_server,
         agent_command: config::resolve_agent_command(&file_config),
@@ -69,6 +74,7 @@ pub(super) fn restore_recreated_slot_modes(
         let remote_context = RemoteModeContext {
             remote_path: launch_context.remote_path.as_deref(),
             remote_server_url: launch_context.remote_server_url.as_deref(),
+            use_tssh: launch_context.use_tssh,
             use_mosh: launch_context.use_mosh,
         };
         let slot_launch_context = SlotModeLaunchContext {

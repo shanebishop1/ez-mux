@@ -21,6 +21,7 @@ pub(super) fn launch_command_with_remote_dir_from_mapping(
         &resolved.effective_path.display().to_string(),
         launch_command,
         remote_context.remote_server_url,
+        remote_context.use_tssh,
         remote_context.use_mosh,
     )? {
         return Ok(remote_command);
@@ -49,6 +50,7 @@ fn remote_wrapped_launch_command(
     remote_dir: &str,
     launch_command: &str,
     remote_server_url: Option<&str>,
+    use_tssh: bool,
     use_mosh: bool,
 ) -> Result<Option<String>, SessionError> {
     if !matches!(mode, SlotMode::Shell | SlotMode::Neovim | SlotMode::Lazygit) {
@@ -68,8 +70,8 @@ fn remote_wrapped_launch_command(
         escape_single_quotes(remote_dir)
     );
 
-    let remote_invocation = build_remote_invocation(&authority, &remote_script, use_mosh);
-    let transport = remote_transport_label(use_mosh);
+    let remote_invocation = build_remote_invocation(&authority, &remote_script, use_tssh, use_mosh);
+    let transport = remote_transport_label(use_tssh, use_mosh);
 
     Ok(Some(format!(
         "if {remote_invocation}; then exit 0; fi; remote_exit_code=$?; printf '%s\\n' \"ez-mux remote {transport} launch failed with status $remote_exit_code\" >&2; exec \"${{SHELL:-/bin/sh}}\" -l"

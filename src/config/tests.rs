@@ -101,6 +101,19 @@ fn load_config_parses_panes_setting() {
 }
 
 #[test]
+fn load_config_parses_ezm_use_tssh_setting() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("config.toml");
+    fs::write(&path, "ezm_use_tssh = true\n").expect("write config");
+
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_CONFIG_ENV), path.display().to_string());
+
+    let loaded = load_config(&env, OperatingSystem::Linux).expect("load should succeed");
+    assert_eq!(loaded.values.ezm_use_tssh, Some(true));
+}
+
+#[test]
 fn load_config_parses_ezm_use_mosh_setting() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("config.toml");
@@ -293,6 +306,56 @@ fn remote_runtime_prefers_ezm_remote_server_url_env_over_file() {
             source: ValueSource::Env,
         }
     );
+}
+
+#[test]
+fn remote_runtime_prefers_ezm_use_tssh_env_over_file() {
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_USE_TSSH_ENV), String::from("1"));
+
+    let file = FileConfig {
+        ezm_use_tssh: Some(false),
+        ..FileConfig::default()
+    };
+
+    let resolved = resolve_remote_runtime(&env, &file).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.use_tssh,
+        ResolvedValue {
+            value: true,
+            source: ValueSource::Env,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_defaults_ezm_use_tssh_to_false() {
+    let env = HashMap::<String, String>::new();
+
+    let resolved =
+        resolve_remote_runtime(&env, &FileConfig::default()).expect("runtime should resolve");
+
+    assert_eq!(
+        resolved.use_tssh,
+        ResolvedValue {
+            value: false,
+            source: ValueSource::Default,
+        }
+    );
+}
+
+#[test]
+fn remote_runtime_can_enable_tssh_and_mosh_simultaneously_for_transport_precedence() {
+    let mut env = HashMap::new();
+    env.insert(String::from(EZM_USE_TSSH_ENV), String::from("true"));
+    env.insert(String::from(EZM_USE_MOSH_ENV), String::from("true"));
+
+    let resolved =
+        resolve_remote_runtime(&env, &FileConfig::default()).expect("runtime should resolve");
+
+    assert!(resolved.use_tssh.value);
+    assert!(resolved.use_mosh.value);
 }
 
 #[test]
@@ -500,6 +563,7 @@ fn invalid_server_url_fails_fast() {
 fn remote_shared_server_env_constants_are_contract_stable() {
     assert_eq!(EZM_REMOTE_PATH_ENV, "EZM_REMOTE_PATH");
     assert_eq!(EZM_REMOTE_SERVER_URL_ENV, "EZM_REMOTE_SERVER_URL");
+    assert_eq!(EZM_USE_TSSH_ENV, "EZM_USE_TSSH");
     assert_eq!(EZM_USE_MOSH_ENV, "EZM_USE_MOSH");
     assert_eq!(OPENCODE_SERVER_URL_ENV, "OPENCODE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_PASSWORD_ENV, "OPENCODE_SERVER_PASSWORD");

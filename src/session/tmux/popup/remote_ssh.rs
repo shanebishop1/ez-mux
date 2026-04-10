@@ -24,8 +24,13 @@ pub(super) fn popup_remote_launch_command(
         shell_escape_single_quoted(&context.remote_dir)
     );
 
-    let remote_invocation = build_remote_invocation(&authority, &remote_script, context.use_mosh);
-    let transport = remote_transport_label(context.use_mosh);
+    let remote_invocation = build_remote_invocation(
+        &authority,
+        &remote_script,
+        context.use_tssh,
+        context.use_mosh,
+    );
+    let transport = remote_transport_label(context.use_tssh, context.use_mosh);
 
     Ok(Some(format!(
         "sh -lc '{}'",

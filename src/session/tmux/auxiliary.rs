@@ -18,11 +18,12 @@ const LEGACY_BEADS_DB_ENV: &str = "BEADS_DB";
 pub(super) fn auxiliary_viewer(
     session_name: &str,
     open: bool,
+    use_tssh: bool,
     use_mosh: bool,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
     let existing = find_window_id_by_name(session_name, AUXILIARY_WINDOW_NAME)?;
     if open {
-        return open_auxiliary_viewer(session_name, existing, use_mosh);
+        return open_auxiliary_viewer(session_name, existing, use_tssh, use_mosh);
     }
 
     close_auxiliary_viewer(session_name, existing)
@@ -31,6 +32,7 @@ pub(super) fn auxiliary_viewer(
 fn open_auxiliary_viewer(
     session_name: &str,
     existing: Option<String>,
+    use_tssh: bool,
     use_mosh: bool,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
     if let Some(window_id) = existing {
@@ -49,6 +51,7 @@ fn open_auxiliary_viewer(
         &cwd,
         remote_path.as_deref(),
         remote_server_url.as_deref(),
+        use_tssh,
         use_mosh,
     )?;
 
@@ -157,6 +160,7 @@ fn build_auxiliary_command_for_remote(
     build_auxiliary_remote_launch_command(
         &remote_launch.remote_dir,
         &remote_launch.remote_server_url,
+        remote_launch.use_tssh,
         remote_launch.use_mosh,
     )
 }
@@ -244,13 +248,14 @@ fn build_auxiliary_local_launch_command(
 fn build_auxiliary_remote_launch_command(
     remote_dir: &str,
     remote_server_url: &str,
+    use_tssh: bool,
     use_mosh: bool,
 ) -> Result<String, SessionError> {
     let authority = parse_remote_ssh_authority(remote_server_url)?;
 
     let remote_script = render_auxiliary_remote_script(remote_dir);
-    let remote_invocation = build_remote_invocation(&authority, &remote_script, use_mosh);
-    let transport = remote_transport_label(use_mosh);
+    let remote_invocation = build_remote_invocation(&authority, &remote_script, use_tssh, use_mosh);
+    let transport = remote_transport_label(use_tssh, use_mosh);
     Ok(format!(
         "if {remote_invocation}; then :; else remote_exit_code=$?; printf '%s\\n' \"ez-mux remote {transport} launch failed with status $remote_exit_code\" >&2; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
     ))
@@ -281,6 +286,7 @@ fn resolve_auxiliary_remote_launch(
     cwd: &str,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    use_tssh: bool,
     use_mosh: bool,
 ) -> Result<Option<AuxiliaryRemoteLaunch>, SessionError> {
     let server_url = remote_server_url
@@ -298,6 +304,7 @@ fn resolve_auxiliary_remote_launch(
     Ok(Some(AuxiliaryRemoteLaunch {
         remote_dir: resolved.effective_path.display().to_string(),
         remote_server_url: server_url.to_owned(),
+        use_tssh,
         use_mosh,
     }))
 }
@@ -362,6 +369,7 @@ fn is_executable_file(path: &Path) -> bool {
 struct AuxiliaryRemoteLaunch {
     remote_dir: String,
     remote_server_url: String,
+    use_tssh: bool,
     use_mosh: bool,
 }
 
