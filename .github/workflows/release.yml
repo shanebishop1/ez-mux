@@ -166,13 +166,21 @@ jobs:
             sha256sum "ezm-${TAG}-"*.tar.gz | LC_ALL=C sort > "$MANIFEST"
           )
 
-      - name: Record SBOM status
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate SBOM
         id: sbom
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
+          SBOM_FILE="dist/ezm-${TAG}-sbom.spdx.json"
           STATUS_FILE="dist/ezm-${TAG}-sbom-status.txt"
-          echo "SBOM: skipped for this run (emission not configured in release workflow)." > "$STATUS_FILE"
-          echo "status=skipped" >> "$GITHUB_OUTPUT"
+
+          syft "dir:." -o "spdx-json=${SBOM_FILE}"
+
+          echo "SBOM: generated (${SBOM_FILE})." > "$STATUS_FILE"
+          echo "status=generated" >> "$GITHUB_OUTPUT"
+          echo "file=${SBOM_FILE}" >> "$GITHUB_OUTPUT"
 
       - name: Emit verification metadata
         run: |
@@ -245,6 +253,7 @@ jobs:
           files: |
             dist/ezm-${{ steps.meta.outputs.tag }}-*.tar.gz
             dist/ezm-${{ steps.meta.outputs.tag }}-checksums.txt
+            dist/ezm-${{ steps.meta.outputs.tag }}-sbom.spdx.json
             dist/ezm-${{ steps.meta.outputs.tag }}-sbom-status.txt
             dist/ezm-${{ steps.meta.outputs.tag }}-verification.json
           fail_on_unmatched_files: true

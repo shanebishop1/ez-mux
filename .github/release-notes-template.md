@@ -11,7 +11,8 @@ Automated release artifacts for `__TAG__`.
 - `ezm-__TAG__-macos-x64.tar.gz`
 - `ezm-__TAG__-macos-arm64.tar.gz`
 - `ezm-__TAG__-checksums.txt`
-- `ezm-__TAG__-sbom-status.txt` (status: `__SBOM_STATUS__`)
+- `ezm-__TAG__-sbom.spdx.json` (status: `__SBOM_STATUS__`)
+- `ezm-__TAG__-sbom-status.txt`
 
 ## Verify checksums
 
