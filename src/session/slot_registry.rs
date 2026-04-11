@@ -98,7 +98,10 @@ pub fn assign_worktrees_to_slots(
         return Err(SlotRegistryError::MissingWorktrees);
     }
 
-    let fallback = worktrees[0].clone();
+    let fallback = worktrees
+        .last()
+        .cloned()
+        .ok_or(SlotRegistryError::MissingWorktrees)?;
 
     Ok(CANONICAL_SLOT_IDS
         .iter()
@@ -169,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_assignment_reuses_primary_worktree_for_underfilled_candidates() {
+    fn deterministic_assignment_reuses_project_worktree_for_underfilled_candidates() {
         let worktrees = vec!["/wt/1", "/wt/2", "/wt/project"]
             .into_iter()
             .map(std::path::PathBuf::from)
@@ -180,8 +183,8 @@ mod tests {
         assert_eq!(assigned[0], (1, std::path::PathBuf::from("/wt/1")));
         assert_eq!(assigned[1], (2, std::path::PathBuf::from("/wt/2")));
         assert_eq!(assigned[2], (3, std::path::PathBuf::from("/wt/project")));
-        assert_eq!(assigned[3], (4, std::path::PathBuf::from("/wt/1")));
-        assert_eq!(assigned[4], (5, std::path::PathBuf::from("/wt/1")));
+        assert_eq!(assigned[3], (4, std::path::PathBuf::from("/wt/project")));
+        assert_eq!(assigned[4], (5, std::path::PathBuf::from("/wt/project")));
     }
 
     #[test]

@@ -85,7 +85,7 @@ fn t1_2_startup_attach_visibility_reports_non_interactive_and_observes_interacti
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn t1_2_startup_slots_launch_agent_including_fallback_worktree_slots() {
+fn t1_2_startup_slots_launch_shell_for_underfilled_fallback_worktree_slots() {
     let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-2")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
 
@@ -131,9 +131,21 @@ fn t1_2_startup_slots_launch_agent_including_fallback_worktree_slots() {
                     slot.pane_id
                 )
             });
-        let mode_matches = mode == "agent";
-        let command_matches =
-            pane_start_command.is_empty() || pane_start_command.contains("opencode");
+        let expects_agent = slot_id <= 3;
+        let mode_matches = if expects_agent {
+            mode == "agent"
+        } else {
+            mode == "shell"
+        };
+        let command_matches = if expects_agent {
+            pane_start_command.is_empty() || pane_start_command.contains("opencode")
+        } else {
+            pane_start_command.is_empty()
+                || pane_start_command.contains("${SHELL:-/bin/sh}")
+                || pane_start_command.contains("exec zsh")
+                || pane_start_command.contains("exec bash")
+                || pane_start_command.contains("exec sh")
+        };
 
         per_slot.push((
             slot_id,
@@ -192,7 +204,7 @@ fn t1_2_startup_slots_launch_agent_including_fallback_worktree_slots() {
 }
 
 #[test]
-fn t1_2_startup_single_worktree_fallback_slots_launch_agent_mode() {
+fn t1_2_startup_single_worktree_fallback_slots_launch_shell_mode() {
     let harness = FoundationHarness::new_for_suite("focus5-amendment-t1-2")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
 
@@ -224,23 +236,29 @@ fn t1_2_startup_single_worktree_fallback_slots_launch_agent_mode() {
         per_slot.push((slot_id, mode, pane_start_command));
     }
 
-    let all_slots_agent_mode = per_slot.iter().all(|(_, mode, _)| mode == "agent");
-    let all_slots_agent_command = per_slot
+    let slot1_agent = per_slot
         .iter()
-        .all(|(_, _, command)| command.is_empty() || command.contains("opencode"));
-    let fallback_slots_agent =
+        .find(|(slot_id, _, _)| *slot_id == 1)
+        .is_some_and(|(_, mode, command)| {
+            mode == "agent" && (command.is_empty() || command.contains("opencode"))
+        });
+    let fallback_slots_shell =
         per_slot
             .iter()
             .filter(|(slot_id, _, _)| *slot_id != 1)
             .all(|(_, mode, command)| {
-                mode == "agent" && (command.is_empty() || command.contains("opencode"))
+                mode == "shell"
+                    && (command.is_empty()
+                        || command.contains("${SHELL:-/bin/sh}")
+                        || command.contains("exec zsh")
+                        || command.contains("exec bash")
+                        || command.contains("exec sh"))
             });
 
     let mut evidence = vec![
         format!("exit_code={} session={session}", launch.exit_code),
-        format!("all_slots_agent_mode={all_slots_agent_mode}"),
-        format!("all_slots_agent_command={all_slots_agent_command}"),
-        format!("fallback_slots_agent={fallback_slots_agent}"),
+        format!("slot1_agent={slot1_agent}"),
+        format!("fallback_slots_shell={fallback_slots_shell}"),
     ];
     for (slot_id, mode, command) in &per_slot {
         evidence.push(format!("slot{slot_id}_mode={mode}"));
@@ -254,11 +272,7 @@ fn t1_2_startup_single_worktree_fallback_slots_launch_agent_mode() {
     .unwrap_or_else(|error| panic!("failed writing single-worktree T-1.2 evidence: {error}"));
 
     assert!(
-        launch.exit_code == 0
-            && !session.is_empty()
-            && all_slots_agent_mode
-            && all_slots_agent_command
-            && fallback_slots_agent,
+        launch.exit_code == 0 && !session.is_empty() && slot1_agent && fallback_slots_shell,
         "T-1.2 single-worktree startup mode launch contract failed:\n{}",
         evidence.join("\n")
     );
