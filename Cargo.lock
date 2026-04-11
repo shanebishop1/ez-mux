@@ -161,7 +161,7 @@ dependencies = [
 
 [[package]]
 name = "ez-mux"
-version = "0.2.25"
+version = "0.2.26"
 dependencies = [
  "clap",
  "portable-pty",
