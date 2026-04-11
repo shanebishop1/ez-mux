@@ -112,7 +112,11 @@ panes = 5
 ezm_remote_path = "/srv/remotes"
 ezm_remote_server_url = "https://remote.example:7443"
 
-# Optional remote transport toggle (default false = ssh, true = mosh)
+# Optional remote transport toggles
+# - ezm_use_tssh=true routes remote launches over tssh
+# - ezm_use_mosh=true routes remote launches over mosh
+# - when both are true, tssh takes precedence
+ezm_use_tssh = false
 ezm_use_mosh = false
 
 # Optional OpenCode shared-server attach settings (used only for OpenCode attach flow)
@@ -135,7 +139,8 @@ opencode_slot_themes_enabled = true
 ## Remote and agent behavior
 
 - Remote routing turns on only when both `EZM_REMOTE_PATH` and `EZM_REMOTE_SERVER_URL` are set (or equivalent config values).
-- When remote routing is active, shell/neovim/lazygit and popup flows run through SSH (default) or mosh when enabled.
+- When remote routing is active, shell/neovim/lazygit and popup flows run through SSH (default), mosh, or tssh.
+- If both tssh and mosh toggles are enabled, tssh takes precedence.
 - Agent mode runs `agent_command` when set.
 - If `agent_command` is not set, ez-mux defaults to local OpenCode launch behavior.
 - If using OpenCode shared-server attach, set `OPENCODE_SERVER_URL` and optionally `OPENCODE_SERVER_PASSWORD`.
@@ -145,6 +150,7 @@ opencode_slot_themes_enabled = true
 - `EZM_CONFIG`: override config file path.
 - `EZM_REMOTE_PATH`: remote path base used for path remapping.
 - `EZM_REMOTE_SERVER_URL`: remote server URL used with `EZM_REMOTE_PATH`.
+- `EZM_USE_TSSH`: optional remote transport override (`1`/`true`/`yes`/`on` => tssh).
 - `EZM_USE_MOSH`: optional remote transport override (`1`/`true`/`yes`/`on` => mosh, unset/false => ssh).
 - `OPENCODE_SERVER_URL`: optional shared-server URL.
 - `OPENCODE_SERVER_PASSWORD`: optional shared-server password.

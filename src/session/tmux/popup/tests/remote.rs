@@ -25,6 +25,7 @@ fn popup_new_session_uses_remote_ssh_shell_when_remote_routing_is_active() {
         Some("/srv/remotes"),
         Some("https://shell.remote.example:7443"),
         false,
+        false,
     )
     .expect("context should resolve");
 
@@ -48,6 +49,7 @@ fn popup_remote_launch_command_returns_none_without_server_url() {
     let context = PopupRemoteContext {
         remote_dir: String::from("/srv/remotes/alpha"),
         remote_server_url: None,
+        use_tssh: false,
         use_mosh: false,
     };
 
@@ -60,6 +62,7 @@ fn popup_new_session_args_fail_fast_for_invalid_remote_authority() {
     let context = PopupRemoteContext {
         remote_dir: String::from("/srv/remotes/alpha"),
         remote_server_url: Some(String::from("https://shell.remote.example:")),
+        use_tssh: false,
         use_mosh: false,
     };
 
@@ -75,6 +78,7 @@ fn popup_remote_launch_command_uses_mosh_when_enabled() {
     let context = PopupRemoteContext {
         remote_dir: String::from("/srv/remotes/alpha"),
         remote_server_url: Some(String::from("https://shell.remote.example:7443")),
+        use_tssh: false,
         use_mosh: true,
     };
 
@@ -87,4 +91,21 @@ fn popup_remote_launch_command_uses_mosh_when_enabled() {
     assert!(command.contains("ssh -p 7443"));
     assert!(command.contains("shell.remote.example"));
     assert!(!command.contains("ssh -tt -p 7443"));
+}
+
+#[test]
+fn popup_remote_launch_command_uses_tssh_when_enabled() {
+    let context = PopupRemoteContext {
+        remote_dir: String::from("/srv/remotes/alpha"),
+        remote_server_url: Some(String::from("https://shell.remote.example:7443")),
+        use_tssh: true,
+        use_mosh: true,
+    };
+
+    let command = popup_remote_launch_command(Some(&context))
+        .expect("command should resolve")
+        .expect("remote command should exist");
+
+    assert!(command.contains("tssh -tt -p 7443"));
+    assert!(!command.contains("mosh --no-init"));
 }

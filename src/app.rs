@@ -63,7 +63,7 @@ pub(crate) fn execute_with_opener(
             let outcome = execute_default_session_flow(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
-                resolved_remote_runtime.use_mosh.value,
+                resolved_remote_transport_flags(&resolved_remote_runtime),
                 pane_count.value,
                 no_worktrees,
                 &session::ProcessTmuxClient,
@@ -87,7 +87,7 @@ pub(crate) fn execute_with_opener(
             let outcome = execute_default_session_flow(
                 remote_path,
                 resolved_remote_runtime.remote_server_url.value.as_deref(),
-                resolved_remote_runtime.use_mosh.value,
+                resolved_remote_transport_flags(&resolved_remote_runtime),
                 pane_count.value,
                 no_worktrees,
                 &tmux,
@@ -115,7 +115,7 @@ pub(crate) fn execute_with_opener(
 fn execute_default_session_flow(
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
-    remote_use_mosh: bool,
+    remote_transport: session::RemoteTransportFlags,
     pane_count: u8,
     no_worktrees: bool,
     tmux: &impl session::TmuxClient,
@@ -125,7 +125,7 @@ fn execute_default_session_flow(
         project_dir.as_path(),
         remote_path,
         remote_server_url,
-        remote_use_mosh,
+        remote_transport,
         pane_count,
         no_worktrees,
         tmux,
@@ -151,7 +151,7 @@ fn execute_default_session_flow_for_project_dir(
     project_dir: &std::path::Path,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
-    remote_use_mosh: bool,
+    remote_transport: session::RemoteTransportFlags,
     pane_count: u8,
     no_worktrees: bool,
     tmux: &impl session::TmuxClient,
@@ -162,7 +162,7 @@ fn execute_default_session_flow_for_project_dir(
         project_dir,
         remote_path,
         remote_server_url,
-        remote_use_mosh,
+        remote_transport,
         pane_count,
         no_worktrees,
         tmux,
@@ -210,65 +210,28 @@ fn execute_internal(
             session,
             slot,
             mode,
-        } => {
-            let tmux = session::ProcessTmuxClient;
-            let shared_server = shared_server_attach_config(remote_runtime);
-            let remote_context = session::RemoteModeContext {
-                remote_path,
-                remote_server_url: remote_runtime.remote_server_url.value.as_deref(),
-                use_mosh: remote_runtime.use_mosh.value,
-            };
-            let launch_context = session::SlotModeLaunchContext {
-                remote_context,
-                shared_server: shared_server.as_ref(),
-                agent_command,
-                opencode_theme: opencode_theme_runtime.theme_for_slot(slot),
-            };
-            let outcome = session::switch_slot_mode(&session, slot, mode, launch_context, &tmux)?;
-            Ok(format!(
-                "internal mode complete: session={}; slot={}; mode={}",
-                outcome.session_name,
-                outcome.slot_id,
-                outcome.mode.label()
-            ))
-        }
+        } => execute_internal_mode(
+            &session,
+            slot,
+            mode,
+            remote_path,
+            remote_runtime,
+            agent_command,
+            opencode_theme_runtime,
+        ),
         InternalCommand::Popup {
             session,
             slot,
             client,
-        } => {
-            let tmux = session::ProcessTmuxClient;
-            let outcome = session::toggle_popup_shell(
-                &session,
-                slot,
-                client.as_deref(),
-                remote_path,
-                remote_runtime.remote_server_url.value.as_deref(),
-                remote_runtime.use_mosh.value,
-                &tmux,
-            )?;
-            Ok(format!(
-                "internal popup complete: session={}; slot={}; action={}; cwd={}; width_pct={}; height_pct={}",
-                outcome.session_name,
-                outcome.slot_id,
-                outcome.action.label(),
-                outcome.cwd,
-                outcome.width_pct,
-                outcome.height_pct
-            ))
-        }
+        } => execute_internal_popup(
+            &session,
+            slot,
+            client.as_deref(),
+            remote_path,
+            remote_runtime,
+        ),
         InternalCommand::Auxiliary { session, action } => {
-            let tmux = session::ProcessTmuxClient;
-            let open = matches!(action, AuxiliaryAction::Open);
-            let outcome =
-                session::auxiliary_viewer(&session, open, remote_runtime.use_mosh.value, &tmux)?;
-            Ok(format!(
-                "internal auxiliary complete: session={}; action={}; window_name={}; window_id={}",
-                outcome.session_name,
-                outcome.action.label(),
-                outcome.window_name,
-                outcome.window_id.unwrap_or_else(|| String::from("none"))
-            ))
+            execute_internal_auxiliary(&session, action, remote_runtime)
         }
         InternalCommand::Teardown { session } => {
             let tmux = session::ProcessTmuxClient;
@@ -291,6 +254,90 @@ fn execute_internal(
             ))
         }
     }
+}
+
+fn execute_internal_mode(
+    session_name: &str,
+    slot: u8,
+    mode: session::SlotMode,
+    remote_path: Option<&str>,
+    remote_runtime: &config::RemoteRuntimeResolution,
+    agent_command: Option<&str>,
+    opencode_theme_runtime: &config::OpencodeThemeRuntimeResolution,
+) -> Result<String, AppError> {
+    let tmux = session::ProcessTmuxClient;
+    let shared_server = shared_server_attach_config(remote_runtime);
+    let remote_context = session::RemoteModeContext {
+        remote_path,
+        remote_server_url: remote_runtime.remote_server_url.value.as_deref(),
+        use_tssh: remote_runtime.use_tssh.value,
+        use_mosh: remote_runtime.use_mosh.value,
+    };
+    let launch_context = session::SlotModeLaunchContext {
+        remote_context,
+        shared_server: shared_server.as_ref(),
+        agent_command,
+        opencode_theme: opencode_theme_runtime.theme_for_slot(slot),
+    };
+    let outcome = session::switch_slot_mode(session_name, slot, mode, launch_context, &tmux)?;
+    Ok(format!(
+        "internal mode complete: session={}; slot={}; mode={}",
+        outcome.session_name,
+        outcome.slot_id,
+        outcome.mode.label()
+    ))
+}
+
+fn execute_internal_popup(
+    session_name: &str,
+    slot: u8,
+    client_tty: Option<&str>,
+    remote_path: Option<&str>,
+    remote_runtime: &config::RemoteRuntimeResolution,
+) -> Result<String, AppError> {
+    let tmux = session::ProcessTmuxClient;
+    let outcome = session::toggle_popup_shell(
+        session_name,
+        slot,
+        client_tty,
+        remote_path,
+        remote_runtime.remote_server_url.value.as_deref(),
+        resolved_remote_transport_flags(remote_runtime),
+        &tmux,
+    )?;
+    Ok(format!(
+        "internal popup complete: session={}; slot={}; action={}; cwd={}; width_pct={}; height_pct={}",
+        outcome.session_name,
+        outcome.slot_id,
+        outcome.action.label(),
+        outcome.cwd,
+        outcome.width_pct,
+        outcome.height_pct
+    ))
+}
+
+fn execute_internal_auxiliary(
+    session_name: &str,
+    action: AuxiliaryAction,
+    remote_runtime: &config::RemoteRuntimeResolution,
+) -> Result<String, AppError> {
+    let tmux = session::ProcessTmuxClient;
+    let open = matches!(action, AuxiliaryAction::Open);
+    let remote_transport = resolved_remote_transport_flags(remote_runtime);
+    let outcome = session::auxiliary_viewer(
+        session_name,
+        open,
+        remote_transport.use_tssh,
+        remote_transport.use_mosh,
+        &tmux,
+    )?;
+    Ok(format!(
+        "internal auxiliary complete: session={}; action={}; window_name={}; window_id={}",
+        outcome.session_name,
+        outcome.action.label(),
+        outcome.window_name,
+        outcome.window_id.unwrap_or_else(|| String::from("none"))
+    ))
 }
 
 fn internal_swap_success_message(session_name: &str, slot_id: u8) -> String {
@@ -372,14 +419,11 @@ fn default_contract_summary_message(
     let attach_visibility = attach_visibility_label();
     if outcome.remote_routing_active {
         format!(
-            "ezm contract locked; session={}; session_action={}; routing_mode=remote; remote_routing_active=true; remote_transport={}; ezm_use_mosh_source={}; attach_visibility={}; remote_project_dir={}; remote_path={}; remote_path_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
+            "ezm contract locked; session={}; session_action={}; routing_mode=remote; remote_routing_active=true; remote_transport={}; ezm_use_tssh_source={}; ezm_use_mosh_source={}; attach_visibility={}; remote_project_dir={}; remote_path={}; remote_path_source={}; ezm_remote_server_url={}; ezm_remote_server_url_source={}; opencode_attach_url={}; opencode_server_url_source={}; opencode_server_password_set={}; opencode_server_password_source={}",
             outcome.identity.session_name,
             outcome.action.label(),
-            if resolved_remote_runtime.use_mosh.value {
-                "mosh"
-            } else {
-                "ssh"
-            },
+            resolved_remote_transport_label(resolved_remote_runtime),
+            source_label(resolved_remote_runtime.use_tssh.source),
             source_label(resolved_remote_runtime.use_mosh.source),
             attach_visibility,
             outcome.remote_project_dir.display(),
@@ -403,6 +447,27 @@ fn default_contract_summary_message(
             outcome.action.label(),
             attach_visibility,
         )
+    }
+}
+
+fn resolved_remote_transport_label(
+    resolved_remote_runtime: &config::RemoteRuntimeResolution,
+) -> &'static str {
+    if resolved_remote_runtime.use_tssh.value {
+        "tssh"
+    } else if resolved_remote_runtime.use_mosh.value {
+        "mosh"
+    } else {
+        "ssh"
+    }
+}
+
+fn resolved_remote_transport_flags(
+    resolved_remote_runtime: &config::RemoteRuntimeResolution,
+) -> session::RemoteTransportFlags {
+    session::RemoteTransportFlags {
+        use_tssh: resolved_remote_runtime.use_tssh.value,
+        use_mosh: resolved_remote_runtime.use_mosh.value,
     }
 }
 

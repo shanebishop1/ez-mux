@@ -2,7 +2,7 @@ use super::super::context::resolve_popup_remote_context;
 
 #[test]
 fn popup_remote_context_is_none_when_remote_remap_is_inactive() {
-    let context = resolve_popup_remote_context("/tmp/local", None, None, false)
+    let context = resolve_popup_remote_context("/tmp/local", None, None, false, false)
         .expect("context should resolve");
     assert!(context.is_none());
 }
@@ -19,6 +19,7 @@ fn popup_remote_context_resolves_when_remote_path_is_active() {
         &nested.display().to_string(),
         Some("/srv/remotes"),
         None,
+        false,
         false,
     )
     .expect("context should resolve")
@@ -44,6 +45,7 @@ fn popup_remote_context_includes_optional_server_url_when_configured() {
         Some("/srv/remotes"),
         Some(" https://shell.remote.example:7443 "),
         true,
+        true,
     )
     .expect("context should resolve")
     .expect("context should be present");
@@ -56,5 +58,6 @@ fn popup_remote_context_includes_optional_server_url_when_configured() {
         context.remote_server_url,
         Some(String::from("https://shell.remote.example:7443"))
     );
+    assert!(context.use_tssh);
     assert!(context.use_mosh);
 }

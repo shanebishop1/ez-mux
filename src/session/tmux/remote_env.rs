@@ -1,8 +1,8 @@
 use super::SessionError;
 use super::command::tmux_run_batch;
 use crate::config::{
-    EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV, EZM_USE_MOSH_ENV, EnvProvider,
-    OPENCODE_SERVER_PASSWORD_ENV, OPENCODE_SERVER_URL_ENV, ProcessEnv,
+    EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV, EZM_USE_MOSH_ENV, EZM_USE_TSSH_ENV,
+    EnvProvider, OPENCODE_SERVER_PASSWORD_ENV, OPENCODE_SERVER_URL_ENV, ProcessEnv,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,10 +54,11 @@ fn runtime_env_sync_commands(env: &impl EnvProvider) -> Vec<Vec<String>> {
         .collect()
 }
 
-fn runtime_env_keys() -> [&'static str; 5] {
+fn runtime_env_keys() -> [&'static str; 6] {
     [
         EZM_REMOTE_PATH_ENV,
         EZM_REMOTE_SERVER_URL_ENV,
+        EZM_USE_TSSH_ENV,
         EZM_USE_MOSH_ENV,
         OPENCODE_SERVER_URL_ENV,
         OPENCODE_SERVER_PASSWORD_ENV,
@@ -70,7 +71,7 @@ mod tests {
 
     use super::{resolve_runtime_env_vars, runtime_env_sync_commands};
     use crate::config::{
-        EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV, EZM_USE_MOSH_ENV,
+        EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV, EZM_USE_MOSH_ENV, EZM_USE_TSSH_ENV,
         OPENCODE_SERVER_PASSWORD_ENV, OPENCODE_SERVER_URL_ENV,
     };
 
@@ -85,6 +86,7 @@ mod tests {
             String::from(EZM_REMOTE_SERVER_URL_ENV),
             String::from("devbox-ez-1"),
         );
+        env.insert(String::from(EZM_USE_TSSH_ENV), String::from("1"));
         env.insert(String::from(EZM_USE_MOSH_ENV), String::from("1"));
         env.insert(
             String::from(OPENCODE_SERVER_URL_ENV),
@@ -97,20 +99,22 @@ mod tests {
 
         let resolved = resolve_runtime_env_vars(&env);
 
-        assert_eq!(resolved.len(), 5);
+        assert_eq!(resolved.len(), 6);
         assert_eq!(resolved[0].key, EZM_REMOTE_PATH_ENV);
         assert_eq!(resolved[0].value.as_deref(), Some("/srv/remotes"));
         assert_eq!(resolved[1].key, EZM_REMOTE_SERVER_URL_ENV);
         assert_eq!(resolved[1].value.as_deref(), Some("devbox-ez-1"));
-        assert_eq!(resolved[2].key, EZM_USE_MOSH_ENV);
+        assert_eq!(resolved[2].key, EZM_USE_TSSH_ENV);
         assert_eq!(resolved[2].value.as_deref(), Some("1"));
-        assert_eq!(resolved[3].key, OPENCODE_SERVER_URL_ENV);
+        assert_eq!(resolved[3].key, EZM_USE_MOSH_ENV);
+        assert_eq!(resolved[3].value.as_deref(), Some("1"));
+        assert_eq!(resolved[4].key, OPENCODE_SERVER_URL_ENV);
         assert_eq!(
-            resolved[3].value.as_deref(),
+            resolved[4].value.as_deref(),
             Some("http://devbox-ez-1:4096")
         );
-        assert_eq!(resolved[4].key, OPENCODE_SERVER_PASSWORD_ENV);
-        assert_eq!(resolved[4].value.as_deref(), Some("weinthisyuh78"));
+        assert_eq!(resolved[5].key, OPENCODE_SERVER_PASSWORD_ENV);
+        assert_eq!(resolved[5].value.as_deref(), Some("weinthisyuh78"));
     }
 
     #[test]
@@ -129,6 +133,7 @@ mod tests {
         assert_eq!(resolved[2].value, None);
         assert_eq!(resolved[3].value, None);
         assert_eq!(resolved[4].value, None);
+        assert_eq!(resolved[5].value, None);
     }
 
     #[test]
@@ -142,6 +147,7 @@ mod tests {
             String::from(EZM_REMOTE_SERVER_URL_ENV),
             String::from("https://shell.remote.example:7443"),
         );
+        env.insert(String::from(EZM_USE_TSSH_ENV), String::from("1"));
         env.insert(String::from(EZM_USE_MOSH_ENV), String::from("1"));
         env.insert(
             String::from(OPENCODE_SERVER_URL_ENV),
@@ -168,6 +174,12 @@ mod tests {
                     String::from("-g"),
                     String::from(EZM_REMOTE_SERVER_URL_ENV),
                     String::from("https://shell.remote.example:7443"),
+                ],
+                vec![
+                    String::from("set-environment"),
+                    String::from("-g"),
+                    String::from(EZM_USE_TSSH_ENV),
+                    String::from("1"),
                 ],
                 vec![
                     String::from("set-environment"),
@@ -215,6 +227,11 @@ mod tests {
                     String::from("-g"),
                     String::from(EZM_REMOTE_SERVER_URL_ENV),
                     String::from("https://shell.remote.example:7443"),
+                ],
+                vec![
+                    String::from("set-environment"),
+                    String::from("-gu"),
+                    String::from(EZM_USE_TSSH_ENV),
                 ],
                 vec![
                     String::from("set-environment"),

@@ -39,7 +39,7 @@ pub fn toggle_popup_shell(
     client_tty: Option<&str>,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
-    remote_use_mosh: bool,
+    remote_transport: super::RemoteTransportFlags,
     tmux: &impl TmuxClient,
 ) -> Result<PopupShellOutcome, SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -54,6 +54,6 @@ pub fn toggle_popup_shell(
         client_tty,
         remote_path,
         remote_server_url,
-        remote_use_mosh,
+        remote_transport,
     )
 }

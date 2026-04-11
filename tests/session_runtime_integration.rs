@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use ez_mux::session::LayoutPreset;
+use ez_mux::session::RemoteTransportFlags;
 use ez_mux::session::SessionAction;
 use ez_mux::session::SessionDamageAnalysis;
 use ez_mux::session::SessionRepairOutcome;
@@ -180,7 +181,7 @@ impl TmuxClient for FakeTmux {
         _client_tty: Option<&str>,
         _remote_path: Option<&str>,
         _remote_server_url: Option<&str>,
-        _remote_use_mosh: bool,
+        _remote_transport: RemoteTransportFlags,
     ) -> Result<ez_mux::session::PopupShellOutcome, ez_mux::session::SessionError> {
         self.popup_toggles
             .borrow_mut()
@@ -214,6 +215,7 @@ impl TmuxClient for FakeTmux {
         &self,
         session_name: &str,
         open: bool,
+        _use_tssh: bool,
         _use_mosh: bool,
     ) -> Result<ez_mux::session::AuxiliaryViewerOutcome, ez_mux::session::SessionError> {
         self.auxiliary_calls
@@ -463,7 +465,8 @@ fn runtime_perles_missing_skips_auxiliary_window_without_failing_startup() {
     assert_eq!(tmux.attached.borrow().len(), 2);
     assert_eq!(tmux.auxiliary_calls.borrow().len(), 2);
 
-    let skipped = auxiliary_viewer("ezm-session-perles-missing", true, false, &tmux).expect("skip");
+    let skipped =
+        auxiliary_viewer("ezm-session-perles-missing", true, false, false, &tmux).expect("skip");
     assert_eq!(
         skipped.action,
         ez_mux::session::AuxiliaryViewerAction::SkippedUnavailable
@@ -487,7 +490,7 @@ fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_path_is_active
         project_dir.as_path(),
         Some("/srv/remotes"),
         Some("https://shell.remote.example:7443"),
-        false,
+        RemoteTransportFlags::default(),
         5,
         &tmux,
     )
@@ -496,7 +499,7 @@ fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_path_is_active
         project_dir.as_path(),
         Some("/srv/remotes"),
         Some("https://shell.remote.example:7443"),
-        false,
+        RemoteTransportFlags::default(),
         5,
         &tmux,
     )
@@ -533,7 +536,7 @@ fn runtime_can_disable_worktree_bootstrap_assignment() {
         project_dir,
         None,
         None,
-        false,
+        RemoteTransportFlags::default(),
         5,
         true,
         &tmux,
@@ -731,10 +734,26 @@ fn popup_toggle_routes_to_tmux_client_and_toggles_open_then_close() {
         ..FakeTmux::default()
     };
 
-    let first = toggle_popup_shell("ezm-session-88", 2, None, None, None, false, &tmux)
-        .expect("first toggle");
-    let second = toggle_popup_shell("ezm-session-88", 2, None, None, None, false, &tmux)
-        .expect("second toggle");
+    let first = toggle_popup_shell(
+        "ezm-session-88",
+        2,
+        None,
+        None,
+        None,
+        RemoteTransportFlags::default(),
+        &tmux,
+    )
+    .expect("first toggle");
+    let second = toggle_popup_shell(
+        "ezm-session-88",
+        2,
+        None,
+        None,
+        None,
+        RemoteTransportFlags::default(),
+        &tmux,
+    )
+    .expect("second toggle");
 
     assert_eq!(first.action, ez_mux::session::PopupShellAction::Opened);
     assert_eq!(second.action, ez_mux::session::PopupShellAction::Closed);
@@ -757,8 +776,16 @@ fn popup_toggle_surfaces_tmux_failures() {
         ..FakeTmux::default()
     };
 
-    let error = toggle_popup_shell("ezm-session-88", 2, None, None, None, false, &tmux)
-        .expect_err("popup should fail");
+    let error = toggle_popup_shell(
+        "ezm-session-88",
+        2,
+        None,
+        None,
+        None,
+        RemoteTransportFlags::default(),
+        &tmux,
+    )
+    .expect_err("popup should fail");
 
     assert!(error.to_string().contains("display-popup failed"));
     assert_eq!(tmux.popup_toggles.borrow().len(), 1);
@@ -771,9 +798,9 @@ fn auxiliary_viewer_create_reuse_close_is_deterministic() {
         ..FakeTmux::default()
     };
 
-    let created = auxiliary_viewer("ezm-session-91", true, false, &tmux).expect("create");
-    let reused = auxiliary_viewer("ezm-session-91", true, false, &tmux).expect("reuse");
-    let closed = auxiliary_viewer("ezm-session-91", false, false, &tmux).expect("close");
+    let created = auxiliary_viewer("ezm-session-91", true, false, false, &tmux).expect("create");
+    let reused = auxiliary_viewer("ezm-session-91", true, false, false, &tmux).expect("reuse");
+    let closed = auxiliary_viewer("ezm-session-91", false, false, false, &tmux).expect("close");
 
     assert_eq!(
         created.action,
@@ -806,7 +833,7 @@ fn auxiliary_viewer_surfaces_tmux_failures() {
     };
 
     let error =
-        auxiliary_viewer("ezm-session-91", true, false, &tmux).expect_err("aux should fail");
+        auxiliary_viewer("ezm-session-91", true, false, false, &tmux).expect_err("aux should fail");
     assert!(error.to_string().contains("new-window failed"));
     assert_eq!(tmux.auxiliary_calls.borrow().len(), 1);
 }

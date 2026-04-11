@@ -9,6 +9,7 @@ const EZM_REMOTE_DIR_ENV: &str = "EZM_REMOTE_DIR";
 pub(super) struct PopupRemoteContext {
     pub(super) remote_dir: String,
     pub(super) remote_server_url: Option<String>,
+    pub(super) use_tssh: bool,
     pub(super) use_mosh: bool,
 }
 
@@ -16,6 +17,7 @@ pub(super) fn resolve_popup_remote_context(
     cwd: &str,
     remote_path: Option<&str>,
     remote_server_url: Option<&str>,
+    use_tssh: bool,
     use_mosh: bool,
 ) -> Result<Option<PopupRemoteContext>, SessionError> {
     let resolved = resolve_remote_path(std::path::Path::new(cwd), remote_path)?;
@@ -29,6 +31,7 @@ pub(super) fn resolve_popup_remote_context(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_owned),
+        use_tssh,
         use_mosh,
     }))
 }

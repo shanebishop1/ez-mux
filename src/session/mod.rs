@@ -50,6 +50,7 @@ pub use repair::repair_project_session;
 pub use repair::repair_project_session_and_attach;
 pub use resolver::SessionIdentity;
 pub use resolver::resolve_session_identity;
+pub use runtime::RemoteTransportFlags;
 pub use runtime::SessionAction;
 pub use runtime::SessionLaunchOutcome;
 pub use runtime::ensure_current_project_session;
