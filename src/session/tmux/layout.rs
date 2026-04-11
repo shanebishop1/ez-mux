@@ -76,7 +76,12 @@ pub(super) fn bootstrap_default_layout(
         if should_apply_runtime_styles_during_bootstrap() {
             apply_runtime_style_defaults_for_target(session_name, &target)?;
         }
-        launch_startup_slot_modes(session_name, &canonical_pane_ids, pane_count)?;
+        launch_startup_slot_modes(
+            session_name,
+            &canonical_pane_ids,
+            pane_count,
+            populated_slots,
+        )?;
 
         if should_validate_registry_after_bootstrap() {
             validate_canonical_slot_registry(session_name)?;
@@ -351,8 +356,12 @@ fn should_apply_runtime_styles_during_bootstrap() -> bool {
     true
 }
 
-fn startup_mode_for_slot(_slot_id: u8, _populated_slots: usize) -> &'static str {
-    "agent"
+fn startup_mode_for_slot(slot_id: u8, populated_slots: usize) -> &'static str {
+    if usize::from(slot_id) <= populated_slots {
+        "agent"
+    } else {
+        "shell"
+    }
 }
 
 fn kill_created_panes(created_panes: &[String]) -> Result<(), SessionError> {
@@ -367,13 +376,15 @@ fn launch_startup_slot_modes(
     session_name: &str,
     canonical_pane_ids: &[String; 5],
     pane_count: u8,
+    populated_slots: usize,
 ) -> Result<(), SessionError> {
     let ezm_bin = resolved_ezm_bin_shell_token();
     let mut commands = Vec::with_capacity(6);
     let pane_mode = pane_mode_spec(pane_count);
 
     for &slot_id in pane_mode.active_slots {
-        let command = startup_mode_schedule_command(&ezm_bin, session_name, slot_id);
+        let mode = startup_mode_for_slot(slot_id, populated_slots);
+        let command = startup_mode_schedule_command(&ezm_bin, session_name, slot_id, mode);
         commands.push(vec![String::from("run-shell"), String::from("-b"), command]);
     }
 
@@ -390,9 +401,14 @@ fn launch_startup_slot_modes(
     tmux_run_batch(&commands)
 }
 
-fn startup_mode_schedule_command(ezm_bin: &str, session_name: &str, slot_id: u8) -> String {
+fn startup_mode_schedule_command(
+    ezm_bin: &str,
+    session_name: &str,
+    slot_id: u8,
+    mode: &str,
+) -> String {
     format!(
-        "sleep 0.05; EZM_STARTUP_SLOT_MODE=1 {ezm_bin} __internal mode --session {} --slot {slot_id} --mode agent </dev/null >/dev/null 2>&1",
+        "sleep 0.05; EZM_STARTUP_SLOT_MODE=1 {ezm_bin} __internal mode --session {} --slot {slot_id} --mode {mode} </dev/null >/dev/null 2>&1",
         shell_single_quote(session_name)
     )
 }

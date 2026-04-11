@@ -6,22 +6,31 @@ use super::{
 };
 
 #[test]
-fn startup_mode_defaults_visible_slots_to_agent_when_worktree_candidates_are_underfilled() {
+fn startup_mode_uses_shell_for_underfilled_fallback_slots() {
     let modes = (1_u8..=5)
         .map(|slot_id| startup_mode_for_slot(slot_id, 1))
         .collect::<Vec<_>>();
 
-    assert_eq!(modes, vec!["agent", "agent", "agent", "agent", "agent"]);
+    assert_eq!(modes, vec!["agent", "shell", "shell", "shell", "shell"]);
+}
+
+#[test]
+fn startup_mode_tracks_populated_slot_boundary() {
+    let modes = (1_u8..=5)
+        .map(|slot_id| startup_mode_for_slot(slot_id, 3))
+        .collect::<Vec<_>>();
+
+    assert_eq!(modes, vec!["agent", "agent", "agent", "shell", "shell"]);
 }
 
 #[test]
 fn startup_mode_schedule_command_runs_internal_mode_in_background() {
-    let rendered = startup_mode_schedule_command("'ezm'", "ezm-demo", 3);
+    let rendered = startup_mode_schedule_command("'ezm'", "ezm-demo", 3, "shell");
     assert!(rendered.contains("sleep 0.05;"));
     assert!(rendered.contains("__internal mode"));
     assert!(rendered.contains("--session 'ezm-demo'"));
     assert!(rendered.contains("--slot 3"));
-    assert!(rendered.contains("--mode agent"));
+    assert!(rendered.contains("--mode shell"));
     assert!(rendered.contains("EZM_STARTUP_SLOT_MODE=1"));
     assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
 }
