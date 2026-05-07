@@ -10,11 +10,33 @@ pub(super) fn remote_transport_label(use_tssh: bool, use_mosh: bool) -> &'static
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LocalShellStartup {
+    Default,
+    DisableGitstatus,
+}
+
 pub(super) fn build_remote_invocation(
     authority: &ParsedSshAuthority,
     remote_script: &str,
     use_tssh: bool,
     use_mosh: bool,
+) -> String {
+    build_remote_invocation_with_local_shell_startup(
+        authority,
+        remote_script,
+        use_tssh,
+        use_mosh,
+        LocalShellStartup::Default,
+    )
+}
+
+pub(super) fn build_remote_invocation_with_local_shell_startup(
+    authority: &ParsedSshAuthority,
+    remote_script: &str,
+    use_tssh: bool,
+    use_mosh: bool,
+    local_shell_startup: LocalShellStartup,
 ) -> String {
     let invocation = if use_tssh {
         build_tssh_invocation(authority, remote_script)
@@ -24,14 +46,20 @@ pub(super) fn build_remote_invocation(
         build_ssh_invocation(authority, remote_script)
     };
 
-    wrap_local_login_shell(&invocation)
+    wrap_local_login_shell(&invocation, local_shell_startup)
 }
 
-fn wrap_local_login_shell(invocation: &str) -> String {
-    format!(
+fn wrap_local_login_shell(invocation: &str, startup: LocalShellStartup) -> String {
+    let shell = format!(
         "\"${{SHELL:-/bin/sh}}\" -lic '{}'",
         escape_single_quotes(invocation)
-    )
+    );
+    match startup {
+        LocalShellStartup::Default => shell,
+        LocalShellStartup::DisableGitstatus => {
+            format!("POWERLEVEL9K_DISABLE_GITSTATUS=true {shell}")
+        }
+    }
 }
 
 fn build_ssh_invocation(authority: &ParsedSshAuthority, remote_script: &str) -> String {
@@ -86,7 +114,10 @@ fn escape_single_quotes(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::super::remote_authority::parse_remote_ssh_authority;
-    use super::{build_remote_invocation, remote_transport_label};
+    use super::{
+        LocalShellStartup, build_remote_invocation,
+        build_remote_invocation_with_local_shell_startup, remote_transport_label,
+    };
 
     #[test]
     fn ssh_transport_label_is_stable() {
@@ -139,6 +170,27 @@ mod tests {
                 raw_transport.replace('\'', "'\"'\"'")
             )
         );
+    }
+
+    #[test]
+    fn ssh_invocation_can_disable_local_gitstatus_startup() {
+        let authority =
+            parse_remote_ssh_authority("https://shell.remote.example:7443").expect("authority");
+        let invocation = build_remote_invocation_with_local_shell_startup(
+            &authority,
+            "cd '/srv/remotes' && exec \"${SHELL:-/bin/sh}\" -l",
+            false,
+            false,
+            LocalShellStartup::DisableGitstatus,
+        );
+
+        assert!(
+            invocation
+                .starts_with("POWERLEVEL9K_DISABLE_GITSTATUS=true \"${SHELL:-/bin/sh}\" -lic '")
+        );
+        assert!(invocation.contains("ssh -tt -p 7443"));
+        assert!(invocation.contains("'shell.remote.example'"));
+        assert!(invocation.contains("exec \"${SHELL:-/bin/sh}\" -l"));
     }
 
     #[test]

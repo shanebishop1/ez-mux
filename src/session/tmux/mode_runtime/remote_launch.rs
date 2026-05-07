@@ -1,7 +1,9 @@
 use super::super::SessionError;
 use super::super::SlotMode;
 use super::super::remote_authority::parse_remote_ssh_authority;
-use super::super::remote_transport::{build_remote_invocation, remote_transport_label};
+use super::super::remote_transport::{
+    LocalShellStartup, build_remote_invocation_with_local_shell_startup, remote_transport_label,
+};
 use crate::session::{RemoteModeContext, resolve_remote_path};
 
 pub(super) fn launch_command_with_remote_dir_from_mapping(
@@ -70,7 +72,17 @@ fn remote_wrapped_launch_command(
         escape_single_quotes(remote_dir)
     );
 
-    let remote_invocation = build_remote_invocation(&authority, &remote_script, use_tssh, use_mosh);
+    let local_shell_startup = match mode {
+        SlotMode::Shell => LocalShellStartup::DisableGitstatus,
+        SlotMode::Neovim | SlotMode::Lazygit | SlotMode::Agent => LocalShellStartup::Default,
+    };
+    let remote_invocation = build_remote_invocation_with_local_shell_startup(
+        &authority,
+        &remote_script,
+        use_tssh,
+        use_mosh,
+        local_shell_startup,
+    );
     let transport = remote_transport_label(use_tssh, use_mosh);
 
     Ok(Some(format!(

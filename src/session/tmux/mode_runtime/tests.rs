@@ -63,7 +63,8 @@ fn shell_mode_remote_prefix_launches_over_ssh_with_remote_dir() {
     )
     .expect("command should resolve");
 
-    assert!(command.contains("if \"${SHELL:-/bin/sh}\" -lic"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true \"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("ssh -tt"));
     assert!(command.contains("devbox-ez-1"));
     assert!(command.contains("/srv/remotes/alpha/worktrees/feature-x"));
@@ -88,7 +89,8 @@ fn shell_mode_remote_prefix_uses_ssh_port_for_absolute_url_authority() {
     )
     .expect("command should resolve");
 
-    assert!(command.contains("if \"${SHELL:-/bin/sh}\" -lic"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true \"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("ssh -tt -p 7443"));
     assert!(command.contains("shell.remote.example"));
 }
@@ -114,7 +116,8 @@ fn shell_mode_remote_prefix_uses_mosh_when_enabled() {
     )
     .expect("command should resolve");
 
-    assert!(command.contains("if \"${SHELL:-/bin/sh}\" -lic"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true \"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("mosh --no-init"));
     assert!(command.contains("ssh -p 7443"));
     assert!(command.contains("shell.remote.example"));
@@ -142,7 +145,8 @@ fn shell_mode_remote_prefix_uses_tssh_when_enabled() {
     )
     .expect("command should resolve");
 
-    assert!(command.contains("if \"${SHELL:-/bin/sh}\" -lic"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true"));
+    assert!(command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true \"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("tssh -tt -p 7443"));
     assert!(command.contains("shell.remote.example"));
     assert!(!command.contains("if mosh --no-init"));
@@ -216,6 +220,7 @@ fn lazygit_mode_remote_prefix_launches_over_ssh() {
     assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("lazygit"));
     assert!(command.contains("; :; fi; fi; exec \"${SHELL:-/bin/sh}\" -l"));
+    assert!(!command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true"));
     assert!(!command.contains("exit \"$exit_code\""));
     assert!(!command.contains("status=$?"));
     assert!(command.contains("${SHELL:-/bin/sh}"));
@@ -259,6 +264,7 @@ fn neovim_mode_remote_prefix_launches_over_ssh() {
     assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("nvim"));
     assert!(command.contains("/srv/remotes/alpha/worktrees/feature-x"));
+    assert!(!command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true"));
 }
 
 #[test]
