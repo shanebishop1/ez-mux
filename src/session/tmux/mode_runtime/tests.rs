@@ -202,6 +202,7 @@ fn lazygit_mode_remote_prefix_launches_over_ssh() {
     .expect("command should resolve");
 
     assert!(command.contains("if ssh -tt 'devbox-ez-1'"));
+    assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("lazygit"));
     assert!(command.contains("; :; fi; fi; exec \"${SHELL:-/bin/sh}\" -l"));
     assert!(!command.contains("exit \"$exit_code\""));
@@ -242,6 +243,7 @@ fn neovim_mode_remote_prefix_launches_over_ssh() {
     .expect("command should resolve");
 
     assert!(command.contains("if ssh -tt -p 7443 'shell.remote.example'"));
+    assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("nvim"));
     assert!(command.contains("cd '\"'\"'/srv/remotes/alpha/worktrees/feature-x'\"'\"'"));
 }
