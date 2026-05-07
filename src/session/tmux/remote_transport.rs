@@ -16,15 +16,22 @@ pub(super) fn build_remote_invocation(
     use_tssh: bool,
     use_mosh: bool,
 ) -> String {
-    if use_tssh {
-        return build_tssh_invocation(authority, remote_script);
-    }
+    let invocation = if use_tssh {
+        build_tssh_invocation(authority, remote_script)
+    } else if use_mosh {
+        build_mosh_invocation(authority, remote_script)
+    } else {
+        build_ssh_invocation(authority, remote_script)
+    };
 
-    if use_mosh {
-        return build_mosh_invocation(authority, remote_script);
-    }
+    wrap_local_login_shell(&invocation)
+}
 
-    build_ssh_invocation(authority, remote_script)
+fn wrap_local_login_shell(invocation: &str) -> String {
+    format!(
+        "\"${{SHELL:-/bin/sh}}\" -lic '{}'",
+        escape_single_quotes(invocation)
+    )
 }
 
 fn build_ssh_invocation(authority: &ParsedSshAuthority, remote_script: &str) -> String {
@@ -108,9 +115,30 @@ mod tests {
         let invocation =
             build_remote_invocation(&authority, "cd '/srv/remotes' && nvim", false, false);
 
+        assert!(invocation.starts_with("\"${SHELL:-/bin/sh}\" -lic '"));
         assert!(invocation.contains("ssh -tt -p 7443"));
         assert!(invocation.contains("'shell.remote.example'"));
         assert!(invocation.contains("cd '"));
+    }
+
+    #[test]
+    fn ssh_invocation_escapes_nested_login_shell_transport() {
+        let authority =
+            parse_remote_ssh_authority("https://shell.remote.example:7443").expect("authority");
+        let remote_script = "cd '/srv/remote work' && printf '%s\\n' '$HOME'";
+        let invocation = build_remote_invocation(&authority, remote_script, false, false);
+        let raw_transport = format!(
+            "ssh -tt -p 7443 'shell.remote.example' '{}'",
+            remote_script.replace('\'', "'\"'\"'")
+        );
+
+        assert_eq!(
+            invocation,
+            format!(
+                "\"${{SHELL:-/bin/sh}}\" -lic '{}'",
+                raw_transport.replace('\'', "'\"'\"'")
+            )
+        );
     }
 
     #[test]
@@ -120,8 +148,13 @@ mod tests {
         let invocation =
             build_remote_invocation(&authority, "cd '/srv/remotes' && nvim", false, true);
 
-        assert!(invocation.contains("mosh --no-init --ssh='ssh -p 7443'"));
-        assert!(invocation.contains("'shell.remote.example' -- 'sh' '-lc' '"));
+        assert!(invocation.starts_with("\"${SHELL:-/bin/sh}\" -lic '"));
+        assert!(invocation.contains("mosh --no-init"));
+        assert!(invocation.contains("ssh -p 7443"));
+        assert!(invocation.contains("shell.remote.example"));
+        assert!(invocation.contains("--"));
+        assert!(invocation.contains("sh"));
+        assert!(invocation.contains("-lc"));
         assert!(invocation.contains("cd '"));
     }
 
@@ -132,6 +165,7 @@ mod tests {
         let invocation =
             build_remote_invocation(&authority, "cd '/srv/remotes' && nvim", true, false);
 
+        assert!(invocation.starts_with("\"${SHELL:-/bin/sh}\" -lic '"));
         assert!(invocation.contains("tssh -tt -p 7443"));
         assert!(invocation.contains("'shell.remote.example'"));
         assert!(invocation.contains("cd '"));

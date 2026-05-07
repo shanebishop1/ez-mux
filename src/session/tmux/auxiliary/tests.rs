@@ -37,7 +37,9 @@ fn auxiliary_remote_launch_command_routes_over_ssh_with_remote_directory() {
     )
     .expect("remote command should build");
 
-    assert!(command.contains("ssh -tt -p 7443 'shell.remote.example'"));
+    assert!(command.contains("if \"${SHELL:-/bin/sh}\" -lic"));
+    assert!(command.contains("ssh -tt -p 7443"));
+    assert!(command.contains("shell.remote.example"));
     assert!(command.contains("/srv/remotes/ez-mux"));
     assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic '"));
     assert!(command.contains("command -v perles"));
@@ -136,7 +138,10 @@ fn auxiliary_remote_launch_command_uses_mosh_when_enabled() {
     )
     .expect("remote command should build");
 
-    assert!(command.contains("mosh --no-init --ssh='ssh -p 7443' 'shell.remote.example'"));
+    assert!(command.contains("if \"${SHELL:-/bin/sh}\" -lic"));
+    assert!(command.contains("mosh --no-init"));
+    assert!(command.contains("ssh -p 7443"));
+    assert!(command.contains("shell.remote.example"));
     assert!(!command.contains("ssh -tt -p 7443 'shell.remote.example'"));
 }
 
@@ -150,7 +155,9 @@ fn auxiliary_remote_launch_command_uses_tssh_when_enabled() {
     )
     .expect("remote command should build");
 
-    assert!(command.contains("tssh -tt -p 7443 'shell.remote.example'"));
+    assert!(command.contains("if \"${SHELL:-/bin/sh}\" -lic"));
+    assert!(command.contains("tssh -tt -p 7443"));
+    assert!(command.contains("shell.remote.example"));
     assert!(!command.contains("mosh --no-init"));
 }
 

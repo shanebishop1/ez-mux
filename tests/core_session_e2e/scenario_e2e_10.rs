@@ -333,7 +333,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let popup_uses_ssh_remote = popup_pane_start_command.contains("ssh -tt")
         && popup_pane_start_command.contains("shell.remote.example")
         && popup_pane_start_command.contains(&expected_mapped_path);
-    let auxiliary_uses_ssh_remote = auxiliary_pane_start_command.contains("if ssh -tt")
+    let auxiliary_uses_ssh_remote = auxiliary_pane_start_command
+        .contains("if \"${SHELL:-/bin/sh}\" -lic")
+        && auxiliary_pane_start_command.contains("ssh -tt")
         && auxiliary_pane_start_command.contains("shell.remote.example")
         && auxiliary_pane_start_command.contains("command -v perles");
     let auxiliary_command_continues_to_shell = auxiliary_pane_start_command.contains("exec")

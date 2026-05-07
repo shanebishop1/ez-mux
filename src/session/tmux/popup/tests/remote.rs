@@ -39,6 +39,7 @@ fn popup_new_session_uses_remote_ssh_shell_when_remote_routing_is_active() {
 
     assert!(rendered.contains("new-session -d -s ezm-s100__popup_slot_4 -c /tmp/popup-cwd"));
     assert!(rendered.contains("sh -lc"));
+    assert!(rendered.contains("\"${SHELL:-/bin/sh}\" -lic"));
     assert!(rendered.contains("ssh -tt -p 7443"));
     assert!(rendered.contains("shell.remote.example"));
     assert!(rendered.contains("cd '"));
@@ -89,6 +90,7 @@ fn popup_remote_launch_command_uses_mosh_when_enabled() {
     assert!(command.contains("mosh --no-init"));
     assert!(command.contains("--ssh='"));
     assert!(command.contains("ssh -p 7443"));
+    assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic"));
     assert!(command.contains("shell.remote.example"));
     assert!(!command.contains("ssh -tt -p 7443"));
 }
@@ -107,5 +109,6 @@ fn popup_remote_launch_command_uses_tssh_when_enabled() {
         .expect("remote command should exist");
 
     assert!(command.contains("tssh -tt -p 7443"));
+    assert!(command.contains("\"${SHELL:-/bin/sh}\" -lic"));
     assert!(!command.contains("mosh --no-init"));
 }
