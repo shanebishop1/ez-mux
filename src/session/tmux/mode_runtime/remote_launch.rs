@@ -67,9 +67,13 @@ fn remote_wrapped_launch_command(
     };
 
     let authority = parse_remote_ssh_authority(server_url)?;
-    let remote_script = format!(
-        "\"${{SHELL:-/bin/sh}}\" -lic 'cd '{}' && {launch_command}'",
+    let inner_script = format!(
+        "cd '{}' && {launch_command}",
         escape_single_quotes(remote_dir)
+    );
+    let remote_script = format!(
+        "\"${{SHELL:-/bin/sh}}\" -lic '{}'",
+        escape_single_quotes(&inner_script)
     );
 
     let local_shell_startup = match mode {

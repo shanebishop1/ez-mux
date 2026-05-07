@@ -26,7 +26,7 @@ use metadata::{
 };
 use persistent::activate_mode_pane;
 #[cfg(test)]
-use remote_launch::launch_command_with_remote_dir_from_mapping;
+use remote_launch::{escape_single_quotes, launch_command_with_remote_dir_from_mapping};
 #[cfg(test)]
 use startup::{resolve_mode_switch_cwd, startup_mode_signal_enabled, use_startup_fast_path};
 

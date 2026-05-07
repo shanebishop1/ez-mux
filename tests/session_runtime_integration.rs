@@ -12,7 +12,6 @@ use ez_mux::session::SlotModeLaunchContext;
 use ez_mux::session::TmuxClient;
 use ez_mux::session::analyze_session_damage;
 use ez_mux::session::auxiliary_viewer;
-use ez_mux::session::ensure_project_session;
 use ez_mux::session::ensure_project_session_with_remote_path;
 use ez_mux::session::ensure_project_session_with_remote_path_and_options;
 use ez_mux::session::focus_slot;
@@ -346,6 +345,20 @@ impl Default for FakeTmux {
     }
 }
 
+fn ensure_local_project_session(
+    project_dir: &Path,
+    tmux: &impl TmuxClient,
+) -> Result<ez_mux::session::SessionLaunchOutcome, ez_mux::session::SessionError> {
+    ensure_project_session_with_remote_path(
+        project_dir,
+        None,
+        None,
+        RemoteTransportFlags::default(),
+        5,
+        tmux,
+    )
+}
+
 #[test]
 fn runtime_create_path_surfaces_attach_failure_instead_of_reporting_success() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -356,7 +369,8 @@ fn runtime_create_path_surfaces_attach_failure_instead_of_reporting_success() {
         ..FakeTmux::default()
     };
 
-    let error = ensure_project_session(project_dir, &tmux).expect_err("create path should fail");
+    let error =
+        ensure_local_project_session(project_dir, &tmux).expect_err("create path should fail");
 
     let rendered = error.to_string();
     assert!(rendered.contains("attach failed"));
@@ -404,8 +418,8 @@ fn runtime_creates_first_then_attaches_second_without_duplicate_create() {
         ..FakeTmux::default()
     };
 
-    let first = ensure_project_session(project_dir, &tmux).expect("first run");
-    let second = ensure_project_session(project_dir, &tmux).expect("second run");
+    let first = ensure_local_project_session(project_dir, &tmux).expect("first run");
+    let second = ensure_local_project_session(project_dir, &tmux).expect("second run");
 
     assert_eq!(first.action, SessionAction::Create);
     assert_eq!(second.action, SessionAction::Attach);
@@ -431,8 +445,8 @@ fn runtime_attach_path_is_non_interactive_safe() {
         ..FakeTmux::default()
     };
 
-    let first = ensure_project_session(project_dir, &tmux).expect("first run");
-    let second = ensure_project_session(project_dir, &tmux).expect("second run");
+    let first = ensure_local_project_session(project_dir, &tmux).expect("first run");
+    let second = ensure_local_project_session(project_dir, &tmux).expect("second run");
 
     assert_eq!(first.action, SessionAction::Create);
     assert_eq!(second.action, SessionAction::Attach);
@@ -456,8 +470,8 @@ fn runtime_perles_missing_skips_auxiliary_window_without_failing_startup() {
         ..FakeTmux::default()
     };
 
-    let first = ensure_project_session(project_dir, &tmux).expect("first run");
-    let second = ensure_project_session(project_dir, &tmux).expect("second run");
+    let first = ensure_local_project_session(project_dir, &tmux).expect("first run");
+    let second = ensure_local_project_session(project_dir, &tmux).expect("second run");
 
     assert_eq!(first.action, SessionAction::Create);
     assert_eq!(second.action, SessionAction::Attach);

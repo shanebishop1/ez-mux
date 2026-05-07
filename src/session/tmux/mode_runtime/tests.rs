@@ -1,5 +1,5 @@
 use super::{
-    launch_agent_attach_command, launch_command_for_mode,
+    escape_single_quotes, launch_agent_attach_command, launch_command_for_mode,
     launch_command_with_remote_dir_from_mapping, resolve_mode_switch_cwd,
     resolve_persistent_transition_cwd, startup_mode_signal_enabled, use_startup_fast_path,
 };
@@ -265,6 +265,34 @@ fn neovim_mode_remote_prefix_launches_over_ssh() {
     assert!(command.contains("nvim"));
     assert!(command.contains("/srv/remotes/alpha/worktrees/feature-x"));
     assert!(!command.contains("POWERLEVEL9K_DISABLE_GITSTATUS=true"));
+}
+
+#[test]
+fn remote_mode_login_shell_preserves_remote_dir_with_spaces_and_quotes() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo_root = temp.path().join("alpha space");
+    let nested = repo_root.join("worktrees").join("feature-x");
+    std::fs::create_dir_all(repo_root.join(".git")).expect("create .git");
+    std::fs::create_dir_all(&nested).expect("create nested");
+
+    let command = launch_command_with_remote_dir_from_mapping(
+        SlotMode::Neovim,
+        "if command -v nvim >/dev/null 2>&1; then nvim; fi; exec \"${SHELL:-/bin/sh}\" -l",
+        &nested.display().to_string(),
+        remote_context(
+            Some("/srv/remotes/owner's repo"),
+            Some("https://shell.remote.example:7443"),
+        ),
+    )
+    .expect("command should resolve");
+
+    assert!(command.contains("ssh -tt -p 7443"));
+    assert!(command.contains("shell.remote.example"));
+    assert!(command.contains("owner"));
+    assert!(command.contains("alpha space"));
+    assert!(command.contains("worktrees/feature-x"));
+    assert!(command.contains(&escape_single_quotes("'s repo")));
+    assert!(!command.contains(" -lic 'cd '/srv/remotes/owner"));
 }
 
 #[test]
