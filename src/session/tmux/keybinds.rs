@@ -27,12 +27,6 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     sync_runtime_env_into_tmux_server()?;
     clear_legacy_bindings()?;
 
-    if should_clear_existing_keybinds_before_install() {
-        for (table, key) in clear_specs() {
-            unbind_key_if_present(table, &key)?;
-        }
-    }
-
     let mut commands = Vec::new();
     commands.extend(install_prefix_routing_bindings(&ezm_bin));
     commands.extend(install_pane_navigation_bindings());
@@ -93,10 +87,6 @@ fn restore_prefix_digit_default_binding(key: &str) -> Result<(), SessionError> {
 fn binding_contains_legacy_internal_slot_command(binding: &str) -> bool {
     binding.contains("run-shell")
         && (binding.contains("__internal focus") || binding.contains("__internal swap"))
-}
-
-fn should_clear_existing_keybinds_before_install() -> bool {
-    false
 }
 
 fn install_prefix_routing_bindings(ezm_bin: &str) -> Vec<Vec<String>> {
@@ -303,37 +293,6 @@ fn run_shell_action(shell_command: &str) -> String {
 
 fn command(args: &[&str]) -> Vec<String> {
     args.iter().map(|value| (*value).to_owned()).collect()
-}
-
-fn clear_specs() -> Vec<(&'static str, String)> {
-    let mut specs = vec![
-        ("prefix", THREE_PANE_PRESET_KEY.to_owned()),
-        ("prefix", FOCUS_PREFIX_KEY.to_owned()),
-        ("prefix", TOGGLE_MODE_KEY.to_owned()),
-        ("prefix", AGENT_MODE_KEY.to_owned()),
-        ("prefix", SHELL_MODE_KEY.to_owned()),
-        ("prefix", NEOVIM_MODE_KEY.to_owned()),
-        ("prefix", LAZYGIT_MODE_KEY.to_owned()),
-        ("prefix", POPUP_KEY.to_owned()),
-        ("prefix", DETACH_KEY.to_owned()),
-        ("prefix", PANE_NAV_LEFT_KEY.to_owned()),
-        ("prefix", PANE_NAV_DOWN_KEY.to_owned()),
-        ("prefix", PANE_NAV_UP_KEY.to_owned()),
-        ("prefix", PANE_NAV_RIGHT_KEY.to_owned()),
-        (SWAP_TABLE, String::from("Escape")),
-        (SWAP_TABLE, String::from("q")),
-        (SWAP_TABLE, String::from("Any")),
-        (FOCUS_TABLE, String::from("Escape")),
-        (FOCUS_TABLE, String::from("q")),
-        (FOCUS_TABLE, String::from("Any")),
-    ];
-
-    for slot in 1_u8..=5 {
-        specs.push((SWAP_TABLE, slot.to_string()));
-        specs.push((FOCUS_TABLE, slot.to_string()));
-    }
-
-    specs
 }
 
 fn pane_nav_bindings() -> [(&'static str, &'static str); 4] {

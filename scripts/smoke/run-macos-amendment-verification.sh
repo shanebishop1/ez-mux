@@ -68,12 +68,12 @@ else
 fi
 
 run_id="run-$(date +%s)-$$"
-artifact_root="$repo_root/target/e2e-evidence/focus5-macos-amendment/$run_id"
+artifact_root="$repo_root/target/e2e-evidence/macos-amendment/$run_id"
 log_dir="$artifact_root/logs"
 mkdir -p "$log_dir"
 
 tmp_root="$(mktemp -d "/tmp/ezm-amendment-macos-XXXXXX")"
-namespace="focus5-amendment-macos-$(date +%s)-$$"
+namespace="ezm-amendment-macos-$(date +%s)-$$"
 
 cleanup() {
   if command -v tmux >/dev/null 2>&1; then
@@ -310,7 +310,7 @@ commands = [
 ]
 
 command_manifest = {
-    "suite": "focus5-macos-amendment",
+    "suite": "macos-amendment",
     "platform": "macos",
     "commands": commands,
     "resource_checkpoints": [
@@ -329,7 +329,7 @@ command_manifest = {
 }
 
 checklist_json = {
-    "suite": "focus5-macos-amendment",
+    "suite": "macos-amendment",
     "platform": "macos",
     "impacted_ids": checklist_rows,
     "pass_total": pass_total,
@@ -362,7 +362,7 @@ env_lines = [
 (artifact_root / "paths.env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
 
 lines = []
-lines.append("# Focus5 macOS amendment closure handoff")
+lines.append("# macOS amendment closure handoff")
 lines.append("")
 lines.append("## Run metadata")
 lines.append(f"- Platform: macOS")

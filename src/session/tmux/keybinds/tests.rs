@@ -7,8 +7,7 @@ use super::{
     ACTIVE_SLOT_BORDER_STYLE_FORMAT, binding_contains_legacy_internal_slot_command, focus_command,
     guarded_run_shell_binding_command, guarded_table_run_shell_binding_command, mode_command,
     pane_nav_bindings, popup_command, popup_hard_close_action, popup_toggle_open_action,
-    preset_command, resolve_ezm_bin, shell_command_token,
-    should_clear_existing_keybinds_before_install, swap_command, toggle_mode_command,
+    preset_command, resolve_ezm_bin, shell_command_token, swap_command, toggle_mode_command,
 };
 
 #[test]
@@ -149,11 +148,6 @@ fn guarded_table_binding_returns_to_root_after_attempt() {
     assert!(binding.iter().any(|part| part == "if-shell"));
     assert!(binding.iter().any(|part| part == "switch-client"));
     assert!(binding.iter().any(|part| part == "root"));
-}
-
-#[test]
-fn startup_keybind_install_skips_unbind_clear_phase() {
-    assert!(!should_clear_existing_keybinds_before_install());
 }
 
 #[test]

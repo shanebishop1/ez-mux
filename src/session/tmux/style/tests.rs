@@ -16,7 +16,7 @@ fn glyph_presets_parse_and_render_slot_labels() {
 }
 
 #[test]
-fn slot_border_label_matches_focus5_connected_line_prefix() {
+fn slot_border_label_uses_connected_line_prefix() {
     let preset = SlotGlyphPreset::parse("circled").expect("circled");
     let label = slot_border_label(preset, 2, "#eb6f92");
 

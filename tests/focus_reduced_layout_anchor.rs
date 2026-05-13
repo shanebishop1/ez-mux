@@ -1,9 +1,13 @@
-#[path = "support/focus5_amendment_t1_1_red_support.rs"]
-mod red_support;
 mod support;
 
-use red_support::{extract_stdout_field, read_slot_snapshot};
 use support::foundation_harness::FoundationHarness;
+
+#[derive(Clone, Debug)]
+struct SlotSnapshot {
+    slot_id: u8,
+    pane_id: String,
+    worktree: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PaneGeometry {
@@ -242,7 +246,7 @@ fn pane_geometry_by_id<'a>(panes: &'a [PaneGeometry], pane_id: &str) -> Option<&
     panes.iter().find(|pane| pane.pane_id == pane_id)
 }
 
-fn slot_pane_id(slots: &[red_support::SlotSnapshot], slot_id: u8) -> String {
+fn slot_pane_id(slots: &[SlotSnapshot], slot_id: u8) -> String {
     slots
         .iter()
         .find(|slot| slot.slot_id == slot_id)
@@ -250,12 +254,43 @@ fn slot_pane_id(slots: &[red_support::SlotSnapshot], slot_id: u8) -> String {
         .unwrap_or_default()
 }
 
-fn slot_snapshots_match(
-    left: &[red_support::SlotSnapshot],
-    right: &[red_support::SlotSnapshot],
-) -> bool {
+fn slot_snapshots_match(left: &[SlotSnapshot], right: &[SlotSnapshot]) -> bool {
     left.len() == right.len()
         && left.iter().zip(right.iter()).all(|(lhs, rhs)| {
             lhs.slot_id == rhs.slot_id && lhs.pane_id == rhs.pane_id && lhs.worktree == rhs.worktree
         })
+}
+
+fn extract_stdout_field(stdout: &str, key: &str) -> Option<String> {
+    let marker = format!("{key}=");
+    let start = stdout.find(&marker)? + marker.len();
+    let tail = &stdout[start..];
+    let end = tail.find(';').unwrap_or(tail.len());
+    Some(tail[..end].trim().trim_end_matches('.').to_owned())
+}
+
+fn read_slot_snapshot(
+    harness: &FoundationHarness,
+    session: &str,
+) -> Result<Vec<SlotSnapshot>, String> {
+    let mut slots = Vec::new();
+    for slot_id in 1_u8..=5 {
+        let pane_key = format!("@ezm_slot_{slot_id}_pane");
+        let worktree_key = format!("@ezm_slot_{slot_id}_worktree");
+        let pane_id = harness
+            .tmux_capture(&["show-options", "-v", "-t", session, &pane_key])?
+            .trim()
+            .to_owned();
+        let worktree = harness
+            .tmux_capture(&["show-options", "-v", "-t", session, &worktree_key])?
+            .trim()
+            .to_owned();
+
+        slots.push(SlotSnapshot {
+            slot_id,
+            pane_id,
+            worktree,
+        });
+    }
+    Ok(slots)
 }
