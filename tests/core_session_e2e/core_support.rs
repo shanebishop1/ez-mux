@@ -845,8 +845,7 @@ pub(super) fn helper_pids_alive(pids: &[u32]) -> Vec<u32> {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
-                .map(|status| status.success())
-                .unwrap_or(false)
+                .is_ok_and(|status| status.success())
         })
         .collect()
 }

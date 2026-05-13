@@ -133,8 +133,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
                 &format!("{session}:0"),
                 "#{popup_active}",
             ])
-            .map(|value| value.trim() == "1")
-            .unwrap_or(false))
+            .is_ok_and(|value| value.trim() == "1"))
     })
     .unwrap_or_else(|error| panic!("E2E-07 failed polling popup visibility state: {error}"));
     let popup_width = harness
@@ -166,8 +165,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
                 &format!("{session}:0"),
                 "#{popup_active}",
             ])
-            .map(|value| value.trim() != "1")
-            .unwrap_or(true))
+            .map_or(true, |value| value.trim() != "1"))
     })
     .unwrap_or_else(|error| panic!("E2E-07 failed polling popup close visibility state: {error}"));
     let popup_exists_after_close = harness
@@ -203,8 +201,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
                 &format!("{session}:0"),
                 "#{popup_active}",
             ])
-            .map(|value| value.trim() == "1")
-            .unwrap_or(false))
+            .is_ok_and(|value| value.trim() == "1"))
     })
     .unwrap_or_else(|error| panic!("E2E-07 failed polling popup reopen visibility: {error}"));
     let popup_pane_pid_after_reopen = harness

@@ -171,8 +171,7 @@ impl FoundationHarness {
         opener_exit_code: i32,
     ) -> Result<CmdOutput, String> {
         if args.first().is_some_and(|arg| *arg == "__internal") {
-            let _ =
-                self.settle_tmux_snapshot(Duration::from_millis(25), Duration::from_millis(1_000));
+            let _ = self.settle_tmux_snapshot(Duration::from_millis(25), Duration::from_secs(1));
         }
 
         let state_root = self.work_dir.join("state");
@@ -430,8 +429,7 @@ impl FoundationHarness {
                         .arg("-INT")
                         .arg(pid.to_string())
                         .status()
-                        .map(|status| status.success())
-                        .unwrap_or(false);
+                        .is_ok_and(|status| status.success());
                 }
             }
 
