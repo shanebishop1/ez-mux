@@ -333,10 +333,13 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let popup_uses_ssh_remote = popup_pane_start_command.contains("ssh -tt")
         && popup_pane_start_command.contains("shell.remote.example")
         && popup_pane_start_command.contains(&expected_mapped_path);
-    let auxiliary_uses_login_shell = auxiliary_pane_start_command
-        .contains("if \"${SHELL:-/bin/sh}\" -lic")
-        || auxiliary_pane_start_command.contains("if \"\\${SHELL:-/bin/sh}\" -lic")
-        || auxiliary_pane_start_command.contains("if \\\"\\${SHELL:-/bin/sh}\\\" -lic");
+    let login_shell = auxiliary_pane_start_command.find("${SHELL:-/bin/sh}");
+    let login_flag = auxiliary_pane_start_command.find("-lic");
+    let ssh_command = auxiliary_pane_start_command.find("ssh -tt");
+    let auxiliary_uses_login_shell = matches!(
+        (login_shell, login_flag, ssh_command),
+        (Some(shell), Some(flag), Some(ssh)) if shell < flag && flag < ssh
+    );
     let auxiliary_uses_ssh_remote = auxiliary_uses_login_shell
         && auxiliary_pane_start_command.contains("ssh -tt")
         && auxiliary_pane_start_command.contains("shell.remote.example")

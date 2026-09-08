@@ -79,12 +79,8 @@ pub fn ensure_project_session(
     let remote_path = std::env::var(EZM_REMOTE_PATH_ENV).ok();
     let remote_server_url = std::env::var(EZM_REMOTE_SERVER_URL_ENV).ok();
     let remote_transport = RemoteTransportFlags {
-        use_tssh: std::env::var(EZM_USE_TSSH_ENV)
-            .ok()
-            .is_some_and(|value| parse_enabled_value(&value)),
-        use_mosh: std::env::var(EZM_USE_MOSH_ENV)
-            .ok()
-            .is_some_and(|value| parse_enabled_value(&value)),
+        use_tssh: std::env::var(EZM_USE_TSSH_ENV).is_ok_and(|value| parse_enabled_value(&value)),
+        use_mosh: std::env::var(EZM_USE_MOSH_ENV).is_ok_and(|value| parse_enabled_value(&value)),
     };
     let runtime_context = runtime_context_for_remote_values(
         remote_path.as_deref(),
@@ -378,9 +374,7 @@ impl StartupTrace {
 fn startup_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var(STARTUP_TRACE_ENV)
-            .ok()
-            .is_some_and(|value| parse_enabled_value(&value))
+        std::env::var(STARTUP_TRACE_ENV).is_ok_and(|value| parse_enabled_value(&value))
     })
 }
 
