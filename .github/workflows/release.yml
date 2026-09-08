@@ -817,7 +817,6 @@ jobs:
       - name: Extract release binaries
         env:
           RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
-          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
         run: |
           mkdir -p dist/extracted
           for asset in linux-x64 linux-arm64 macos-x64 macos-arm64; do
@@ -832,7 +831,6 @@ jobs:
             esac
             python3 scripts/release/verify_release_artifact.py \
               --archive "$archive" \
-              --expected-version "$RELEASE_VERSION" \
               --platform "$platform" \
               --extract-to "$destination" >/dev/null
             test -x "$destination/ezm"

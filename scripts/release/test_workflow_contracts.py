@@ -60,6 +60,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("          python3 - <<'PY'\n          import json", step)
         self.assertIn("\n          PY\n", step)
 
+    def test_npm_cross_platform_extraction_does_not_execute_foreign_binaries(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        extract = workflow.index("name: Extract release binaries")
+        setup_node = workflow.index("name: Setup Node.js")
+        step = workflow[extract:setup_node]
+        self.assertIn("--extract-to", step)
+        self.assertNotIn("--expected-version", step)
+
     def test_npm_publication_requires_github_release_and_evidence(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("- release\n", workflow)
