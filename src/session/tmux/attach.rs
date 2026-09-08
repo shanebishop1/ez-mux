@@ -198,6 +198,12 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     #[cfg(unix)]
     use std::path::Path;
+    #[cfg(unix)]
+    use std::process::Command;
+    #[cfg(unix)]
+    use std::thread;
+    #[cfg(unix)]
+    use std::time::{Duration, Instant};
 
     #[cfg(unix)]
     use tempfile::TempDir;
@@ -274,7 +280,7 @@ mod tests {
             let count_file = program.with_extension("count");
             let args_file = program.with_extension("args");
             let script = format!(
-                "#!/bin/sh\ncount_file=\"$0.count\"\ncount=0\nif [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\ncount=$((count + 1))\nprintf '%s\\n' \"$count\" > \"$count_file\"\nprintf '%s\\n' \"$*\" > \"$0.args\"\nprintf '%s\\n' '{stderr}' >&2\nexit {exit_code}\n"
+                "#!/bin/sh\nif [ \"$1\" = --ezm-ready-probe ]; then exit 0; fi\ncount_file=\"$0.count\"\ncount=0\nif [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\ncount=$((count + 1))\nprintf '%s\\n' \"$count\" > \"$count_file\"\nprintf '%s\\n' \"$*\" > \"$0.args\"\nprintf '%s\\n' '{stderr}' >&2\nexit {exit_code}\n"
             );
             fs::write(&program, script).expect("write fake tmux");
             let mut permissions = fs::metadata(&program)
@@ -282,6 +288,18 @@ mod tests {
                 .permissions();
             permissions.set_mode(0o755);
             fs::set_permissions(&program, permissions).expect("make fake tmux executable");
+
+            let deadline = Instant::now() + Duration::from_secs(1);
+            loop {
+                match Command::new(&program).arg("--ezm-ready-probe").status() {
+                    Ok(status) if status.success() => break,
+                    Ok(status) => panic!("fake tmux readiness probe failed with {status}"),
+                    Err(_) if Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("fake tmux did not become executable: {error}"),
+                }
+            }
 
             Self {
                 _directory: directory,
