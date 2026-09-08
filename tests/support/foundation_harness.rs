@@ -94,6 +94,7 @@ pub struct PtyInterruptProbe {
     pub exit_code: i32,
     pub observed_attached_client: bool,
     pub signal_sent: bool,
+    pub diagnostics: String,
 }
 
 pub struct PtyTmuxClient {
@@ -181,6 +182,7 @@ pub struct FoundationHarness {
     pub ezm_bin: PathBuf,
     work_dir: PathBuf,
     fake_bin_dir: PathBuf,
+    fake_perles_bin_dir: PathBuf,
     open_capture_path: PathBuf,
     project_root: PathBuf,
     verbose_default_launch: bool,
@@ -213,18 +215,22 @@ impl FoundationHarness {
             .to_string_lossy()
             .into_owned();
         let fake_bin_dir = work_dir.join("bin");
+        let fake_perles_bin_dir = work_dir.join("perles-bin");
         let open_capture_path = work_dir.join("open-latest-arg.txt");
 
         fs::create_dir_all(&artifact_dir)
             .map_err(|error| format!("failed creating artifact directory: {error}"))?;
         fs::create_dir_all(&fake_bin_dir)
             .map_err(|error| format!("failed creating fake bin directory: {error}"))?;
+        fs::create_dir_all(&fake_perles_bin_dir)
+            .map_err(|error| format!("failed creating fake perles directory: {error}"))?;
 
         let tmux_bin = resolve_tool_path("tmux")?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| String::from("unknown"));
         let ezm_bin = resolve_ezm_bin(&project_root)?;
 
         install_fake_opener_scripts(&fake_bin_dir)?;
+        install_fake_perles_script(&fake_perles_bin_dir)?;
         install_tmux_wrapper(&fake_bin_dir, &tmux_bin)?;
 
         let harness = Self {
@@ -238,6 +244,7 @@ impl FoundationHarness {
             ezm_bin,
             work_dir,
             fake_bin_dir,
+            fake_perles_bin_dir,
             open_capture_path,
             project_root,
             verbose_default_launch: suite_name != "foundation",
@@ -275,6 +282,16 @@ impl FoundationHarness {
 
     pub fn work_dir(&self) -> &Path {
         &self.work_dir
+    }
+
+    pub fn path_with_fake_perles(&self) -> String {
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        format!(
+            "{}:{}:{}",
+            self.fake_perles_bin_dir.display(),
+            self.fake_bin_dir.display(),
+            current_path
+        )
     }
 
     pub fn reset_scenario_state(&self) -> Result<(), String> {
@@ -728,9 +745,19 @@ impl FoundationHarness {
         env_overrides: &[(&str, &str)],
         opener_exit_code: i32,
         session_name: &str,
+        after_attach: impl FnOnce() -> Result<(), String>,
     ) -> Result<PtyInterruptProbe, String> {
         let command =
             self.build_pty_command(project_dir, args, env_overrides, opener_exit_code, false)?;
+
+        let clients_before = self
+            .tmux_capture(&["list-clients", "-F", "#{client_tty}"])
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|tty| !tty.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
 
         let pty = native_pty_system()
             .openpty(PtySize {
@@ -746,38 +773,120 @@ impl FoundationHarness {
             .spawn_command(command)
             .map_err(|error| format!("failed spawning PTY child for ezm {args:?}: {error}"))?;
 
+        let mut writer = match pty.master.take_writer() {
+            Ok(writer) => writer,
+            Err(error) => {
+                let message = format!("failed taking interrupt probe PTY writer: {error}");
+                teardown_pty_resources(
+                    Some(pty.master),
+                    None,
+                    &mut *child,
+                    None,
+                    "interrupt probe writer setup",
+                );
+                return Err(message);
+            }
+        };
+
+        let mut reader = match pty.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => {
+                let message = format!("failed cloning interrupt probe PTY reader: {error}");
+                teardown_pty_resources(
+                    Some(pty.master),
+                    Some(writer),
+                    &mut *child,
+                    None,
+                    "interrupt probe reader setup",
+                );
+                return Err(message);
+            }
+        };
+        let terminal_output = Arc::new(Mutex::new(Vec::new()));
+        let output_for_reader = Arc::clone(&terminal_output);
+        let reader_thread = thread::spawn(move || {
+            let mut buffer = [0_u8; 4096];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => {
+                        let Ok(mut output) = output_for_reader.lock() else {
+                            break;
+                        };
+                        append_terminal_output(&mut output, &buffer[..count]);
+                    }
+                }
+            }
+        });
+
         let mut observed_attached_client = false;
+        let mut observed_client_tty = None;
         let mut signal_sent = false;
-        let start = Instant::now();
-        let timeout = Duration::from_secs(5);
-        let poll_interval = Duration::from_millis(30);
-        let signal_fallback_delay = Duration::from_millis(500);
+        let mut after_attach = Some(after_attach);
+        let attach_deadline = Instant::now() + PTY_ATTACH_TIMEOUT;
+        let mut exit_deadline = None;
+        let poll_interval = Duration::from_millis(10);
+        let mut last_clients = String::new();
 
         loop {
             if !observed_attached_client {
-                observed_attached_client = self
+                let clients = self
                     .tmux_capture(&["list-clients", "-F", "#{session_name}|#{client_tty}"])
-                    .ok()
-                    .is_some_and(|clients| {
-                        clients.lines().any(|line| {
-                            let Some((attached_session, client_tty)) = line.split_once('|') else {
-                                return false;
-                            };
+                    .unwrap_or_default();
+                last_clients.clone_from(&clients);
+                let attached_client_tty = clients.lines().find_map(|line| {
+                    let (attached_session, client_tty) = line.split_once('|')?;
+                    let client_tty = client_tty.trim();
+                    (attached_session.trim() == session_name
+                        && !client_tty.is_empty()
+                        && !clients_before.iter().any(|existing| existing == client_tty))
+                    .then(|| client_tty.to_owned())
+                });
+                if let Some(client_tty) = attached_client_tty {
+                    if let Err(error) = self.wait_for_tmux_client_input_ready(
+                        &client_tty,
+                        &mut *writer,
+                        PTY_INPUT_READY_TIMEOUT,
+                    ) {
+                        teardown_pty_resources(
+                            Some(pty.master),
+                            Some(writer),
+                            &mut *child,
+                            Some(reader_thread),
+                            "interrupt probe client readiness failure",
+                        );
+                        let terminal_output = terminal_output_for_diagnostic(&terminal_output);
+                        return Err(format!(
+                            "interrupt probe client {client_tty:?} never accepted PTY input: {error}; clients={clients:?}; terminal_output={terminal_output:?}"
+                        ));
+                    }
+                    observed_attached_client = true;
 
-                            attached_session.trim() == session_name && !client_tty.trim().is_empty()
-                        })
-                    });
-            }
+                    if let Some(callback) = after_attach.take() {
+                        if let Err(error) = callback() {
+                            teardown_pty_resources(
+                                Some(pty.master),
+                                Some(writer),
+                                &mut *child,
+                                Some(reader_thread),
+                                "interrupt probe attached callback failure",
+                            );
+                            let terminal_output = terminal_output_for_diagnostic(&terminal_output);
+                            return Err(format!(
+                                "interrupt probe attached callback failed: {error}; terminal_output={terminal_output:?}"
+                            ));
+                        }
+                    }
+                    observed_client_tty = Some(client_tty);
 
-            if !signal_sent
-                && (observed_attached_client || start.elapsed() >= signal_fallback_delay)
-            {
-                if let Some(pid) = child.process_id() {
-                    signal_sent = Command::new("kill")
-                        .arg("-INT")
-                        .arg(pid.to_string())
-                        .status()
-                        .is_ok_and(|status| status.success());
+                    if let Some(pid) = child.process_id() {
+                        signal_sent = Command::new("kill")
+                            .arg("-INT")
+                            .arg(pid.to_string())
+                            .status()
+                            .is_ok_and(|status| status.success());
+                    }
+                    exit_deadline = Some(Instant::now() + Duration::from_secs(10));
                 }
             }
 
@@ -789,21 +898,30 @@ impl FoundationHarness {
                 break;
             }
 
-            if start.elapsed() >= timeout {
-                if let Some(pid) = child.process_id() {
-                    let _ = Command::new("kill")
-                        .arg("-TERM")
-                        .arg(pid.to_string())
-                        .status();
-                }
-                let _ = child.kill();
-                break;
+            let deadline_expired = exit_deadline.map_or_else(
+                || Instant::now() >= attach_deadline,
+                |deadline| Instant::now() >= deadline,
+            );
+            if deadline_expired {
+                teardown_pty_resources(
+                    Some(pty.master),
+                    Some(writer),
+                    &mut *child,
+                    Some(reader_thread),
+                    "interrupt probe deadline",
+                );
+                let terminal_output = terminal_output_for_diagnostic(&terminal_output);
+                return Err(format!(
+                    "interrupt probe deadline expired; attached={observed_attached_client}; signal_sent={signal_sent}; clients={last_clients:?}; terminal_output={terminal_output:?}"
+                ));
             }
 
             thread::sleep(poll_interval);
         }
 
+        drop(writer);
         drop(pty.master);
+        join_reader_thread(Some(reader_thread));
 
         let exit_code = wait_for_pty_child_exit(
             &mut *child,
@@ -816,6 +934,10 @@ impl FoundationHarness {
             exit_code,
             observed_attached_client,
             signal_sent,
+            diagnostics: format!(
+                "clients_before={clients_before:?}; last_clients={last_clients:?}; observed_client_tty={observed_client_tty:?}; terminal_output={:?}",
+                terminal_output_for_diagnostic(&terminal_output)
+            ),
         })
     }
 
@@ -1357,6 +1479,13 @@ fn install_fake_opener_scripts(fake_bin_dir: &Path) -> Result<(), String> {
         "#!/usr/bin/env sh\nprintf '%s' \"$1\" > \"${E2E_OPEN_CAPTURE}\"\nexit \"${E2E_OPEN_EXIT:-0}\"\n",
     )?;
     Ok(())
+}
+
+fn install_fake_perles_script(fake_bin_dir: &Path) -> Result<(), String> {
+    write_executable(
+        &fake_bin_dir.join("perles"),
+        "#!/usr/bin/env sh\nexec sleep 3600\n",
+    )
 }
 
 fn install_tmux_wrapper(fake_bin_dir: &Path, real_tmux_bin: &Path) -> Result<(), String> {

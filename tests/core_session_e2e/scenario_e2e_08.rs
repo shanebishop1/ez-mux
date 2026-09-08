@@ -12,9 +12,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let expected_session = prepare_fresh_create_path(harness, harness.project_root())
         .unwrap_or_else(|error| panic!("E2E-08 setup failed: {error}"));
+    let path = harness.path_with_fake_perles();
+    let perles_env = [("PATH", path.as_str())];
 
     let launch = harness
-        .run_ezm(&[], &[], 0)
+        .run_ezm(&[], &perles_env, 0)
         .unwrap_or_else(|error| panic!("E2E-08 launch failed: {error}"));
     samples.push(sample(&[], &launch));
 
@@ -30,12 +32,12 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "open",
     ];
     let open_first = harness
-        .run_ezm(&open_args, &[], 0)
+        .run_ezm(&open_args, &perles_env, 0)
         .unwrap_or_else(|error| panic!("E2E-08 first open failed to execute: {error}"));
     samples.push(sample(&open_args, &open_first));
 
     let open_second = harness
-        .run_ezm(&open_args, &[], 0)
+        .run_ezm(&open_args, &perles_env, 0)
         .unwrap_or_else(|error| panic!("E2E-08 second open failed to execute: {error}"));
     samples.push(sample(&open_args, &open_second));
 
@@ -78,7 +80,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "close",
     ];
     let close = harness
-        .run_ezm(&close_args, &[], 0)
+        .run_ezm(&close_args, &perles_env, 0)
         .unwrap_or_else(|error| panic!("E2E-08 close failed to execute: {error}"));
     samples.push(sample(&close_args, &close));
 

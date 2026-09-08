@@ -172,6 +172,42 @@ fn core_session_e2e_suite() {
     }
 }
 
+fn assert_focused_scenario(
+    suite_name: &str,
+    id: &str,
+    run: impl FnOnce(&FoundationHarness) -> CaseEvidence,
+) {
+    let harness = FoundationHarness::new_for_suite(suite_name)
+        .unwrap_or_else(|error| panic!("{id} focused harness setup failed: {error}"));
+    let evidence = run_scenario(&harness, id, || run(&harness));
+    assert!(
+        evidence.pass,
+        "{id} focused reproduction failed: {:?}",
+        evidence.assertions
+    );
+}
+
+#[test]
+fn affected_e2e08_auxiliary_lifecycle() {
+    assert_focused_scenario("core-session-e2e-08-focused", "E2E-08", |harness| {
+        scenario_e2e_08::run(harness)
+    });
+}
+
+#[test]
+fn affected_e2e10_remote_command_rendering() {
+    assert_focused_scenario("core-session-e2e-10-focused", "E2E-10", |harness| {
+        scenario_e2e_10::run(harness)
+    });
+}
+
+#[test]
+fn affected_e2e19_owned_interrupt_cleanup() {
+    assert_focused_scenario("core-session-e2e-19-focused", "E2E-19", |harness| {
+        scenario_e2e_19::run(harness)
+    });
+}
+
 #[test]
 fn e2e21_one_pane_slot_one_recovery() {
     let harness = FoundationHarness::new_for_suite("core-session-e2e-21")

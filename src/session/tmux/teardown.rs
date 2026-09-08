@@ -240,6 +240,7 @@ fn parse_lines(bytes: &[u8]) -> Vec<String> {
 fn tmux_absence_status(stderr: &[u8]) -> bool {
     let normalized = String::from_utf8_lossy(stderr).to_ascii_lowercase();
     normalized.contains("can't find session")
+        || normalized.contains("can't find window")
         || normalized.contains("no server running")
         || normalized.contains("failed to connect to server")
 }

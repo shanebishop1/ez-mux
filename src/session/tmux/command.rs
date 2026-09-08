@@ -263,14 +263,12 @@ fn render_startup_trace(command: &str, status_code: &str, elapsed: std::time::Du
 fn startup_trace_tmux_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var(STARTUP_TRACE_TMUX_ENV)
-            .ok()
-            .is_some_and(|value| {
-                matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "1" | "true" | "yes" | "on"
-                )
-            })
+        std::env::var(STARTUP_TRACE_TMUX_ENV).is_ok_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
     })
 }
 

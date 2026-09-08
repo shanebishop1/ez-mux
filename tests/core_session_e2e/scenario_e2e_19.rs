@@ -1,10 +1,12 @@
 use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
-    CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, HelperLifecycleEvidence, SessionSnapshot,
-    extract_stdout_field, map_settle, popup_helper_session_name, prepare_fresh_create_path,
-    read_helper_state_snapshot, sample, settle_snapshot, wait_for_helper_pids_to_exit,
+    CaseEvidence, DEFAULT_POLL_INTERVAL, HelperLifecycleEvidence, SessionSnapshot, map_settle,
+    poll_until, popup_helper_session_name, prepare_fresh_create_path, read_helper_state_snapshot,
+    sample, settle_snapshot, wait_for_helper_pids_to_exit,
 };
+
+const INTERRUPT_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[allow(clippy::too_many_lines)]
 pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
@@ -13,26 +15,11 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
 
     let expected_session = prepare_fresh_create_path(harness, harness.project_root())
         .unwrap_or_else(|error| panic!("E2E-19 setup failed: {error}"));
+    let path = harness.path_with_fake_perles();
+    let perles_env = [("PATH", path.as_str())];
 
-    let launch = harness
-        .run_ezm(&[], &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-19 launch failed: {error}"));
-    samples.push(sample(&[], &launch));
-
-    let launch_action = extract_stdout_field(&launch.stdout, "session_action").unwrap_or_default();
-    let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
-
-    let popup_args = vec!["__internal", "popup", "--session", &session, "--slot", "4"];
-    let popup_open = harness
-        .run_ezm(&popup_args, &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-19 popup open failed to execute: {error}"));
-    samples.push(sample(&popup_args, &popup_open));
-
+    let session = expected_session.clone();
     let popup_session = popup_helper_session_name(&session, 4);
-    let popup_present_before_interrupt = harness
-        .tmux_capture(&["has-session", "-t", &popup_session])
-        .is_ok();
-
     let auxiliary_open_args = vec![
         "__internal",
         "auxiliary",
@@ -41,29 +28,64 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "--action",
         "open",
     ];
-    let auxiliary_open = harness
-        .run_ezm(&auxiliary_open_args, &[], 0)
-        .unwrap_or_else(|error| panic!("E2E-19 auxiliary open failed to execute: {error}"));
-    samples.push(sample(&auxiliary_open_args, &auxiliary_open));
-
-    let before_state = read_helper_state_snapshot(harness, &session);
+    let mut auxiliary_open = None;
+    let mut before_state = None;
 
     let interrupt_probe = harness
-        .run_ezm_with_pty_interrupt(harness.project_root(), &[], &[], 0, &session)
+        .run_ezm_with_pty_interrupt(
+            harness.project_root(),
+            &[],
+            &perles_env,
+            0,
+            &session,
+            || {
+                harness.tmux_capture(&[
+                    "new-session",
+                    "-d",
+                    "-s",
+                    &popup_session,
+                    "sleep",
+                    "3600",
+                ])?;
+
+                let auxiliary = harness.run_ezm(&auxiliary_open_args, &perles_env, 0)?;
+                if auxiliary.exit_code != 0 {
+                    return Err(format!(
+                        "auxiliary open failed with exit code {}: {}",
+                        auxiliary.exit_code, auxiliary.stderr
+                    ));
+                }
+                auxiliary_open = Some(auxiliary);
+                before_state = Some(read_helper_state_snapshot(harness, &session));
+                Ok(())
+            },
+        )
         .unwrap_or_else(|error| panic!("E2E-19 interrupt probe failed: {error}"));
+
+    let auxiliary_open =
+        auxiliary_open.expect("E2E-19 attached callback did not run auxiliary open");
+    let before_state = before_state.expect("E2E-19 attached callback did not capture helper state");
+    samples.push(sample(&auxiliary_open_args, &auxiliary_open));
+
+    let popup_present_before_interrupt = before_state
+        .helper_sessions
+        .iter()
+        .any(|helper| helper == &popup_session);
 
     let interrupt_cleanup_path = interrupt_probe.observed_attached_client
         && interrupt_probe.signal_sent
         && interrupt_probe.exit_code == 130;
-    let mut fallback_teardown_exit_code = None;
-    if !interrupt_cleanup_path {
-        let teardown_args = vec!["__internal", "teardown", "--session", &session];
-        let teardown = harness
-            .run_ezm(&teardown_args, &[], 0)
-            .unwrap_or_else(|error| panic!("E2E-19 fallback teardown failed to execute: {error}"));
-        fallback_teardown_exit_code = Some(teardown.exit_code);
-        samples.push(sample(&teardown_args, &teardown));
-    }
+
+    let cleanup_observed = poll_until(INTERRUPT_CLEANUP_TIMEOUT, DEFAULT_POLL_INTERVAL, || {
+        let project_gone = harness
+            .tmux_capture(&["has-session", "-t", &session])
+            .is_err();
+        let helpers_gone = read_helper_state_snapshot(harness, &session)
+            .helper_sessions
+            .is_empty();
+        Ok(project_gone && helpers_gone)
+    })
+    .unwrap_or_else(|error| panic!("E2E-19 failed polling interrupt cleanup: {error}"));
 
     let project_session_present_after_interrupt = harness
         .tmux_capture(&["has-session", "-t", &session])
@@ -71,14 +93,18 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let after_state = read_helper_state_snapshot(harness, &session);
     let leaked_helper_pids = wait_for_helper_pids_to_exit(
         &before_state.helper_pane_pids,
-        DEFAULT_TIMEOUT,
+        INTERRUPT_CLEANUP_TIMEOUT,
         DEFAULT_POLL_INTERVAL,
     )
     .unwrap_or_else(|error| panic!("E2E-19 failed polling helper pid shutdown: {error}"));
 
-    assertions.push(format!("launch action = {launch_action}"));
+    assertions.push(String::from(
+        "interrupt launch started from absent session = true",
+    ));
     assertions.push(format!("session = {session}"));
-    assertions.push(format!("popup open exit_code = {}", popup_open.exit_code));
+    assertions.push(String::from(
+        "owned popup helper fixture created after attach = true",
+    ));
     assertions.push(format!(
         "auxiliary open exit_code = {}",
         auxiliary_open.exit_code
@@ -95,8 +121,8 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         "interrupt path met attach+signal+130 criteria = {interrupt_cleanup_path}"
     ));
     assertions.push(format!(
-        "fallback teardown exit_code when interrupt criteria not met = {}",
-        fallback_teardown_exit_code.map_or_else(|| String::from("none"), |code| code.to_string())
+        "interrupt probe diagnostics = {}",
+        interrupt_probe.diagnostics
     ));
     assertions.push(format!(
         "popup helper session exists before interrupt = {popup_present_before_interrupt}"
@@ -108,6 +134,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     assertions.push(format!(
         "helper pane pids present before interrupt = {}",
         !before_state.helper_pane_pids.is_empty()
+    ));
+    assertions.push(format!(
+        "bounded interrupt cleanup observed = {cleanup_observed}"
     ));
     assertions.push(format!(
         "project session removed after interrupt cleanup = {}",
@@ -129,19 +158,17 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let settle = settle_snapshot(harness, "E2E-19");
     let session_exists = project_session_present_after_interrupt;
     let session_count = usize::from(session_exists);
-    let pass = launch.exit_code == 0
-        && launch_action == "create"
-        && session == expected_session
-        && popup_open.exit_code == 0
+    let pass = session == expected_session
         && auxiliary_open.exit_code == 0
+        && interrupt_cleanup_path
         && popup_present_before_interrupt
         && !before_state.helper_sessions.is_empty()
         && !before_state.helper_pane_pids.is_empty()
+        && cleanup_observed
         && !project_session_present_after_interrupt
         && after_state.helper_sessions.is_empty()
         && after_state.helper_pane_pids.is_empty()
         && leaked_helper_pids.is_empty()
-        && (interrupt_cleanup_path || fallback_teardown_exit_code == Some(0))
         && settle.stable;
 
     CaseEvidence {
