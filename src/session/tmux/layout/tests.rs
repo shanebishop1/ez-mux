@@ -1,8 +1,10 @@
 use super::{
-    RegistryWriteStrategy, binary_hint_looks_like_single_executable,
-    bootstrap_registry_write_strategy, normalize_shell_binary_hint, parse_bootstrap_anchor,
+    RegistryWriteStrategy, bootstrap_registry_write_strategy, parse_bootstrap_anchor,
     should_apply_runtime_styles_during_bootstrap, should_validate_registry_after_bootstrap,
     startup_mode_for_slot, startup_mode_schedule_command,
+};
+use crate::session::binary_hint::{
+    binary_hint_looks_like_single_executable, normalize_shell_binary_hint,
 };
 
 #[test]

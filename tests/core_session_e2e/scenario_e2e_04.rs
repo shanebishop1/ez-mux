@@ -2,9 +2,9 @@ use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
     CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot,
-    center_pane_from_geometry, extract_stdout_field, map_settle, pane_geometry_by_id, poll_until,
-    prepare_fresh_create_path, read_pane_geometry, read_slot_snapshot, sample, send_prefix_keybind,
-    settle_snapshot, slot_snapshots_match,
+    center_pane_from_geometry, check_key_binding, extract_stdout_field, map_settle,
+    pane_geometry_by_id, poll_until, prepare_fresh_create_path, read_pane_geometry,
+    read_slot_snapshot, sample, send_prefix_keybind, settle_snapshot, slot_snapshots_match,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -53,15 +53,16 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     assertions.push(format!("slot pane before swap = {slot_pane_id}"));
     assertions.push(format!("center pane before swap = {center_before}"));
 
-    let focus_prefix_keybind = harness
-        .tmux_capture(&["list-keys", "-T", "prefix", "f"])
-        .unwrap_or_default();
-    let focus_slot_keybind = harness
-        .tmux_capture(&["list-keys", "-T", "ezm-focus", &slot_key])
-        .unwrap_or_default();
-    let keybind_matrix_present = focus_prefix_keybind.contains("ezm-focus")
-        && focus_slot_keybind.contains("__internal focus")
-        && focus_slot_keybind.contains(&format!("--slot {slot_id}"));
+    let focus_prefix_check = check_key_binding(harness, "prefix", "f", &["ezm-focus"]);
+    let focus_slot_check = check_key_binding(
+        harness,
+        "ezm-focus",
+        &slot_key,
+        &["__internal focus", &format!("--slot {slot_id}")],
+    );
+    let keybind_matrix_present = focus_prefix_check.pass && focus_slot_check.pass;
+    assertions.push(focus_prefix_check.detail);
+    assertions.push(focus_slot_check.detail);
     assertions.push(format!(
         "focus keybind matrix present for prefix f -> table -> slot {slot_id} = {keybind_matrix_present}"
     ));

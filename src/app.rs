@@ -51,24 +51,32 @@ pub(crate) fn execute_with_opener(
         ..
     } = cli;
 
-    let loaded = config::load_config(env, os)?;
-    let pane_count = config::resolve_pane_count(panes.or(pane_shortcut), &loaded.values)?;
-    let resolved_remote_runtime = config::resolve_remote_runtime(env, &loaded.values)?;
-    let agent_command = config::resolve_agent_command(&loaded.values);
-    let opencode_theme_runtime = config::resolve_opencode_theme_runtime(&loaded.values);
-    let remote_path = remote_path_for_routing(&resolved_remote_runtime);
-
     let message = match command {
         None => {
+            let (pane_count, runtime_context) =
+                resolve_launch_settings(env, os, panes.or(pane_shortcut))?;
+            validate_resolved_remote_authority(
+                runtime_context.remote.remote_server_url.value.as_deref(),
+            )?;
             let outcome = execute_default_session_flow(
-                remote_path,
-                resolved_remote_runtime.remote_server_url.value.as_deref(),
-                resolved_remote_transport_flags(&resolved_remote_runtime),
+                &runtime_context,
                 pane_count.value,
                 no_worktrees,
                 &session::ProcessTmuxClient,
             )?;
-            default_contract_summary_message(verbose > 0, &outcome, &resolved_remote_runtime)
+            let effective_runtime_context = if outcome.action == session::SessionAction::Attach {
+                session::resolve_session_runtime_context(
+                    &outcome.identity.session_name,
+                    &runtime_context,
+                )?
+            } else {
+                runtime_context.clone()
+            };
+            default_contract_summary_message(
+                verbose > 0,
+                &outcome,
+                &effective_runtime_context.remote,
+            )
         }
         Some(Command::Kill) => {
             let outcome = execute_kill_session_flow(&session::ProcessTmuxClient)?;
@@ -83,11 +91,14 @@ pub(crate) fn execute_with_opener(
             execute_open_latest(active_log_root, os, opener)?
         }
         Some(Command::Preset { preset }) => {
+            let (pane_count, runtime_context) =
+                resolve_launch_settings(env, os, panes.or(pane_shortcut))?;
+            validate_resolved_remote_authority(
+                runtime_context.remote.remote_server_url.value.as_deref(),
+            )?;
             let tmux = session::ProcessTmuxClient;
             let outcome = execute_default_session_flow(
-                remote_path,
-                resolved_remote_runtime.remote_server_url.value.as_deref(),
-                resolved_remote_transport_flags(&resolved_remote_runtime),
+                &runtime_context,
                 pane_count.value,
                 no_worktrees,
                 &tmux,
@@ -100,32 +111,38 @@ pub(crate) fn execute_with_opener(
                 preset_outcome.preset.label()
             )
         }
-        Some(Command::Internal { command }) => execute_internal(
-            command,
-            remote_path,
-            &resolved_remote_runtime,
-            agent_command.as_deref(),
-            &opencode_theme_runtime,
-        )?,
+        Some(Command::Internal { command }) => {
+            let loaded = config::load_config(env, os)?;
+            let runtime_context = config::resolve_runtime_context(env, &loaded.values)?;
+            execute_internal(command, &runtime_context)?
+        }
     };
 
     Ok(message)
 }
 
+fn resolve_launch_settings(
+    env: &impl config::EnvProvider,
+    os: OperatingSystem,
+    pane_count: Option<u8>,
+) -> Result<(config::ResolvedValue<u8>, config::RuntimeContext), AppError> {
+    let loaded = config::load_config(env, os)?;
+    Ok((
+        config::resolve_pane_count(pane_count, &loaded.values)?,
+        config::resolve_runtime_context(env, &loaded.values)?,
+    ))
+}
+
 fn execute_default_session_flow(
-    remote_path: Option<&str>,
-    remote_server_url: Option<&str>,
-    remote_transport: session::RemoteTransportFlags,
+    runtime_context: &config::RuntimeContext,
     pane_count: u8,
     no_worktrees: bool,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
     let project_dir = std::env::current_dir().map_err(session::SessionError::CurrentDir)?;
-    execute_default_session_flow_for_project_dir(
+    execute_default_session_flow_for_runtime_context(
         project_dir.as_path(),
-        remote_path,
-        remote_server_url,
-        remote_transport,
+        runtime_context,
         pane_count,
         no_worktrees,
         tmux,
@@ -147,6 +164,7 @@ fn execute_kill_session_flow_for_project_dir(
     session::teardown_session(&identity.session_name, tmux).map_err(AppError::Session)
 }
 
+#[cfg(test)]
 fn execute_default_session_flow_for_project_dir(
     project_dir: &std::path::Path,
     remote_path: Option<&str>,
@@ -156,22 +174,62 @@ fn execute_default_session_flow_for_project_dir(
     no_worktrees: bool,
     tmux: &impl session::TmuxClient,
 ) -> Result<session::SessionLaunchOutcome, AppError> {
-    let identity = session::resolve_session_identity(project_dir)?;
+    if remote_path.is_some() {
+        validate_resolved_remote_authority(remote_server_url)?;
+    }
+    let mut runtime_context = config::RuntimeContext::default();
+    runtime_context.remote.remote_path = config::ResolvedValue {
+        value: remote_path.map(str::to_owned),
+        source: if remote_path.is_some() {
+            ValueSource::Env
+        } else {
+            ValueSource::Default
+        },
+    };
+    runtime_context.remote.remote_server_url = config::ResolvedValue {
+        value: remote_server_url.map(str::to_owned),
+        source: if remote_server_url.is_some() {
+            ValueSource::Env
+        } else {
+            ValueSource::Default
+        },
+    };
+    runtime_context.remote.use_tssh = config::ResolvedValue {
+        value: remote_transport.use_tssh,
+        source: ValueSource::Env,
+    };
+    runtime_context.remote.use_mosh = config::ResolvedValue {
+        value: remote_transport.use_mosh,
+        source: ValueSource::Env,
+    };
 
-    match session::ensure_project_session_with_remote_path_and_options(
+    execute_default_session_flow_for_runtime_context(
         project_dir,
-        remote_path,
-        remote_server_url,
-        remote_transport,
+        &runtime_context,
+        pane_count,
+        no_worktrees,
+        tmux,
+    )
+}
+
+fn execute_default_session_flow_for_runtime_context(
+    project_dir: &std::path::Path,
+    runtime_context: &config::RuntimeContext,
+    pane_count: u8,
+    no_worktrees: bool,
+    tmux: &impl session::TmuxClient,
+) -> Result<session::SessionLaunchOutcome, AppError> {
+    validate_resolved_remote_authority(runtime_context.remote.remote_server_url.value.as_deref())?;
+
+    match session::ensure_project_session_with_runtime_context(
+        project_dir,
+        runtime_context,
         pane_count,
         no_worktrees,
         tmux,
     ) {
         Ok(outcome) => Ok(outcome),
-        Err(session::SessionError::Interrupted) => {
-            let _ = session::teardown_session(&identity.session_name, tmux);
-            Err(AppError::Interrupted)
-        }
+        Err(session::SessionError::Interrupted) => Err(AppError::Interrupted),
         Err(error) => Err(AppError::Session(error)),
     }
 }
@@ -187,51 +245,31 @@ fn execute_open_latest(
 
 fn execute_internal(
     command: InternalCommand,
-    remote_path: Option<&str>,
-    remote_runtime: &config::RemoteRuntimeResolution,
-    agent_command: Option<&str>,
-    opencode_theme_runtime: &config::OpencodeThemeRuntimeResolution,
+    runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     match command {
         InternalCommand::Swap { session, slot } => {
             let tmux = session::ProcessTmuxClient;
             session::TmuxClient::swap_slot_with_center(&tmux, &session, slot)?;
-            Ok(internal_swap_success_message(&session, slot))
+            Ok(String::new())
         }
         InternalCommand::Focus { session, slot } => {
             let tmux = session::ProcessTmuxClient;
-            let outcome = session::focus_slot(&session, slot, &tmux)?;
-            Ok(internal_focus_success_message(
-                &outcome.session_name,
-                outcome.slot_id,
-            ))
+            session::focus_slot(&session, slot, &tmux)?;
+            Ok(String::new())
         }
         InternalCommand::Mode {
             session,
             slot,
             mode,
-        } => execute_internal_mode(
-            &session,
-            slot,
-            mode,
-            remote_path,
-            remote_runtime,
-            agent_command,
-            opencode_theme_runtime,
-        ),
+        } => execute_internal_mode(&session, slot, mode, runtime_context),
         InternalCommand::Popup {
             session,
             slot,
             client,
-        } => execute_internal_popup(
-            &session,
-            slot,
-            client.as_deref(),
-            remote_path,
-            remote_runtime,
-        ),
+        } => execute_internal_popup(&session, slot, client.as_deref(), runtime_context),
         InternalCommand::Auxiliary { session, action } => {
-            execute_internal_auxiliary(&session, action, remote_runtime)
+            execute_internal_auxiliary(&session, action, runtime_context)
         }
         InternalCommand::Teardown { session } => {
             let tmux = session::ProcessTmuxClient;
@@ -260,24 +298,24 @@ fn execute_internal_mode(
     session_name: &str,
     slot: u8,
     mode: session::SlotMode,
-    remote_path: Option<&str>,
-    remote_runtime: &config::RemoteRuntimeResolution,
-    agent_command: Option<&str>,
-    opencode_theme_runtime: &config::OpencodeThemeRuntimeResolution,
+    runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     let tmux = session::ProcessTmuxClient;
-    let shared_server = shared_server_attach_config(remote_runtime);
+    let runtime_context = session::resolve_session_runtime_context(session_name, runtime_context)?;
+    validate_resolved_remote_authority(runtime_context.remote.remote_server_url.value.as_deref())?;
+    let remote_path = remote_path_for_routing(&runtime_context.remote);
+    let shared_server = shared_server_attach_config(&runtime_context.remote);
     let remote_context = session::RemoteModeContext {
         remote_path,
-        remote_server_url: remote_runtime.remote_server_url.value.as_deref(),
-        use_tssh: remote_runtime.use_tssh.value,
-        use_mosh: remote_runtime.use_mosh.value,
+        remote_server_url: runtime_context.remote.remote_server_url.value.as_deref(),
+        use_tssh: runtime_context.remote.use_tssh.value,
+        use_mosh: runtime_context.remote.use_mosh.value,
     };
     let launch_context = session::SlotModeLaunchContext {
         remote_context,
         shared_server: shared_server.as_ref(),
-        agent_command,
-        opencode_theme: opencode_theme_runtime.theme_for_slot(slot),
+        agent_command: runtime_context.agent_command.as_deref(),
+        opencode_theme: runtime_context.opencode_theme.theme_for_slot(slot),
     };
     let outcome = session::switch_slot_mode(session_name, slot, mode, launch_context, &tmux)?;
     Ok(format!(
@@ -292,17 +330,19 @@ fn execute_internal_popup(
     session_name: &str,
     slot: u8,
     client_tty: Option<&str>,
-    remote_path: Option<&str>,
-    remote_runtime: &config::RemoteRuntimeResolution,
+    runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     let tmux = session::ProcessTmuxClient;
+    let runtime_context = session::resolve_session_runtime_context(session_name, runtime_context)?;
+    validate_resolved_remote_authority(runtime_context.remote.remote_server_url.value.as_deref())?;
+    let remote_path = remote_path_for_routing(&runtime_context.remote);
     let outcome = session::toggle_popup_shell(
         session_name,
         slot,
         client_tty,
         remote_path,
-        remote_runtime.remote_server_url.value.as_deref(),
-        resolved_remote_transport_flags(remote_runtime),
+        runtime_context.remote.remote_server_url.value.as_deref(),
+        resolved_remote_transport_flags(&runtime_context.remote),
         &tmux,
     )?;
     Ok(format!(
@@ -319,16 +359,15 @@ fn execute_internal_popup(
 fn execute_internal_auxiliary(
     session_name: &str,
     action: AuxiliaryAction,
-    remote_runtime: &config::RemoteRuntimeResolution,
+    runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     let tmux = session::ProcessTmuxClient;
+    let runtime_context = session::resolve_session_runtime_context(session_name, runtime_context)?;
     let open = matches!(action, AuxiliaryAction::Open);
-    let remote_transport = resolved_remote_transport_flags(remote_runtime);
-    let outcome = session::auxiliary_viewer(
+    let outcome = session::auxiliary_viewer_with_runtime_context(
         session_name,
         open,
-        remote_transport.use_tssh,
-        remote_transport.use_mosh,
+        &runtime_context.session_context(),
         &tmux,
     )?;
     Ok(format!(
@@ -340,11 +379,6 @@ fn execute_internal_auxiliary(
     ))
 }
 
-fn internal_swap_success_message(session_name: &str, slot_id: u8) -> String {
-    let _ = (session_name, slot_id);
-    String::new()
-}
-
 fn format_kill_message(outcome: &session::TeardownOutcome) -> String {
     format!(
         "kill complete: session={}; project_session_removed={}; helper_sessions_removed={}; helper_processes_removed={}",
@@ -353,11 +387,6 @@ fn format_kill_message(outcome: &session::TeardownOutcome) -> String {
         outcome.helper_sessions_removed,
         outcome.helper_processes_removed
     )
-}
-
-fn internal_focus_success_message(session_name: &str, slot_id: u8) -> String {
-    let _ = (session_name, slot_id);
-    String::new()
 }
 
 fn attach_visibility_label() -> &'static str {
@@ -378,10 +407,7 @@ fn shared_server_attach_config(
     }
 
     let url = remote_runtime.shared_server.url.value.clone()?;
-    Some(session::SharedServerAttachConfig {
-        url,
-        password: remote_runtime.shared_server.password.value.clone(),
-    })
+    Some(session::SharedServerAttachConfig { url })
 }
 
 fn remote_path_for_routing(remote_runtime: &config::RemoteRuntimeResolution) -> Option<&str> {
@@ -399,12 +425,30 @@ fn remote_path_for_routing(remote_runtime: &config::RemoteRuntimeResolution) -> 
         })
 }
 
+fn validate_resolved_remote_authority(remote_server_url: Option<&str>) -> Result<(), AppError> {
+    let Some(remote_server_url) = remote_server_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+
+    session::validate_remote_ssh_authority(remote_server_url).map_err(AppError::Session)
+}
+
 fn source_label(source: ValueSource) -> &'static str {
     source.label()
 }
 
 fn optional_value_label(value: Option<&str>) -> &str {
     value.unwrap_or("none")
+}
+
+fn redacted_optional_value_label(value: Option<&str>) -> String {
+    value.map_or_else(
+        || String::from("none"),
+        session::redact_remote_authority_for_diagnostics,
+    )
 }
 
 fn default_contract_summary_message(
@@ -429,9 +473,13 @@ fn default_contract_summary_message(
             outcome.remote_project_dir.display(),
             optional_value_label(resolved_remote_runtime.remote_path.value.as_deref()),
             source_label(resolved_remote_runtime.remote_path.source),
-            optional_value_label(resolved_remote_runtime.remote_server_url.value.as_deref()),
+            redacted_optional_value_label(
+                resolved_remote_runtime.remote_server_url.value.as_deref(),
+            ),
             source_label(resolved_remote_runtime.remote_server_url.source),
-            optional_value_label(resolved_remote_runtime.shared_server.url.value.as_deref()),
+            redacted_optional_value_label(
+                resolved_remote_runtime.shared_server.url.value.as_deref(),
+            ),
             source_label(resolved_remote_runtime.shared_server.url.source),
             resolved_remote_runtime
                 .shared_server

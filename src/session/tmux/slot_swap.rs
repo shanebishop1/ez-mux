@@ -1,10 +1,7 @@
-use std::sync::OnceLock;
-
 use super::CANONICAL_SLOT_IDS;
 use super::PaneWidthSample;
 use super::SessionError;
-use super::ZoomFlagSupport;
-use super::command::{tmux_output_value, tmux_run};
+use super::command::tmux_output_value;
 use super::layout::{
     LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_KEY, SLOT_SUSPENDED_KEY_PREFIX,
     allowed_suspended_slots_for_layout_mode,
@@ -15,14 +12,7 @@ use super::options::{
 };
 use super::pick_center_pane;
 use super::style::refresh_active_border_for_slot;
-use super::tmux_diagnostics_exit_status;
-use super::zoom_flag_support_for_command;
-
-#[derive(Debug, Clone, Copy)]
-struct ZoomFlagCapabilities {
-    swap_pane: ZoomFlagSupport,
-    select_pane: ZoomFlagSupport,
-}
+use super::zoom::{run_with_zoom_fallback, zoom_flag_support};
 
 #[derive(Debug, Clone, Copy)]
 struct SlotContinuitySnapshot<'a> {
@@ -30,17 +20,6 @@ struct SlotContinuitySnapshot<'a> {
     cwd: &'a str,
     mode: &'a str,
 }
-
-impl Default for ZoomFlagCapabilities {
-    fn default() -> Self {
-        Self {
-            swap_pane: ZoomFlagSupport::Unknown,
-            select_pane: ZoomFlagSupport::Unknown,
-        }
-    }
-}
-
-static ZOOM_FLAG_CAPABILITIES: OnceLock<ZoomFlagCapabilities> = OnceLock::new();
 
 pub(super) fn swap_slot_with_center(session_name: &str, slot_id: u8) -> Result<(), SessionError> {
     if !CANONICAL_SLOT_IDS.contains(&slot_id) {
@@ -146,9 +125,29 @@ pub(super) fn validate_canonical_slot_registry(session_name: &str) -> Result<(),
                 ),
             ));
         }
+
+        let pane_mode = required_pane_option(session_name, slot_id, &pane_id, "@ezm_slot_mode")?;
+        if let Err(reason) = validate_pane_mode(slot_id, &pane_id, &mode, &pane_mode) {
+            return Err(canonical_slot_mismatch_error(session_name, &reason));
+        }
     }
 
     Ok(())
+}
+
+fn validate_pane_mode(
+    slot_id: u8,
+    pane_id: &str,
+    session_mode: &str,
+    pane_mode: &str,
+) -> Result<(), String> {
+    if session_mode == pane_mode {
+        return Ok(());
+    }
+
+    Err(format!(
+        "slot {slot_id} pane {pane_id} mode mismatch session={session_mode} pane={pane_mode}"
+    ))
 }
 
 fn resolve_center_slot_pane(session_name: &str) -> Result<String, SessionError> {
@@ -214,7 +213,7 @@ fn swap_panes_preserve_zoom(
     source_pane_id: &str,
     target_pane_id: &str,
 ) -> Result<(), SessionError> {
-    let capabilities = zoom_flag_capabilities();
+    let zoom_support = zoom_flag_support("swap-pane");
     let with_zoom_args = [
         "swap-pane",
         "-Z",
@@ -227,65 +226,25 @@ fn swap_panes_preserve_zoom(
 
     run_with_zoom_fallback(
         "swap-pane",
-        capabilities.swap_pane,
+        zoom_support,
         &with_zoom_args,
         &without_zoom_args,
+        &["-Z"],
     )
 }
 
-fn zoom_flag_capabilities() -> ZoomFlagCapabilities {
-    *ZOOM_FLAG_CAPABILITIES.get_or_init(|| match tmux_output_value(&["list-commands"]) {
-        Ok(command_listing) => ZoomFlagCapabilities {
-            swap_pane: zoom_flag_support_for_command(&command_listing, "swap-pane"),
-            select_pane: zoom_flag_support_for_command(&command_listing, "select-pane"),
-        },
-        Err(_) => ZoomFlagCapabilities::default(),
-    })
-}
-
-fn run_with_zoom_fallback(
-    command_name: &str,
-    zoom_support: ZoomFlagSupport,
-    with_zoom_args: &[&str],
-    without_zoom_args: &[&str],
-) -> Result<(), SessionError> {
-    if zoom_support == ZoomFlagSupport::Unsupported {
-        return tmux_run(without_zoom_args);
-    }
-
-    match tmux_run(with_zoom_args) {
-        Ok(()) => Ok(()),
-        Err(SessionError::TmuxCommandFailed { command, stderr })
-            if should_retry_without_zoom(command_name, &command, &stderr) =>
-        {
-            tmux_run(without_zoom_args)
-        }
-        Err(error) => Err(error),
-    }
-}
-
 pub(super) fn select_pane_preserve_zoom(pane_id: &str) -> Result<(), SessionError> {
-    let capabilities = zoom_flag_capabilities();
+    let zoom_support = zoom_flag_support("select-pane");
     let with_zoom_args = ["select-pane", "-Z", "-t", pane_id];
     let without_zoom_args = ["select-pane", "-t", pane_id];
 
     run_with_zoom_fallback(
         "select-pane",
-        capabilities.select_pane,
+        zoom_support,
         &with_zoom_args,
         &without_zoom_args,
+        &["-Z"],
     )
-}
-
-fn should_retry_without_zoom(command_name: &str, command: &str, stderr: &str) -> bool {
-    command_starts_with_zoom_flag(command_name, command)
-        && tmux_diagnostics_exit_status(stderr) == Some(1)
-}
-
-fn command_starts_with_zoom_flag(command_name: &str, command: &str) -> bool {
-    let mut parts = command.split_ascii_whitespace();
-    matches!(parts.next(), Some(name) if name == command_name)
-        && matches!(parts.next(), Some(flag) if flag == "-Z")
 }
 
 fn validate_slot_suspension(layout_mode: &str, slot_id: u8, suspended: bool) -> Result<(), String> {

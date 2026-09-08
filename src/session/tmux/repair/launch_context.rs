@@ -1,6 +1,6 @@
 use super::super::SessionError;
 use super::super::options::required_session_option;
-use crate::config::{self, OperatingSystem, ProcessEnv};
+use crate::config::{self, SessionRuntimeContext};
 use crate::session::{
     RemoteModeContext, SharedServerAttachConfig, SlotMode, SlotModeLaunchContext,
 };
@@ -16,49 +16,44 @@ pub(super) struct RepairLaunchContext {
     pub(super) opencode_themes: config::OpencodeThemeRuntimeResolution,
 }
 
-pub(super) fn resolve_repair_launch_context() -> RepairLaunchContext {
-    let env = ProcessEnv;
-    let file_config = config::load_config(&env, OperatingSystem::current())
-        .map(|loaded| loaded.values)
-        .unwrap_or_default();
-    let remote_runtime = config::resolve_remote_runtime(&env, &file_config).ok();
-    let remote_path = remote_runtime
-        .as_ref()
-        .and_then(|runtime| runtime.remote_path.value.clone());
-    let remote_server_url = remote_runtime
-        .as_ref()
-        .and_then(|runtime| runtime.remote_server_url.value.clone());
-    let use_mosh = remote_runtime
-        .as_ref()
-        .is_some_and(|runtime| runtime.use_mosh.value);
-    let use_tssh = remote_runtime
-        .as_ref()
-        .is_some_and(|runtime| runtime.use_tssh.value);
-    let remote_routing_active = remote_path.is_some() && remote_server_url.is_some();
+pub(super) fn resolve_repair_launch_context(
+    session_name: &str,
+) -> Result<RepairLaunchContext, SessionError> {
+    let context = super::super::remote_env::resolve_owned_session_runtime_context(session_name)?;
+    Ok(repair_launch_context_from_session_context(context))
+}
+
+pub(super) fn repair_launch_context_from_session_context(
+    context: SessionRuntimeContext,
+) -> RepairLaunchContext {
+    let remote_routing_active = context
+        .remote_path
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && context
+            .remote_server_url
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
     let shared_server = if remote_routing_active {
-        remote_runtime.as_ref().and_then(|runtime| {
-            runtime
-                .shared_server
-                .url
-                .value
-                .as_ref()
-                .map(|url| SharedServerAttachConfig {
-                    url: url.clone(),
-                    password: runtime.shared_server.password.value.clone(),
-                })
-        })
+        context
+            .shared_server_url
+            .as_ref()
+            .map(|url| SharedServerAttachConfig { url: url.clone() })
     } else {
         None
     };
 
     RepairLaunchContext {
-        remote_path,
-        remote_server_url,
-        use_tssh,
-        use_mosh,
+        remote_path: context.remote_path,
+        remote_server_url: context.remote_server_url,
+        use_tssh: context.use_tssh,
+        use_mosh: context.use_mosh,
         shared_server,
-        agent_command: config::resolve_agent_command(&file_config),
-        opencode_themes: config::resolve_opencode_theme_runtime(&file_config),
+        agent_command: context.agent_command,
+        opencode_themes: config::OpencodeThemeRuntimeResolution {
+            enabled: context.opencode_themes_enabled,
+            themes_by_slot: context.opencode_themes_by_slot,
+        },
     }
 }
 

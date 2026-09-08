@@ -107,8 +107,14 @@ pub fn repair_project_session(
     let session_name = resolve_session_identity(project_dir)?.session_name;
     let analysis = analyze_session_damage(&session_name, tmux)?;
 
+    // Reconcile even when the pane graph is otherwise healthy.  The tmux
+    // implementation uses this ordinary no-op path to validate metadata that
+    // is not visible in the damage analysis (in particular the session/pane
+    // mode invariant).  Skipping it makes a damaged metadata state look
+    // healthy forever.
+    let reconcile_outcome = reconcile_session_damage(&session_name, tmux)?;
     let recreated_slots = if analysis.has_damage() {
-        reconcile_session_damage(&session_name, tmux)?.recreated_slots
+        reconcile_outcome.recreated_slots
     } else {
         Vec::new()
     };
@@ -141,6 +147,36 @@ pub(crate) fn analyze_slot_damage(
     slot_to_pane: &HashMap<u8, String>,
     live_panes: &BTreeSet<String>,
 ) -> Result<SessionDamageAnalysis, SessionError> {
+    analyze_slot_damage_with_suspension(
+        slot_to_pane,
+        live_panes,
+        &BTreeSet::new(),
+        &BTreeSet::new(),
+    )
+}
+
+pub(crate) fn analyze_slot_damage_with_suspension(
+    slot_to_pane: &HashMap<u8, String>,
+    live_panes: &BTreeSet<String>,
+    suspended_slots: &BTreeSet<u8>,
+    restore_suspended_slots: &BTreeSet<u8>,
+) -> Result<SessionDamageAnalysis, SessionError> {
+    analyze_slot_damage_for_slots(
+        slot_to_pane,
+        live_panes,
+        suspended_slots,
+        restore_suspended_slots,
+        None,
+    )
+}
+
+pub(crate) fn analyze_slot_damage_for_slots(
+    slot_to_pane: &HashMap<u8, String>,
+    live_panes: &BTreeSet<String>,
+    suspended_slots: &BTreeSet<u8>,
+    restore_suspended_slots: &BTreeSet<u8>,
+    required_slots: Option<&BTreeSet<u8>>,
+) -> Result<SessionDamageAnalysis, SessionError> {
     let mut healthy_slots = Vec::new();
     let mut missing_visible_slots = Vec::new();
 
@@ -154,7 +190,9 @@ pub(crate) fn analyze_slot_damage(
                 })?;
         if live_panes.contains(pane_id) {
             healthy_slots.push(slot_id);
-        } else {
+        } else if required_slots.is_none_or(|slots| slots.contains(&slot_id))
+            && (!suspended_slots.contains(&slot_id) || restore_suspended_slots.contains(&slot_id))
+        {
             missing_visible_slots.push(slot_id);
         }
     }
@@ -192,15 +230,6 @@ pub(crate) fn analyze_slot_damage(
                 }
             }
         }
-    }
-
-    if missing_slots_set.contains(&1) {
-        return Err(SessionError::TmuxCommandFailed {
-            command: String::from("analyze-session-damage"),
-            stderr: String::from(
-                "slot 1 pane is missing; selective reconcile is unsafe and requires full reset",
-            ),
-        });
     }
 
     let mut missing_backing_slots = missing_slots_set

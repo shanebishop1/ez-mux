@@ -6,12 +6,16 @@ use super::SessionError;
 use super::SlotRegistry;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
+use super::canonical_window::remember_canonical_window;
 use super::command::{tmux_output_value, tmux_run, tmux_run_batch};
 use super::keybinds::install_runtime_keybinds;
 use super::slot_swap::validate_canonical_slot_registry;
 use super::style::apply_runtime_style_defaults_for_target;
 use super::worktree::discover_worktrees_for_slots;
 use crate::config::EZM_BIN_ENV;
+use crate::session::binary_hint::{
+    binary_hint_looks_like_single_executable, normalize_shell_binary_hint,
+};
 
 mod pane_mode;
 mod preset;
@@ -70,6 +74,7 @@ pub(super) fn bootstrap_default_layout(
         let populated_slots = discovery.worktrees.len().min(5);
         let registry =
             build_registry_for_canonical_panes(&canonical_pane_ids, &discovery.worktrees)?;
+        remember_canonical_window(session_name, &target)?;
         persist_registry(session_name, &registry, populated_slots, pane_count)?;
         apply_startup_pane_mode(&canonical_pane_ids, window_width, window_height, pane_count)?;
         install_runtime_keybinds()?;
@@ -382,13 +387,13 @@ fn launch_startup_slot_modes(
     let mut commands = Vec::with_capacity(6);
     let pane_mode = pane_mode_spec(pane_count);
 
-    for &slot_id in pane_mode.active_slots {
+    for &slot_id in pane_mode.required_slots() {
         let mode = startup_mode_for_slot(slot_id, populated_slots);
         let command = startup_mode_schedule_command(&ezm_bin, session_name, slot_id, mode);
         commands.push(vec![String::from("run-shell"), String::from("-b"), command]);
     }
 
-    let focus_slot = pane_mode.active_slots.first().copied().unwrap_or(1);
+    let focus_slot = pane_mode.required_slots().first().copied().unwrap_or(1);
     let physical_focus_slot = pane_mode.physical_slot_for_logical(focus_slot);
     let focus_pane_id = canonical_pane_ids[usize::from(physical_focus_slot - 1)].clone();
 
@@ -432,73 +437,6 @@ fn resolved_ezm_bin_shell_token() -> String {
         .unwrap_or_else(|| String::from("ezm"));
 
     shell_single_quote(&resolved)
-}
-
-fn normalize_shell_binary_hint(value: &str) -> Option<String> {
-    let mut normalized = value.trim();
-
-    loop {
-        let previous = normalized;
-        normalized = strip_quote_like_prefix(normalized);
-        normalized = strip_quote_like_suffix(normalized);
-        normalized = normalized.trim();
-        if normalized == previous {
-            break;
-        }
-    }
-
-    if normalized.is_empty() {
-        None
-    } else {
-        Some(normalized.to_owned())
-    }
-}
-
-fn binary_hint_looks_like_single_executable(value: &str) -> bool {
-    !value.is_empty()
-        && !value
-            .chars()
-            .any(|character| character.is_whitespace() || matches!(character, '\'' | '"' | '\0'))
-}
-
-fn strip_quote_like_prefix(value: &str) -> &str {
-    if let Some(stripped) = value.strip_prefix("\\\"") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_prefix("\\'") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_prefix('"') {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_prefix('\'') {
-        return stripped;
-    }
-
-    value
-}
-
-fn strip_quote_like_suffix(value: &str) -> &str {
-    if let Some(stripped) = value.strip_suffix("\\\"") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_suffix("\\'") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_suffix('"') {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_suffix('\'') {
-        return stripped;
-    }
-
-    value
 }
 
 fn shell_single_quote(value: &str) -> String {

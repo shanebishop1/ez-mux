@@ -1,8 +1,10 @@
 use super::SessionError;
 use super::command::{tmux_output, tmux_run, tmux_run_batch};
-use super::popup::popup_parent_cleanup_hook_install_command;
-use super::remote_env::sync_runtime_env_into_tmux_server;
+use super::popup::reconcile_popup_parent_cleanup_hook;
 use crate::config::EZM_BIN_ENV;
+use crate::session::binary_hint::{
+    binary_hint_looks_like_single_executable, normalize_shell_binary_hint,
+};
 
 const SWAP_TABLE: &str = "ezm-swap";
 const FOCUS_TABLE: &str = "ezm-focus";
@@ -24,7 +26,6 @@ const ACTIVE_SLOT_BORDER_STYLE_FORMAT: &str = "fg=#{?#{==:#{@ezm_slot_id},1},#5a
 
 pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     let ezm_bin = resolved_ezm_bin_shell_token();
-    sync_runtime_env_into_tmux_server()?;
     clear_legacy_bindings()?;
 
     let mut commands = Vec::new();
@@ -33,14 +34,33 @@ pub(super) fn install_runtime_keybinds() -> Result<(), SessionError> {
     commands.extend(install_slot_table_bindings(&ezm_bin));
     commands.extend(install_table_exit_bindings());
     commands.extend(install_mode_bindings(&ezm_bin));
-    commands.push(popup_parent_cleanup_hook_install_command());
+    reconcile_popup_parent_cleanup_hook()?;
 
     tmux_run_batch(&commands)
 }
 
 fn clear_legacy_bindings() -> Result<(), SessionError> {
-    unbind_key_if_present("prefix", LEGACY_SWAP_PREFIX_KEY)?;
+    if prefix_binding_is_legacy_internal(LEGACY_SWAP_PREFIX_KEY)? {
+        unbind_key_if_present("prefix", LEGACY_SWAP_PREFIX_KEY)?;
+    }
     clear_legacy_prefix_slot_bindings()
+}
+
+fn prefix_binding_is_legacy_internal(key: &str) -> Result<bool, SessionError> {
+    let output = tmux_output(&["list-keys", "-T", "prefix", key])?;
+    if output.status.success() {
+        let binding = String::from_utf8_lossy(&output.stdout);
+        return Ok(binding_contains_legacy_internal_slot_command(&binding));
+    }
+
+    if missing_binding_diagnostic(&output) {
+        return Ok(false);
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: format!("list-keys -T prefix {key}"),
+        stderr: super::command::format_output_diagnostics(&output),
+    })
 }
 
 fn clear_legacy_prefix_slot_bindings() -> Result<(), SessionError> {
@@ -217,7 +237,10 @@ fn popup_toggle_binding_command(ezm_bin: &str) -> Vec<String> {
         "-F",
         "#{@ezm_popup_origin_session}",
         "detach-client",
-        &popup_open_action,
+        &format!(
+            "if-shell -F \"#{{@ezm_slot_1_pane}}\" {}",
+            tmux_command_argument(&popup_open_action)
+        ),
     ])
 }
 
@@ -291,6 +314,10 @@ fn run_shell_action(shell_command: &str) -> String {
     )
 }
 
+fn tmux_command_argument(command: &str) -> String {
+    format!("\"{}\"", tmux_escape_double_quoted(command))
+}
+
 fn command(args: &[&str]) -> Vec<String> {
     args.iter().map(|value| (*value).to_owned()).collect()
 }
@@ -330,37 +357,37 @@ fn missing_binding_diagnostic(output: &std::process::Output) -> bool {
 
 fn preset_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal preset --session #{{session_name}} --preset three-pane </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal preset --session #{{q:session_name}} --preset three-pane </dev/null >/dev/null 2>&1"
     )
 }
 
 fn swap_command(ezm_bin: &str, slot_id: u8) -> String {
     format!(
-        "{ezm_bin} __internal swap --session #{{session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal swap --session #{{q:session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn focus_command(ezm_bin: &str, slot_id: u8) -> String {
     format!(
-        "{ezm_bin} __internal focus --session #{{session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal focus --session #{{q:session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn mode_command(ezm_bin: &str, mode: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session #{{session_name}} --slot #{{@ezm_slot_id}} --mode {mode} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal mode --session #{{q:session_name}} --slot #{{q:@ezm_slot_id}} --mode {mode} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn toggle_mode_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session #{{session_name}} --slot #{{@ezm_slot_id}} --mode #{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal mode --session #{{q:session_name}} --slot #{{q:@ezm_slot_id}} --mode #{{q:#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}}} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn popup_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal popup --session \"#{{?#{{@ezm_popup_origin_session}},#{{@ezm_popup_origin_session}},#{{session_name}}}}\" --slot \"#{{?#{{@ezm_popup_origin_slot}},#{{@ezm_popup_origin_slot}},#{{@ezm_slot_id}}}}\" --client \"#{{client_tty}}\" </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal popup --session #{{q:#{{?#{{@ezm_popup_origin_session}},#{{@ezm_popup_origin_session}},#{{session_name}}}}}} --slot #{{q:#{{?#{{@ezm_popup_origin_slot}},#{{@ezm_popup_origin_slot}},#{{@ezm_slot_id}}}}}} --client #{{q:client_tty}} </dev/null >/dev/null 2>&1"
     )
 }
 
@@ -388,73 +415,6 @@ fn resolve_ezm_bin(env_ezm_bin: Option<String>, current_exe: Option<String>) -> 
         .unwrap_or_else(|| String::from("ezm"))
 }
 
-fn binary_hint_looks_like_single_executable(value: &str) -> bool {
-    !value.is_empty()
-        && !value
-            .chars()
-            .any(|character| character.is_whitespace() || matches!(character, '\'' | '"' | '\0'))
-}
-
-fn normalize_shell_binary_hint(value: &str) -> Option<String> {
-    let mut normalized = value.trim();
-
-    loop {
-        let previous = normalized;
-        normalized = strip_quote_like_prefix(normalized);
-        normalized = strip_quote_like_suffix(normalized);
-        normalized = normalized.trim();
-        if normalized == previous {
-            break;
-        }
-    }
-
-    if normalized.is_empty() {
-        None
-    } else {
-        Some(normalized.to_owned())
-    }
-}
-
-fn strip_quote_like_prefix(value: &str) -> &str {
-    if let Some(stripped) = value.strip_prefix("\\\"") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_prefix("\\'") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_prefix('"') {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_prefix('\'') {
-        return stripped;
-    }
-
-    value
-}
-
-fn strip_quote_like_suffix(value: &str) -> &str {
-    if let Some(stripped) = value.strip_suffix("\\\"") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_suffix("\\'") {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_suffix('"') {
-        return stripped;
-    }
-
-    if let Some(stripped) = value.strip_suffix('\'') {
-        return stripped;
-    }
-
-    value
-}
-
 fn shell_command_token(value: &str) -> String {
     if value.as_bytes().iter().all(|byte| {
         matches!(
@@ -474,6 +434,10 @@ fn shell_escape_double_quoted(value: &str) -> String {
         .replace('"', "\\\"")
         .replace('$', "\\$")
         .replace('`', "\\`")
+}
+
+fn tmux_escape_double_quoted(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(test)]

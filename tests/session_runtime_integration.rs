@@ -1,7 +1,8 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use ez_mux::config::SessionRuntimeContext;
 use ez_mux::session::LayoutPreset;
 use ez_mux::session::RemoteTransportFlags;
 use ez_mux::session::SessionAction;
@@ -26,6 +27,7 @@ struct FakeTmux {
     sessions: RefCell<HashSet<String>>,
     created: RefCell<Vec<(String, PathBuf)>>,
     bootstrapped: RefCell<Vec<(String, PathBuf, u8, bool)>>,
+    bootstrap_error: RefCell<Option<String>>,
     attached: RefCell<Vec<String>>,
     attach_error: RefCell<Option<String>>,
     mode_switches: RefCell<Vec<(String, u8, SlotMode)>>,
@@ -42,13 +44,17 @@ struct FakeTmux {
     auxiliary_exists: RefCell<bool>,
     auxiliary_available: RefCell<bool>,
     teardown_calls: RefCell<Vec<String>>,
+    teardown_error: RefCell<Option<String>>,
     teardown_project_removed: RefCell<bool>,
+    helpers_created_during_bootstrap: RefCell<Vec<String>>,
     damage_analysis_calls: RefCell<Vec<String>>,
     repair_calls: RefCell<Vec<String>>,
     damage_analysis: RefCell<SessionDamageAnalysis>,
     repair_outcome: RefCell<SessionRepairOutcome>,
     skipped_non_interactive_attach: RefCell<u32>,
     interactive_attach: bool,
+    runtime_contexts: RefCell<HashMap<String, SessionRuntimeContext>>,
+    runtime_passwords: RefCell<HashMap<String, Option<String>>>,
 }
 
 impl TmuxClient for FakeTmux {
@@ -111,6 +117,42 @@ impl TmuxClient for FakeTmux {
         Ok(())
     }
 
+    fn reconcile_session_runtime_context(
+        &self,
+        session_name: &str,
+        context: &SessionRuntimeContext,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        self.runtime_contexts
+            .borrow_mut()
+            .entry(session_name.to_owned())
+            .or_insert_with(|| context.clone());
+        Ok(())
+    }
+
+    fn reconcile_session_runtime_auth(
+        &self,
+        session_name: &str,
+        password: Option<&str>,
+    ) -> Result<(), ez_mux::session::SessionError> {
+        self.runtime_passwords
+            .borrow_mut()
+            .insert(session_name.to_owned(), password.map(str::to_owned));
+        Ok(())
+    }
+
+    fn resolve_session_runtime_context(
+        &self,
+        session_name: &str,
+        context: &SessionRuntimeContext,
+    ) -> Result<SessionRuntimeContext, ez_mux::session::SessionError> {
+        Ok(self
+            .runtime_contexts
+            .borrow()
+            .get(session_name)
+            .cloned()
+            .unwrap_or_else(|| context.clone()))
+    }
+
     fn bootstrap_default_layout(
         &self,
         session_name: &str,
@@ -124,6 +166,12 @@ impl TmuxClient for FakeTmux {
             pane_count,
             no_worktrees,
         ));
+        if let Some(stderr) = self.bootstrap_error.borrow_mut().take() {
+            return Err(ezmux_session_error("bootstrap-default-layout", stderr));
+        }
+        for helper in self.helpers_created_during_bootstrap.borrow().iter() {
+            self.sessions.borrow_mut().insert(helper.clone());
+        }
         Ok(())
     }
 
@@ -271,14 +319,50 @@ impl TmuxClient for FakeTmux {
             .borrow_mut()
             .push(session_name.to_string());
 
+        if let Some(stderr) = self.teardown_error.borrow().as_ref() {
+            return Err(ezmux_session_error("teardown-session", stderr.clone()));
+        }
+
         let was_present = *self.teardown_project_removed.borrow();
         *self.teardown_project_removed.borrow_mut() = true;
+        self.sessions.borrow_mut().remove(session_name);
 
         Ok(ez_mux::session::TeardownOutcome {
             session_name: session_name.to_owned(),
             helper_sessions_removed: if was_present { 0 } else { 2 },
             helper_processes_removed: if was_present { 0 } else { 3 },
             project_session_removed: !was_present,
+        })
+    }
+
+    fn teardown_owned_session(
+        &self,
+        session_name: &str,
+        ownership: &ez_mux::session::TeardownOwnership,
+    ) -> Result<ez_mux::session::TeardownOutcome, ez_mux::session::SessionError> {
+        self.teardown_calls
+            .borrow_mut()
+            .push(session_name.to_string());
+
+        if let Some(stderr) = self.teardown_error.borrow().as_ref() {
+            return Err(ezmux_session_error(
+                "teardown-owned-session",
+                stderr.clone(),
+            ));
+        }
+
+        let was_present = self.sessions.borrow_mut().remove(session_name);
+        let helper_sessions_removed = ownership
+            .helper_sessions
+            .iter()
+            .filter(|helper| self.sessions.borrow_mut().remove(*helper))
+            .count();
+
+        Ok(ez_mux::session::TeardownOutcome {
+            session_name: session_name.to_owned(),
+            helper_sessions_removed,
+            helper_processes_removed: 0,
+            project_session_removed: was_present,
         })
     }
 
@@ -309,6 +393,7 @@ impl Default for FakeTmux {
             sessions: RefCell::new(HashSet::new()),
             created: RefCell::new(Vec::new()),
             bootstrapped: RefCell::new(Vec::new()),
+            bootstrap_error: RefCell::new(None),
             attached: RefCell::new(Vec::new()),
             attach_error: RefCell::new(None),
             mode_switches: RefCell::new(Vec::new()),
@@ -325,7 +410,9 @@ impl Default for FakeTmux {
             auxiliary_exists: RefCell::new(false),
             auxiliary_available: RefCell::new(true),
             teardown_calls: RefCell::new(Vec::new()),
+            teardown_error: RefCell::new(None),
             teardown_project_removed: RefCell::new(false),
+            helpers_created_during_bootstrap: RefCell::new(Vec::new()),
             damage_analysis_calls: RefCell::new(Vec::new()),
             repair_calls: RefCell::new(Vec::new()),
             damage_analysis: RefCell::new(SessionDamageAnalysis {
@@ -341,7 +428,16 @@ impl Default for FakeTmux {
             }),
             skipped_non_interactive_attach: RefCell::new(0),
             interactive_attach: false,
+            runtime_contexts: RefCell::new(HashMap::new()),
+            runtime_passwords: RefCell::new(HashMap::new()),
         }
+    }
+}
+
+fn ezmux_session_error(command: &str, stderr: String) -> ez_mux::session::SessionError {
+    ez_mux::session::SessionError::TmuxCommandFailed {
+        command: command.to_owned(),
+        stderr,
     }
 }
 
@@ -360,7 +456,7 @@ fn ensure_local_project_session(
 }
 
 #[test]
-fn runtime_create_path_surfaces_attach_failure_instead_of_reporting_success() {
+fn runtime_create_path_rolls_back_after_attach_failure() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project_dir = temp.path();
     let tmux = FakeTmux {
@@ -376,6 +472,203 @@ fn runtime_create_path_surfaces_attach_failure_instead_of_reporting_success() {
     assert!(rendered.contains("attach failed"));
     assert_eq!(tmux.created.borrow().len(), 1);
     assert_eq!(tmux.bootstrapped.borrow().len(), 1);
+    assert_eq!(tmux.attached.borrow().len(), 1);
+    assert_eq!(
+        tmux.teardown_calls.borrow().as_slice(),
+        &[error_session_name(project_dir)]
+    );
+    assert!(
+        !tmux
+            .sessions
+            .borrow()
+            .contains(&error_session_name(project_dir))
+    );
+}
+
+fn error_session_name(project_dir: &Path) -> String {
+    resolve_session_identity(project_dir)
+        .expect("resolve session identity")
+        .session_name
+}
+
+#[test]
+fn runtime_rolls_back_when_layout_bootstrap_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let tmux = FakeTmux {
+        bootstrap_error: RefCell::new(Some(String::from("injected layout failure"))),
+        ..FakeTmux::default()
+    };
+
+    let error = ensure_local_project_session(project_dir, &tmux)
+        .expect_err("injected bootstrap failure should be returned");
+
+    assert!(error.to_string().contains("injected layout failure"));
+    assert_eq!(
+        tmux.teardown_calls.borrow().as_slice(),
+        &[error_session_name(project_dir)]
+    );
+    assert!(
+        !tmux
+            .sessions
+            .borrow()
+            .contains(&error_session_name(project_dir))
+    );
+    assert!(tmux.attached.borrow().is_empty());
+}
+
+#[test]
+fn runtime_rolls_back_when_auxiliary_bootstrap_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let tmux = FakeTmux {
+        auxiliary_error: RefCell::new(Some(String::from("injected auxiliary failure"))),
+        ..FakeTmux::default()
+    };
+
+    let error = ensure_local_project_session(project_dir, &tmux)
+        .expect_err("injected auxiliary failure should be returned");
+
+    assert!(error.to_string().contains("injected auxiliary failure"));
+    assert_eq!(
+        tmux.teardown_calls.borrow().as_slice(),
+        &[error_session_name(project_dir)]
+    );
+    assert!(
+        !tmux
+            .sessions
+            .borrow()
+            .contains(&error_session_name(project_dir))
+    );
+}
+
+#[test]
+fn runtime_reports_bootstrap_and_cleanup_failures_together() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let tmux = FakeTmux {
+        attach_error: RefCell::new(Some(String::from("injected attach failure"))),
+        teardown_error: RefCell::new(Some(String::from("injected cleanup failure"))),
+        ..FakeTmux::default()
+    };
+
+    let error = ensure_local_project_session(project_dir, &tmux)
+        .expect_err("injected attach failure should be returned");
+    let rendered = error.to_string();
+
+    assert!(rendered.contains("injected attach failure"));
+    assert!(rendered.contains("injected cleanup failure"));
+    assert_eq!(
+        tmux.teardown_calls.borrow().as_slice(),
+        &[error_session_name(project_dir)]
+    );
+    assert!(
+        tmux.sessions
+            .borrow()
+            .contains(&error_session_name(project_dir))
+    );
+}
+
+#[test]
+fn runtime_never_rolls_back_a_preexisting_session_after_attach_failure() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let session_name = error_session_name(project_dir);
+    let tmux = FakeTmux {
+        sessions: RefCell::new(HashSet::from([session_name.clone()])),
+        attach_error: RefCell::new(Some(String::from("pre-existing attach failure"))),
+        ..FakeTmux::default()
+    };
+
+    let error = ensure_local_project_session(project_dir, &tmux)
+        .expect_err("pre-existing attach failure should be returned");
+
+    assert!(error.to_string().contains("pre-existing attach failure"));
+    assert!(tmux.teardown_calls.borrow().is_empty());
+    assert!(tmux.sessions.borrow().contains(&session_name));
+    assert!(tmux.created.borrow().is_empty());
+}
+
+#[test]
+fn runtime_rollback_preserves_preexisting_helpers_and_same_prefix_sessions() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let session_name = error_session_name(project_dir);
+    let mode_cache = format!("{session_name}__mode_cache");
+    let popup = format!("{session_name}__popup_slot_1");
+    let unrelated = format!("{session_name}__user-owned");
+    let tmux = FakeTmux {
+        sessions: RefCell::new(HashSet::from([
+            mode_cache.clone(),
+            popup.clone(),
+            unrelated.clone(),
+        ])),
+        attach_error: RefCell::new(Some(String::from("attach failed after bootstrap"))),
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    ensure_local_project_session(project_dir, &tmux).expect_err("attach should fail");
+
+    let sessions = tmux.sessions.borrow();
+    assert!(sessions.contains(&mode_cache));
+    assert!(sessions.contains(&popup));
+    assert!(sessions.contains(&unrelated));
+    assert!(!sessions.contains(&session_name));
+}
+
+#[test]
+fn runtime_rollback_removes_only_known_helpers_created_during_bootstrap() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let session_name = error_session_name(project_dir);
+    let mode_cache = format!("{session_name}__mode_cache");
+    let popup = format!("{session_name}__popup_slot_2");
+    let unrelated = format!("{session_name}__user-owned");
+    let tmux = FakeTmux {
+        helpers_created_during_bootstrap: RefCell::new(vec![
+            mode_cache.clone(),
+            popup.clone(),
+            unrelated.clone(),
+        ]),
+        attach_error: RefCell::new(Some(String::from("attach failed after bootstrap"))),
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    ensure_local_project_session(project_dir, &tmux).expect_err("attach should fail");
+
+    let sessions = tmux.sessions.borrow();
+    assert!(!sessions.contains(&mode_cache));
+    assert!(!sessions.contains(&popup));
+    assert!(sessions.contains(&unrelated));
+    assert!(!sessions.contains(&session_name));
+}
+
+#[test]
+fn runtime_can_relaunch_after_successful_bootstrap_rollback() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_dir = temp.path();
+    let tmux = FakeTmux {
+        bootstrap_error: RefCell::new(Some(String::from("fail once"))),
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+
+    ensure_local_project_session(project_dir, &tmux).expect_err("first run should fail");
+    assert!(
+        !tmux
+            .sessions
+            .borrow()
+            .contains(&error_session_name(project_dir))
+    );
+
+    let outcome = ensure_local_project_session(project_dir, &tmux).expect("second run");
+
+    assert_eq!(outcome.action, SessionAction::Create);
+    assert_eq!(tmux.created.borrow().len(), 2);
+    assert_eq!(tmux.bootstrapped.borrow().len(), 2);
+    assert_eq!(tmux.teardown_calls.borrow().len(), 1);
     assert_eq!(tmux.attached.borrow().len(), 1);
 }
 
@@ -535,6 +828,147 @@ fn runtime_create_and_bootstrap_use_local_project_dir_when_remote_path_is_active
     assert_eq!(tmux.bootstrapped.borrow()[0].1, first.identity.project_dir);
     assert!(!tmux.bootstrapped.borrow()[0].3);
     assert_eq!(tmux.attached.borrow().len(), 2);
+}
+
+#[test]
+fn runtime_context_isolated_between_projects_and_preserved_on_reopen() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_a = temp.path().join("project-a");
+    let project_b = temp.path().join("project-b");
+    let project_empty = temp.path().join("project-empty");
+    std::fs::create_dir_all(&project_a).expect("create project A");
+    std::fs::create_dir_all(&project_b).expect("create project B");
+    std::fs::create_dir_all(&project_empty).expect("create empty project");
+    let tmux = FakeTmux {
+        interactive_attach: true,
+        ..FakeTmux::default()
+    };
+    let context_a = test_runtime_context("/srv/a", "a.example");
+    let context_b = test_runtime_context("/srv/b", "b.example");
+    let context_empty = ez_mux::config::RuntimeContext::default();
+
+    let first_a = ez_mux::session::ensure_project_session_with_runtime_context(
+        &project_a, &context_a, 1, true, &tmux,
+    )
+    .expect("project A should start");
+    let first_b = ez_mux::session::ensure_project_session_with_runtime_context(
+        &project_b, &context_b, 1, true, &tmux,
+    )
+    .expect("project B should start");
+    let first_empty = ez_mux::session::ensure_project_session_with_runtime_context(
+        &project_empty,
+        &context_empty,
+        1,
+        true,
+        &tmux,
+    )
+    .expect("project without a password should start");
+    let reopened_a = ez_mux::session::ensure_project_session_with_runtime_context(
+        &project_a, &context_b, 1, true, &tmux,
+    )
+    .expect("project A should reopen");
+
+    assert_eq!(
+        first_a.remote_project_dir,
+        PathBuf::from("/srv/a/project-a")
+    );
+    assert_eq!(
+        first_b.remote_project_dir,
+        PathBuf::from("/srv/b/project-b")
+    );
+    assert_eq!(reopened_a.remote_project_dir, first_a.remote_project_dir);
+    assert_ne!(first_a.remote_project_dir, first_b.remote_project_dir);
+    assert_eq!(
+        tmux.runtime_passwords
+            .borrow()
+            .get(&first_a.identity.session_name),
+        Some(&Some(String::from("password-a")))
+    );
+    assert_eq!(
+        tmux.runtime_passwords
+            .borrow()
+            .get(&first_b.identity.session_name),
+        Some(&Some(String::from("password-b")))
+    );
+    assert_eq!(
+        tmux.runtime_passwords
+            .borrow()
+            .get(&first_empty.identity.session_name),
+        Some(&None)
+    );
+}
+
+#[test]
+fn same_url_projects_keep_distinct_session_credentials() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project_a = temp.path().join("project-a");
+    let project_b = temp.path().join("project-b");
+    std::fs::create_dir_all(&project_a).expect("create project A");
+    std::fs::create_dir_all(&project_b).expect("create project B");
+    let tmux = FakeTmux::default();
+    let context_a = test_runtime_context("/srv/a", "shared.example");
+    let mut context_b = test_runtime_context("/srv/b", "shared.example");
+    context_b.remote.shared_server.password.value = Some(String::from("password-b"));
+
+    let first_a = ez_mux::session::ensure_project_session_with_runtime_context(
+        &project_a, &context_a, 1, true, &tmux,
+    )
+    .expect("project A should start");
+    let first_b = ez_mux::session::ensure_project_session_with_runtime_context(
+        &project_b, &context_b, 1, true, &tmux,
+    )
+    .expect("project B should start");
+    let passwords = tmux.runtime_passwords.borrow();
+
+    assert_eq!(
+        passwords.get(&first_a.identity.session_name),
+        Some(&Some(String::from("password-s")))
+    );
+    assert_eq!(
+        passwords.get(&first_b.identity.session_name),
+        Some(&Some(String::from("password-b")))
+    );
+}
+
+#[test]
+fn absent_password_on_reopen_preserves_existing_session_credential() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("project-a");
+    std::fs::create_dir_all(&project).expect("create project");
+    let tmux = FakeTmux::default();
+    let context = test_runtime_context("/srv/a", "a.example");
+    let first = ez_mux::session::ensure_project_session_with_runtime_context(
+        &project, &context, 1, true, &tmux,
+    )
+    .expect("project should start");
+    let mut context_without_password = context;
+    context_without_password.remote.shared_server.password.value = None;
+
+    ez_mux::session::ensure_project_session_with_runtime_context(
+        &project,
+        &context_without_password,
+        1,
+        true,
+        &tmux,
+    )
+    .expect("project should reopen without replacing its credential");
+
+    assert_eq!(
+        tmux.runtime_passwords
+            .borrow()
+            .get(&first.identity.session_name),
+        Some(&Some(String::from("password-a")))
+    );
+}
+
+fn test_runtime_context(remote_path: &str, server: &str) -> ez_mux::config::RuntimeContext {
+    let mut context = ez_mux::config::RuntimeContext::default();
+    context.remote.remote_path.value = Some(remote_path.to_owned());
+    context.remote.remote_server_url.value = Some(server.to_owned());
+    context.remote.shared_server.url.value = Some(format!("http://{server}:4096"));
+    let password_suffix = server.chars().next().unwrap();
+    context.remote.shared_server.password.value = Some(format!("password-{password_suffix}"));
+    context
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
-use crate::session::{SessionError, TeardownOutcome};
+use crate::session::{SessionError, TeardownOutcome, TeardownOwnership};
 
 use super::command::{format_output_diagnostics, tmux_output};
 
@@ -10,16 +10,58 @@ pub(super) fn teardown_session(session_name: &str) -> Result<TeardownOutcome, Se
     teardown_session_with_executor(session_name, &executor)
 }
 
+pub(super) fn teardown_owned_session(
+    session_name: &str,
+    ownership: &TeardownOwnership,
+) -> Result<TeardownOutcome, SessionError> {
+    let executor = ProcessTeardownExecutor;
+    teardown_owned_session_with_executor(session_name, ownership, &executor)
+}
+
 fn teardown_session_with_executor(
     session_name: &str,
     executor: &impl TeardownExecutor,
 ) -> Result<TeardownOutcome, SessionError> {
-    let helper_session_prefix = format!("{session_name}__");
+    let known_helpers = TeardownOwnership::explicit_helper_sessions(session_name);
     let helper_sessions = list_sessions(executor)?
         .into_iter()
-        .filter(|candidate| candidate.starts_with(&helper_session_prefix))
+        .filter(|candidate| known_helpers.iter().any(|known| known == candidate))
         .collect::<Vec<_>>();
 
+    teardown_resources(session_name, &helper_sessions, executor)
+}
+
+fn teardown_owned_session_with_executor(
+    session_name: &str,
+    ownership: &TeardownOwnership,
+    executor: &impl TeardownExecutor,
+) -> Result<TeardownOutcome, SessionError> {
+    if ownership.session_name != session_name {
+        return Err(SessionError::TmuxCommandFailed {
+            command: format!("rollback teardown -t {session_name}"),
+            stderr: format!(
+                "ownership record targets session `{}`",
+                ownership.session_name
+            ),
+        });
+    }
+
+    let known_helpers = TeardownOwnership::bootstrap_helper_sessions(session_name);
+    let helper_sessions = ownership
+        .helper_sessions
+        .iter()
+        .filter(|helper| known_helpers.iter().any(|known| known == *helper))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    teardown_resources(session_name, &helper_sessions, executor)
+}
+
+fn teardown_resources(
+    session_name: &str,
+    helper_sessions: &[String],
+    executor: &impl TeardownExecutor,
+) -> Result<TeardownOutcome, SessionError> {
     let helper_processes = helper_sessions.iter().try_fold(
         BTreeSet::new(),
         |mut acc, helper_session| -> Result<BTreeSet<u32>, SessionError> {

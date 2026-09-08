@@ -1,8 +1,8 @@
 use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
-    CaseEvidence, SessionSnapshot, extract_stdout_field, inspect_layout, map_settle,
-    prepare_fresh_create_path, read_slot_snapshot, sample, settle_snapshot,
+    CaseEvidence, SessionSnapshot, check_key_binding, extract_stdout_field, inspect_layout,
+    map_settle, prepare_fresh_create_path, read_slot_snapshot, sample, settle_snapshot,
 };
 
 pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
@@ -28,11 +28,14 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
             .map(|item| format!("pre: {item}")),
     );
 
-    let keybind_dump = harness
-        .tmux_capture(&["list-keys", "-T", "prefix", "M-3"])
-        .unwrap_or_default();
-    let keybind_has_internal_entrypoint =
-        keybind_dump.contains("__internal preset") && keybind_dump.contains("three-pane");
+    let keybind_check = check_key_binding(
+        harness,
+        "prefix",
+        "M-3",
+        &["__internal preset", "three-pane"],
+    );
+    let keybind_has_internal_entrypoint = keybind_check.pass;
+    assertions.push(keybind_check.detail);
     assertions.push(format!(
         "keybind M-3 routes to preset entrypoint = {keybind_has_internal_entrypoint}"
     ));

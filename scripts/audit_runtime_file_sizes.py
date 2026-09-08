@@ -77,8 +77,11 @@ def main() -> int:
 
     audits = audit_files(src_root, runtime_files)
 
-    print("Runtime source file size audit (docs/plan.md §8)")
-    print("Scope: src/**/*.rs excluding test modules/files")
+    print("Runtime source file size audit (portfolio-readiness.md §11, F1.5)")
+    print(
+        "Scope: src/**/*.rs excluding dedicated test modules/files; "
+        "inline #[cfg(test)] code is included"
+    )
     print("Thresholds: target <=250, warning >400, hard stop >600")
     print("")
     print(f"{'STATUS':<6} {'LINES':>5}  PATH")

@@ -16,74 +16,346 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+# Release publication is never cancelled halfway through.  PR runs use the
+# cancellation policy in ci-quality-gate.yml instead.
+concurrency:
+  group: ezm-release-${{ github.ref }}-${{ inputs.tag || '' }}
+  cancel-in-progress: false
 
 jobs:
-  preflight:
-    name: Preflight checks
+  validate-ref:
+    name: Validate release ref and version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.validate.outputs.tag }}
+      version: ${{ steps.validate.outputs.version }}
+      commit_sha: ${{ steps.validate.outputs.commit_sha }}
+
+    steps:
+      - name: Checkout requested release ref
+        uses: actions/checkout@v5
+        with:
+          # This is an action input, not shell source.  The checked-out ref is
+          # nevertheless validated by the next step before it is reused.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate tag, Cargo metadata, and checked-out commit
+        id: validate
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: python3 scripts/release/validate_release_ref.py --repo-root "$GITHUB_WORKSPACE"
+
+  quality-gate:
+    name: Release quality gate
+    needs: validate-ref
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout validated release ref
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ needs.validate-ref.outputs.tag }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      - name: Check formatting
+      - name: Print tool versions
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Runtime source structure audit
+        run: python3 scripts/audit_runtime_file_sizes.py
+
+      - name: cargo fmt check
         run: cargo fmt --all -- --check
 
-      - name: Lint workspace
+      - name: cargo clippy strict
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Run tests
-        env:
-          RUST_TEST_THREADS: 1
+      - name: Run locked library tests
+        run: cargo test --locked --lib
+
+  locked-tests:
+    name: Release complete locked test surface
+    needs: validate-ref
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout validated release ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-ref.outputs.tag }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install tmux
         run: |
-          cargo test --locked -- --skip core_session_e2e_suite || {
-            echo "Initial test pass failed; retrying once for transient tmux harness startup errors..." >&2
-            cargo test --locked -- --skip core_session_e2e_suite
-          }
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+      - name: Run complete locked test surface
+        run: cargo test --locked
+
+  session-runtime-integration:
+    name: Release locked session runtime integration
+    needs: validate-ref
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout validated release ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-ref.outputs.tag }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run session_runtime_integration
+        run: cargo test --locked --test session_runtime_integration -- --nocapture
+
+  msrv:
+    name: Release MSRV (Rust 1.85)
+    needs: validate-ref
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout validated release ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-ref.outputs.tag }}
+
+      - name: Install declared MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.85
+
+      - name: Print MSRV evidence
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Check all locked test targets at MSRV
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Run locked library tests at MSRV
+        run: cargo test --locked --lib
+
+  e2e:
+    name: Release E2E (${{ matrix.suite }}, ${{ matrix.platform }})
+    needs: validate-ref
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: foundation
+            test_target: foundation_e2e
+            platform: linux
+            os: ubuntu-latest
+          - suite: foundation
+            test_target: foundation_e2e
+            platform: macos
+            os: macos-latest
+          - suite: core-session
+            test_target: core_session_e2e
+            platform: linux
+            os: ubuntu-latest
+          - suite: core-session
+            test_target: core_session_e2e
+            platform: macos
+            os: macos-latest
+          - suite: smoke
+            test_target: smoke_e2e
+            platform: linux
+            os: ubuntu-latest
+          - suite: smoke
+            test_target: smoke_e2e
+            platform: macos
+            os: macos-latest
+          - suite: reduced-layout
+            test_target: focus_reduced_layout_anchor
+            platform: linux
+            os: ubuntu-latest
+          - suite: reduced-layout
+            test_target: focus_reduced_layout_anchor
+            platform: macos
+            os: macos-latest
+          - suite: zoomed-mode
+            test_target: zoomed_mode_switch_e2e
+            platform: linux
+            os: ubuntu-latest
+          - suite: zoomed-mode
+            test_target: zoomed_mode_switch_e2e
+            platform: macos
+            os: macos-latest
+
+    steps:
+      - name: Checkout validated release ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-ref.outputs.tag }}
+
+      - name: Install tmux on Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+
+      - name: Install tmux on macOS
+        if: matrix.platform == 'macos'
+        run: brew install tmux
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Print tool and evidence paths
+        env:
+          E2E_SUITE: ${{ matrix.suite }}
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          rustc --version
+          cargo --version
+          tmux -V
+          printf 'e2e_suite=%s\n' "$E2E_SUITE"
+          printf 'release_tag=%s\nrelease_version=%s\n' "$RELEASE_TAG" "$RELEASE_VERSION"
+          echo "E2E evidence root: $GITHUB_WORKSPACE/target/e2e-evidence"
+
+      - name: Run selected independent E2E suite
+        env:
+          E2E_SUITE: ${{ matrix.suite }}
+          E2E_TEST_TARGET: ${{ matrix.test_target }}
+          EZM_SMOKE_PLATFORM: ${{ matrix.platform }}
+          EZM_SMOKE_MAX_CARGO_JOBS: "2"
+          EZM_SMOKE_TEST_THREADS: "1"
+        run: |
+          case "$E2E_SUITE" in
+            foundation|core-session|reduced-layout|zoomed-mode)
+              cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture
+              ;;
+            smoke)
+              cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture --test-threads 1
+              ;;
+            *)
+              echo "unsupported E2E suite: $E2E_SUITE" >&2
+              exit 64
+              ;;
+          esac
+
+      - name: Upload release E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezm-e2e-${{ needs.validate-ref.outputs.tag }}-${{ matrix.suite }}-${{ matrix.platform }}
+          path: target/e2e-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  native-release:
+    name: Native release verification (${{ matrix.platform }})
+    needs:
+      - validate-ref
+      - build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+
+    steps:
+      - name: Checkout validated release ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-ref.outputs.tag }}
+
+      - name: Resolve native asset name
+        id: native
+        run: |
+          os_name="$(uname -s)"
+          architecture="$(uname -m)"
+          case "$os_name/$architecture" in
+            Linux/x86_64) asset=linux-x64 ;;
+            Linux/aarch64|Linux/arm64) asset=linux-arm64 ;;
+            Darwin/x86_64) asset=macos-x64 ;;
+            Darwin/arm64) asset=macos-arm64 ;;
+            *) echo "unsupported native runner: $os_name/$architecture" >&2; exit 1 ;;
+          esac
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      - name: Download exact publishable native archive
+        uses: actions/download-artifact@v4
+        with:
+          name: ezm-build-${{ needs.validate-ref.outputs.tag }}-${{ steps.native.outputs.asset }}
+          path: dist
+
+      - name: Verify and install exact publishable native archive
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          archive="dist/ezm-$RELEASE_TAG-${{ steps.native.outputs.asset }}.tar.gz"
+          test -f "$archive"
+          sh scripts/release/run-native-release-verification.sh "${{ matrix.platform }}" "$archive"
+
+      - name: Upload native verification record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezm-native-record-${{ needs.validate-ref.outputs.tag }}-${{ matrix.platform }}
+          path: dist/native-verification-${{ matrix.platform }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload native install evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezm-install-evidence-${{ needs.validate-ref.outputs.tag }}-${{ matrix.platform }}
+          path: target/e2e-evidence/install-validation/
+          if-no-files-found: warn
+          retention-days: 14
 
   build:
-    name: Build (${{ matrix.target }})
-    needs: preflight
+    name: Build release archive (${{ matrix.asset }})
+    needs:
+      - validate-ref
+      - quality-gate
+      - locked-tests
+      - session-runtime-integration
+      - msrv
+      - e2e
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
+            platform: linux
             target: x86_64-unknown-linux-gnu
             asset: linux-x64
           - os: ubuntu-latest
+            platform: linux
             target: aarch64-unknown-linux-gnu
             asset: linux-arm64
           - os: macos-latest
+            platform: macos
             target: x86_64-apple-darwin
             asset: macos-x64
           - os: macos-latest
+            platform: macos
             target: aarch64-apple-darwin
             asset: macos-arm64
 
     steps:
-      - name: Checkout source
+      - name: Checkout validated release ref
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-
-      - name: Resolve package tag
-        id: meta
-        run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          if [[ ! "$TAG" =~ ^v ]]; then
-            echo "Tag must start with 'v' but got '$TAG'" >&2
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          ref: ${{ needs.validate-ref.outputs.tag }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -94,222 +366,476 @@ jobs:
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          sudo apt-get install --no-install-recommends -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
-      - name: Build release binary (native/default)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
-        run: cargo build --release --locked --bin ezm --target "${{ matrix.target }}"
-
-      - name: Build release binary (linux arm64 cross)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Build release binary
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --locked --bin ezm --target "${{ matrix.target }}"
 
-      - name: Package archive
+      - name: Package release archive
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
         run: |
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/ezm" "dist/ezm"
-          tar -czf "dist/ezm-${{ steps.meta.outputs.tag }}-${{ matrix.asset }}.tar.gz" -C dist ezm
+          archive="$(python3 scripts/release/package_release_archive.py \
+            --binary "target/${{ matrix.target }}/release/ezm" \
+            --tag "$RELEASE_TAG" \
+            --version "$RELEASE_VERSION" \
+            --asset "${{ matrix.asset }}" \
+            --output-dir dist)"
+          python3 scripts/release/verify_release_artifact.py \
+            --archive "$archive" \
+            --expected-version "$RELEASE_VERSION" \
+            --platform "${{ matrix.platform }}" \
+            --archive-only \
+            --output "dist/archive-verification-${{ matrix.asset }}.json"
 
-      - name: Upload archive artifact
+      - name: Upload release archive
         uses: actions/upload-artifact@v4
         with:
-          name: ezm-${{ steps.meta.outputs.tag }}-${{ matrix.asset }}
-          path: dist/ezm-${{ steps.meta.outputs.tag }}-${{ matrix.asset }}.tar.gz
+          name: ezm-build-${{ needs.validate-ref.outputs.tag }}-${{ matrix.asset }}
+          path: dist/ezm-${{ needs.validate-ref.outputs.tag }}-${{ matrix.asset }}.tar.gz
           if-no-files-found: error
+
+  evidence:
+    name: Assemble and evaluate release evidence
+    if: always()
+    needs:
+      - validate-ref
+      - quality-gate
+      - locked-tests
+      - session-runtime-integration
+      - msrv
+      - e2e
+      - build
+      - native-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout validated release ref
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-ref.outputs.tag }}
+
+      - name: Capture actual release gate inputs and needs results
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+          RELEASE_SHA: ${{ needs.validate-ref.outputs.commit_sha }}
+          VALIDATE_RESULT: ${{ needs.validate-ref.result }}
+          QUALITY_RESULT: ${{ needs.quality-gate.result }}
+          LOCKED_TESTS_RESULT: ${{ needs.locked-tests.result }}
+          SESSION_RUNTIME_RESULT: ${{ needs.session-runtime-integration.result }}
+          MSRV_RESULT: ${{ needs.msrv.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          NATIVE_RESULT: ${{ needs.native-release.result }}
+        run: |
+          mkdir -p dist
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path("dist/workflow-results.json").write_text(
+              json.dumps(
+                  {
+                      "inputs": {
+                          "tag": os.environ["RELEASE_TAG"],
+                          "version": os.environ["RELEASE_VERSION"],
+                          "commit_sha": os.environ["RELEASE_SHA"],
+                      },
+                      "jobs": {
+                          "validate-ref": os.environ["VALIDATE_RESULT"],
+                          "quality-gate": os.environ["QUALITY_RESULT"],
+                          "locked-tests": os.environ["LOCKED_TESTS_RESULT"],
+                          "session-runtime-integration": os.environ["SESSION_RUNTIME_RESULT"],
+                          "msrv": os.environ["MSRV_RESULT"],
+                          "e2e": os.environ["E2E_RESULT"],
+                          "build": os.environ["BUILD_RESULT"],
+                          "native-release": os.environ["NATIVE_RESULT"],
+                      },
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Download Linux and macOS E2E evidence
+        if: needs.e2e.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ezm-e2e-${{ needs.validate-ref.outputs.tag }}-*
+          merge-multiple: true
+          path: target/e2e-evidence
+
+      - name: Download native install evidence
+        if: needs.native-release.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ezm-install-evidence-${{ needs.validate-ref.outputs.tag }}-*
+          merge-multiple: true
+          path: target/e2e-evidence/install-validation
+
+      - name: Download native verification records
+        if: needs.native-release.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ezm-native-record-${{ needs.validate-ref.outputs.tag }}-*
+          merge-multiple: true
+          path: dist/native-records
+
+      - name: Download exact publishable release archives
+        if: needs.build.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ezm-build-${{ needs.validate-ref.outputs.tag }}-*
+          merge-multiple: true
+          path: dist/release-archives
+
+      - name: Assemble release evidence bundle
+        if: >-
+          needs.validate-ref.result == 'success' &&
+          needs.quality-gate.result == 'success' &&
+          needs.locked-tests.result == 'success' &&
+          needs.session-runtime-integration.result == 'success' &&
+          needs.msrv.result == 'success' &&
+          needs.e2e.result == 'success' &&
+          needs.build.result == 'success' &&
+          needs.native-release.result == 'success'
+        env:
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          python3 scripts/release/assemble_release_bundle.py \
+            --output-root dist/release-evidence \
+            --bundle-id "release-$RELEASE_VERSION" \
+            --release-tag "${{ needs.validate-ref.outputs.tag }}" \
+            --native-records dist/native-records \
+            --release-archives dist/release-archives
+
+      - name: Check release evidence reproducibility
+        if: >-
+          needs.validate-ref.result == 'success' &&
+          needs.quality-gate.result == 'success' &&
+          needs.locked-tests.result == 'success' &&
+          needs.session-runtime-integration.result == 'success' &&
+          needs.msrv.result == 'success' &&
+          needs.e2e.result == 'success' &&
+          needs.build.result == 'success' &&
+          needs.native-release.result == 'success'
+        env:
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          python3 scripts/release/assemble_release_bundle.py \
+            --check-reproducible \
+            --manifest "dist/release-evidence/release-$RELEASE_VERSION/manifest.json"
+
+      - name: Evaluate release evidence gate
+        if: >-
+          needs.validate-ref.result == 'success' &&
+          needs.quality-gate.result == 'success' &&
+          needs.locked-tests.result == 'success' &&
+          needs.session-runtime-integration.result == 'success' &&
+          needs.msrv.result == 'success' &&
+          needs.e2e.result == 'success' &&
+          needs.build.result == 'success' &&
+          needs.native-release.result == 'success'
+        env:
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          python3 scripts/release/assemble_release_bundle.py \
+            --evaluate-gate \
+            --manifest "dist/release-evidence/release-$RELEASE_VERSION/manifest.json" \
+            --decision-output "dist/release-evidence/release-$RELEASE_VERSION/gate-decision.json" \
+            --workflow-results dist/workflow-results.json
+
+      - name: Ensure a failed gate decision exists for failed prerequisites
+        if: always()
+        env:
+          GATE_PATH: dist/release-evidence/release-${{ needs.validate-ref.outputs.version }}/gate-decision.json
+        run: |
+          if [ ! -f "$GATE_PATH" ]; then
+            mkdir -p "$(dirname "$GATE_PATH")"
+            python3 - <<'PY'
+            import json
+            import os
+            from pathlib import Path
+
+            Path(os.environ["GATE_PATH"]).write_text(
+                json.dumps(
+                    {
+                        "schema_version": "ezm-release-gate-decision/v1",
+                        "gate": "release-readiness",
+                        "passed": False,
+                        "blocking_reasons": [
+                            {"code": "workflow-prerequisite-failed", "message": "a required workflow prerequisite did not succeed"}
+                        ],
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            PY
+          fi
+
+      - name: Archive assembled evidence
+        if: >-
+          needs.validate-ref.result == 'success' &&
+          needs.quality-gate.result == 'success' &&
+          needs.locked-tests.result == 'success' &&
+          needs.session-runtime-integration.result == 'success' &&
+          needs.msrv.result == 'success' &&
+          needs.e2e.result == 'success' &&
+          needs.build.result == 'success' &&
+          needs.native-release.result == 'success'
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          cp "dist/release-evidence/release-$RELEASE_VERSION/gate-decision.json" dist/gate-decision.json
+          cp dist/workflow-results.json "dist/release-evidence/release-$RELEASE_VERSION/workflow-results.json"
+          tar -czf "dist/ezm-$RELEASE_TAG-release-evidence.tar.gz" \
+            -C dist/release-evidence "release-$RELEASE_VERSION"
+
+      - name: Emit release verification metadata
+        if: always()
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+          RELEASE_SHA: ${{ needs.validate-ref.outputs.commit_sha }}
+          RELEASE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 scripts/release/emit_verification_metadata.py \
+            --output "dist/ezm-$RELEASE_TAG-verification.json" \
+            --evidence-manifest "dist/release-evidence/release-$RELEASE_VERSION/manifest.json" \
+            --gate-decision "dist/release-evidence/release-$RELEASE_VERSION/gate-decision.json" \
+            --workflow-results dist/workflow-results.json
+
+      - name: Upload assembled release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezm-evidence-${{ needs.validate-ref.outputs.tag }}
+          path: |
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-release-evidence.tar.gz
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-verification.json
+            dist/release-evidence/release-${{ needs.validate-ref.outputs.version }}/gate-decision.json
+            dist/workflow-results.json
+          if-no-files-found: warn
 
   release:
     name: Create GitHub Release
     needs:
-      - preflight
+      - validate-ref
+      - quality-gate
+      - locked-tests
+      - session-runtime-integration
+      - msrv
+      - e2e
+      - native-release
       - build
+      - evidence
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout source
+      - name: Checkout validated release ref
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ needs.validate-ref.outputs.tag }}
 
-      - name: Resolve release metadata
-        id: meta
-        run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          if [[ ! "$TAG" =~ ^v ]]; then
-            echo "Tag must start with 'v' but got '$TAG'" >&2
-            exit 1
-          fi
-          SHA="$(git rev-list -n 1 "$TAG")"
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          {
-            echo "tag=$TAG"
-            echo "sha=$SHA"
-            echo "run_url=$RUN_URL"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Download build artifacts
+      - name: Download evidence artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ezm-${{ steps.meta.outputs.tag }}-*
-          merge-multiple: true
+          name: ezm-evidence-${{ needs.validate-ref.outputs.tag }}
           path: dist
 
-      - name: Generate checksums
+      - name: Extract evaluated release evidence bundle
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
         run: |
-          TAG="${{ steps.meta.outputs.tag }}"
-          MANIFEST="ezm-${TAG}-checksums.txt"
+          bundle="dist/ezm-$RELEASE_TAG-release-evidence.tar.gz"
+          test -f "$bundle"
+          mkdir -p dist/evaluated
+          tar -xzf "$bundle" -C dist/evaluated
+          evaluated="dist/evaluated/release-$RELEASE_VERSION"
+          test -f "$evaluated/manifest.json"
+          for asset in linux-x64 linux-arm64 macos-x64 macos-arm64; do
+            cp "$evaluated/artifacts/release-assets/"*"-$asset.tar.gz" dist/
+          done
+
+      - name: Generate checksums
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+        run: |
+          manifest="dist/ezm-$RELEASE_TAG-checksums.txt"
           (
             cd dist
-            sha256sum "ezm-${TAG}-"*.tar.gz | LC_ALL=C sort > "$MANIFEST"
+            sha256sum \
+              "ezm-$RELEASE_TAG-linux-x64.tar.gz" \
+              "ezm-$RELEASE_TAG-linux-arm64.tar.gz" \
+              "ezm-$RELEASE_TAG-macos-x64.tar.gz" \
+              "ezm-$RELEASE_TAG-macos-arm64.tar.gz" \
+              | LC_ALL=C sort > "$(basename "$manifest")"
           )
 
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0
 
       - name: Generate SBOM
-        id: sbom
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
         run: |
-          TAG="${{ steps.meta.outputs.tag }}"
-          SBOM_FILE="dist/ezm-${TAG}-sbom.spdx.json"
-          STATUS_FILE="dist/ezm-${TAG}-sbom-status.txt"
-
-          syft "dir:." -o "spdx-json=${SBOM_FILE}"
-
-          echo "SBOM: generated (${SBOM_FILE})." > "$STATUS_FILE"
-          echo "status=generated" >> "$GITHUB_OUTPUT"
-          echo "file=${SBOM_FILE}" >> "$GITHUB_OUTPUT"
-
-      - name: Emit verification metadata
-        run: |
-          TAG="${{ steps.meta.outputs.tag }}"
-          METADATA_FILE="dist/ezm-${TAG}-verification.json"
-          cat > "$METADATA_FILE" <<EOF
-          {
-            "release_tag": "${{ steps.meta.outputs.tag }}",
-            "commit_sha": "${{ steps.meta.outputs.sha }}",
-            "workflow_run": {
-              "id": "${{ github.run_id }}",
-              "url": "${{ steps.meta.outputs.run_url }}"
-            },
-            "required_preflight_checks": [
-              {
-                "name": "cargo fmt --all -- --check",
-                "status": "passed"
-              },
-              {
-                "name": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
-                "status": "passed"
-              },
-              {
-                "name": "cargo test --locked -- --skip core_session_e2e_suite",
-                "status": "passed"
-              }
-            ],
-            "verification_status_summary": {
-              "preflight": "passed",
-              "build": "passed",
-              "release_artifacts_prepared": "passed",
-              "overall": "passed"
-            }
-          }
-          EOF
+          syft "dir:." -o "spdx-json=dist/ezm-$RELEASE_TAG-sbom.spdx.json"
+          printf 'SBOM: generated (dist/ezm-%s-sbom.spdx.json).\n' "$RELEASE_TAG" \
+            > "dist/ezm-$RELEASE_TAG-sbom-status.txt"
 
       - name: Render release notes from template
         env:
-          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
-          RELEASE_SHA: ${{ steps.meta.outputs.sha }}
-          RELEASE_RUN_URL: ${{ steps.meta.outputs.run_url }}
-          RELEASE_SBOM_STATUS: ${{ steps.sbom.outputs.status }}
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+          RELEASE_SHA: ${{ needs.validate-ref.outputs.commit_sha }}
+          RELEASE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_SBOM_STATUS: generated
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import os
           from pathlib import Path
 
-          template_path = Path('.github/release-notes-template.md')
-          output_path = Path('dist/release-notes.md')
-
           replacements = {
-              '__TAG__': os.environ['RELEASE_TAG'],
-              '__COMMIT_SHA__': os.environ['RELEASE_SHA'],
-              '__WORKFLOW_RUN_URL__': os.environ['RELEASE_RUN_URL'],
-              '__SBOM_STATUS__': os.environ['RELEASE_SBOM_STATUS'],
+              "__TAG__": os.environ["RELEASE_TAG"],
+              "__VERSION__": os.environ["RELEASE_VERSION"],
+              "__COMMIT_SHA__": os.environ["RELEASE_SHA"],
+              "__WORKFLOW_RUN_URL__": os.environ["RELEASE_RUN_URL"],
+              "__SBOM_STATUS__": os.environ["RELEASE_SBOM_STATUS"],
           }
-
-          content = template_path.read_text(encoding='utf-8')
+          content = Path(".github/release-notes-template.md").read_text(encoding="utf-8")
           for key, value in replacements.items():
               content = content.replace(key, value)
-
-          output_path.write_text(content, encoding='utf-8')
+          Path("dist/release-notes.md").write_text(content, encoding="utf-8")
           PY
 
       - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ steps.meta.outputs.sha }}
+          tag_name: ${{ needs.validate-ref.outputs.tag }}
+          target_commitish: ${{ needs.validate-ref.outputs.commit_sha }}
           files: |
-            dist/ezm-${{ steps.meta.outputs.tag }}-*.tar.gz
-            dist/ezm-${{ steps.meta.outputs.tag }}-checksums.txt
-            dist/ezm-${{ steps.meta.outputs.tag }}-sbom.spdx.json
-            dist/ezm-${{ steps.meta.outputs.tag }}-sbom-status.txt
-            dist/ezm-${{ steps.meta.outputs.tag }}-verification.json
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-linux-x64.tar.gz
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-linux-arm64.tar.gz
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-macos-x64.tar.gz
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-macos-arm64.tar.gz
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-checksums.txt
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-sbom.spdx.json
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-sbom-status.txt
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-verification.json
+            dist/ezm-${{ needs.validate-ref.outputs.tag }}-release-evidence.tar.gz
           fail_on_unmatched_files: true
           body_path: dist/release-notes.md
 
   npm-publish:
     name: Publish npm package (ez-mux)
+    if: >-
+      needs.release.result == 'success' &&
+      needs.evidence.result == 'success' &&
+      needs.quality-gate.result == 'success' &&
+      needs.locked-tests.result == 'success' &&
+      needs.session-runtime-integration.result == 'success' &&
+      needs.msrv.result == 'success' &&
+      needs.e2e.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.native-release.result == 'success'
     needs:
-      - preflight
+      - validate-ref
+      - quality-gate
+      - locked-tests
+      - session-runtime-integration
+      - msrv
+      - e2e
+      - native-release
       - build
+      - evidence
+      - release
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - name: Checkout source
+      - name: Checkout validated release ref
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ needs.validate-ref.outputs.tag }}
 
-      - name: Resolve package tag
-        id: meta
-        run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          if [[ ! "$TAG" =~ ^v ]]; then
-            echo "Tag must start with 'v' but got '$TAG'" >&2
-            exit 1
-          fi
-          VERSION="${TAG#v}"
-          {
-            echo "tag=$TAG"
-            echo "version=$VERSION"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Download build artifacts
+      - name: Download release verification evidence
         uses: actions/download-artifact@v4
         with:
-          pattern: ezm-${{ steps.meta.outputs.tag }}-*
-          merge-multiple: true
-          path: dist
+          name: ezm-evidence-${{ needs.validate-ref.outputs.tag }}
+          path: dist/evidence
+
+      - name: Extract evaluated release evidence bundle
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          bundle="dist/evidence/ezm-$RELEASE_TAG-release-evidence.tar.gz"
+          test -f "$bundle"
+          mkdir -p dist/evaluated
+          tar -xzf "$bundle" -C dist/evaluated
+          evaluated="dist/evaluated/release-$RELEASE_VERSION"
+          test -f "$evaluated/manifest.json"
+          for asset in linux-x64 linux-arm64 macos-x64 macos-arm64; do
+            cp "$evaluated/artifacts/release-assets/"*"-$asset.tar.gz" dist/
+          done
+
+      - name: Reject failed release evidence before npm publication
+        env:
+          RELEASE_JOB_RESULT: ${{ needs.release.result }}
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+          RELEASE_SHA: ${{ needs.validate-ref.outputs.commit_sha }}
+        run: |
+          test "$RELEASE_JOB_RESULT" = success
+          python3 scripts/release/validate_verification_metadata.py \
+            --verification "dist/evidence/ezm-$RELEASE_TAG-verification.json" \
+            --evidence-manifest "dist/evaluated/release-$RELEASE_VERSION/manifest.json" \
+            --gate-decision "dist/evaluated/release-$RELEASE_VERSION/gate-decision.json" \
+            --workflow-results "dist/evaluated/release-$RELEASE_VERSION/workflow-results.json" \
+            --tag "$RELEASE_TAG" \
+            --version "$RELEASE_VERSION" \
+            --commit-sha "$RELEASE_SHA"
 
       - name: Extract release binaries
+        env:
+          RELEASE_TAG: ${{ needs.validate-ref.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
         run: |
-          TAG="${{ steps.meta.outputs.tag }}"
-          ASSETS=(linux-x64 linux-arm64 macos-x64 macos-arm64)
-          for asset in "${ASSETS[@]}"; do
-            ARCHIVE="dist/ezm-${TAG}-${asset}.tar.gz"
-            if [ ! -f "$ARCHIVE" ]; then
-              echo "Missing expected archive: $ARCHIVE" >&2
-              exit 1
-            fi
-            DEST="dist/extracted/${asset}"
-            mkdir -p "$DEST"
-            tar -xzf "$ARCHIVE" -C "$DEST"
-            chmod +x "$DEST/ezm"
+          mkdir -p dist/extracted
+          for asset in linux-x64 linux-arm64 macos-x64 macos-arm64; do
+            archive="dist/ezm-$RELEASE_TAG-$asset.tar.gz"
+            test -f "$archive"
+            destination="dist/extracted/$asset"
+            mkdir -p "$destination"
+            case "$asset" in
+              linux-*) platform=linux ;;
+              macos-*) platform=macos ;;
+              *) echo "unsupported release asset: $asset" >&2; exit 1 ;;
+            esac
+            python3 scripts/release/verify_release_artifact.py \
+              --archive "$archive" \
+              --expected-version "$RELEASE_VERSION" \
+              --platform "$platform" \
+              --extract-to "$destination" >/dev/null
+            test -x "$destination/ezm"
           done
 
       - name: Setup Node.js
@@ -318,22 +844,23 @@ jobs:
           node-version: "24"
 
       - name: Prepare npm package contents
+        env:
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          PACKAGE_DIR="dist/npm/ez-mux"
-          mkdir -p "$PACKAGE_DIR/bin/linux-x64" "$PACKAGE_DIR/bin/linux-arm64" "$PACKAGE_DIR/bin/darwin-x64" "$PACKAGE_DIR/bin/darwin-arm64"
+          package_dir="dist/npm/ez-mux"
+          mkdir -p "$package_dir/bin/linux-x64" "$package_dir/bin/linux-arm64" \
+            "$package_dir/bin/darwin-x64" "$package_dir/bin/darwin-arm64"
+          cp dist/extracted/linux-x64/ezm "$package_dir/bin/linux-x64/ezm"
+          cp dist/extracted/linux-arm64/ezm "$package_dir/bin/linux-arm64/ezm"
+          cp dist/extracted/macos-x64/ezm "$package_dir/bin/darwin-x64/ezm"
+          cp dist/extracted/macos-arm64/ezm "$package_dir/bin/darwin-arm64/ezm"
+          chmod +x "$package_dir"/bin/*/ezm
 
-          cp dist/extracted/linux-x64/ezm "$PACKAGE_DIR/bin/linux-x64/ezm"
-          cp dist/extracted/linux-arm64/ezm "$PACKAGE_DIR/bin/linux-arm64/ezm"
-          cp dist/extracted/macos-x64/ezm "$PACKAGE_DIR/bin/darwin-x64/ezm"
-          cp dist/extracted/macos-arm64/ezm "$PACKAGE_DIR/bin/darwin-arm64/ezm"
-          chmod +x "$PACKAGE_DIR/bin/linux-x64/ezm" "$PACKAGE_DIR/bin/linux-arm64/ezm" "$PACKAGE_DIR/bin/darwin-x64/ezm" "$PACKAGE_DIR/bin/darwin-arm64/ezm"
-
-          cat > "$PACKAGE_DIR/bin/ezm.js" <<'EOF'
+          cat > "$package_dir/bin/ezm.js" <<'EOF'
           #!/usr/bin/env node
-
           const { spawnSync } = require('node:child_process')
           const path = require('node:path')
-
           const target = `${process.platform}-${process.arch}`
           const map = {
             'linux-x64': 'linux-x64',
@@ -341,81 +868,57 @@ jobs:
             'darwin-x64': 'darwin-x64',
             'darwin-arm64': 'darwin-arm64',
           }
-
           const variant = map[target]
           if (!variant) {
             console.error(`ez-mux does not support platform ${target}`)
             process.exit(1)
           }
-
-          const binaryPath = path.join(__dirname, variant, 'ezm')
-          const result = spawnSync(binaryPath, process.argv.slice(2), { stdio: 'inherit' })
-
+          const result = spawnSync(path.join(__dirname, variant, 'ezm'), process.argv.slice(2), { stdio: 'inherit' })
           if (result.error) {
             console.error(result.error.message)
             process.exit(1)
           }
-
           process.exit(result.status ?? 1)
           EOF
-          chmod +x "$PACKAGE_DIR/bin/ezm.js"
+          chmod +x "$package_dir/bin/ezm.js"
 
-          cat > "$PACKAGE_DIR/package.json" <<EOF
+          cat > "$package_dir/package.json" <<EOF
           {
             "name": "ez-mux",
-            "version": "${{ steps.meta.outputs.version }}",
+            "version": "$RELEASE_VERSION",
             "description": "Deterministic tmux workspace orchestrator",
             "license": "MIT",
-            "repository": {
-              "type": "git",
-              "url": "git+https://github.com/${{ github.repository }}.git"
-            },
-            "bugs": {
-              "url": "https://github.com/${{ github.repository }}/issues"
-            },
-            "homepage": "https://github.com/${{ github.repository }}#readme",
-            "bin": {
-              "ezm": "bin/ezm.js"
-            },
-            "files": [
-              "bin/ezm.js",
-              "bin/linux-x64/ezm",
-              "bin/linux-arm64/ezm",
-              "bin/darwin-x64/ezm",
-              "bin/darwin-arm64/ezm",
-              "README.md"
-            ],
-            "engines": {
-              "node": ">=18"
-            },
-            "publishConfig": {
-              "access": "public"
-            }
+            "repository": { "type": "git", "url": "git+https://github.com/$REPOSITORY.git" },
+            "bugs": { "url": "https://github.com/$REPOSITORY/issues" },
+            "homepage": "https://github.com/$REPOSITORY#readme",
+            "bin": { "ezm": "bin/ezm.js" },
+            "files": ["bin/ezm.js", "bin/linux-x64/ezm", "bin/linux-arm64/ezm", "bin/darwin-x64/ezm", "bin/darwin-arm64/ezm", "README.md"],
+            "engines": { "node": ">=18" },
+            "publishConfig": { "access": "public" }
           }
           EOF
 
-          cat > "$PACKAGE_DIR/README.md" <<EOF
+          cat > "$package_dir/README.md" <<EOF
           # ez-mux
 
-          Install the \`ezm\` CLI via npm.
+          Install the ezm CLI via npm.
 
-          Install:
-
-          \`\`\`bash
           npm install -g ez-mux
-          \`\`\`
 
-          Verify:
+          Verify with ezm --version.
 
-          \`\`\`bash
-          ezm --version
-          \`\`\`
-
-          Source: https://github.com/${{ github.repository }}
+          Source: https://github.com/$REPOSITORY
           EOF
 
       - name: Smoke check packaged launcher
-        run: node bin/ezm.js --version
+        env:
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
+        run: |
+          output="$(node bin/ezm.js --version)"
+          case "$output" in
+            *"ezm $RELEASE_VERSION"*) ;;
+            *) echo "unexpected npm launcher version: $output" >&2; exit 1 ;;
+          esac
         working-directory: dist/npm/ez-mux
 
       - name: Verify npm package payload
@@ -423,20 +926,19 @@ jobs:
         working-directory: dist/npm/ez-mux
 
       - name: Publish npm package
+        env:
+          RELEASE_VERSION: ${{ needs.validate-ref.outputs.version }}
         run: |
-          PACKAGE_NAME="ez-mux"
-          VERSION="${{ steps.meta.outputs.version }}"
           unset NODE_AUTH_TOKEN
-
-          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
-            echo "${PACKAGE_NAME}@${VERSION} already exists; skipping publish."
+          published_version="$(npm view "ez-mux@$RELEASE_VERSION" version 2>/dev/null || true)"
+          if [ "$published_version" = "$RELEASE_VERSION" ]; then
+            echo "ez-mux@$RELEASE_VERSION already exists with the requested matching version; rerun is complete."
             exit 0
-          fi
-
-          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
-            echo "GitHub OIDC environment variables are missing; ensure id-token: write is enabled for this job." >&2
+          elif [ -n "$published_version" ]; then
+            echo "npm returned an unexpected version for ez-mux@$RELEASE_VERSION: $published_version" >&2
             exit 1
           fi
-
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
           npm publish --provenance --access public --loglevel verbose
         working-directory: dist/npm/ez-mux

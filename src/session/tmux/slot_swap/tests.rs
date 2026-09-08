@@ -1,6 +1,7 @@
+use super::super::zoom::should_retry_without_zoom;
 use super::SlotContinuitySnapshot;
 use super::session_option_indicates_suspended;
-use super::should_retry_without_zoom;
+use super::validate_pane_mode;
 use super::validate_slot_suspension;
 use super::validate_suspended_slot_restore_metadata;
 use crate::session::tmux::layout::{
@@ -13,16 +14,19 @@ fn retries_only_for_zoom_attempts_with_status_one() {
     assert!(should_retry_without_zoom(
         "swap-pane",
         "swap-pane -Z -s %1 -t %2",
+        &["-Z"],
         "status=1; stdout=\"\"; stderr=\"unknown option -- Z\""
     ));
     assert!(!should_retry_without_zoom(
         "swap-pane",
         "swap-pane -s %1 -t %2",
+        &["-Z"],
         "status=1; stdout=\"\"; stderr=\"pane not found\""
     ));
     assert!(!should_retry_without_zoom(
         "swap-pane",
         "swap-pane -Z -s %1 -t %2",
+        &["-Z"],
         "status=127; stdout=\"\"; stderr=\"pane not found\""
     ));
 }
@@ -145,4 +149,14 @@ fn suspended_flag_parsing_only_accepts_one() {
     assert!(session_option_indicates_suspended(Some(String::from("1"))));
     assert!(!session_option_indicates_suspended(Some(String::from("0"))));
     assert!(!session_option_indicates_suspended(None));
+}
+
+#[test]
+fn pane_and_session_mode_disagreement_is_reported() {
+    let error = validate_pane_mode(2, "%22", "agent", "shell")
+        .expect_err("mode metadata disagreement must not be silently accepted");
+
+    assert!(error.contains("slot 2"));
+    assert!(error.contains("session=agent"));
+    assert!(error.contains("pane=shell"));
 }

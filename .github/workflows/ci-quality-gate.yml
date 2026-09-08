@@ -13,24 +13,318 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+concurrency:
+  group: ezm-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   quality-gate:
     name: Rust quality gate + structure audit
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-
+        with:
+          components: rustfmt, clippy
+      - name: Tool versions
+        run: |
+          rustc --version
+          cargo --version
       - name: Runtime source structure audit
         run: python3 scripts/audit_runtime_file_sizes.py
-
       - name: cargo fmt check
         run: cargo fmt --all -- --check
-
       - name: cargo clippy strict
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  locked-tests:
+    name: Complete locked test surface
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+      - name: Run complete locked test surface
+        run: cargo test --locked
+
+  session-runtime-integration:
+    name: Locked session runtime integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run session_runtime_integration
+        run: cargo test --locked --test session_runtime_integration -- --nocapture
+
+  msrv:
+    name: MSRV (Rust 1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install declared MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.85
+      - name: Print MSRV evidence
+        run: |
+          rustc --version
+          cargo --version
+      - name: Check all locked test targets at MSRV
+        run: cargo check --workspace --all-targets --locked
+      - name: Run locked library tests at MSRV
+        run: cargo test --locked --lib
+
+  e2e-foundation:
+    name: Foundation E2E (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install tmux on Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+      - name: Install tmux on macOS
+        if: matrix.platform == 'macos'
+        run: brew install tmux
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Print tool versions
+        run: |
+          rustc --version
+          cargo --version
+          tmux -V
+      - name: Run foundation integration suite
+        run: cargo test --locked --test foundation_e2e -- --nocapture
+      - name: Upload foundation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-foundation-${{ matrix.platform }}-${{ github.run_id }}
+          path: target/e2e-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e-core-session:
+    name: Core session E2E (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install tmux on Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+      - name: Install tmux on macOS
+        if: matrix.platform == 'macos'
+        run: brew install tmux
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Print tool versions
+        run: |
+          rustc --version
+          cargo --version
+          tmux -V
+      - name: Run complete core session E2E suite
+        run: cargo test --locked --test core_session_e2e -- --nocapture
+      - name: Upload core session evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-core-session-${{ matrix.platform }}-${{ github.run_id }}
+          path: target/e2e-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e-smoke:
+    name: Cross-platform smoke E2E (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install tmux on Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+      - name: Install tmux on macOS
+        if: matrix.platform == 'macos'
+        run: brew install tmux
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Print tool versions
+        run: |
+          rustc --version
+          cargo --version
+          tmux -V
+      - name: Run cross-platform smoke suite
+        env:
+          EZM_SMOKE_PLATFORM: ${{ matrix.platform }}
+          EZM_SMOKE_MAX_CARGO_JOBS: "2"
+          EZM_SMOKE_TEST_THREADS: "1"
+        run: cargo test --locked --test smoke_e2e -- --nocapture --test-threads 1
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-${{ matrix.platform }}-${{ github.run_id }}
+          path: target/e2e-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e-reduced-layout:
+    name: Reduced-layout E2E (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install tmux on Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+      - name: Install tmux on macOS
+        if: matrix.platform == 'macos'
+        run: brew install tmux
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Print tool versions
+        run: |
+          rustc --version
+          cargo --version
+          tmux -V
+      - name: Run reduced-layout integration suite
+        run: cargo test --locked --test focus_reduced_layout_anchor -- --nocapture
+      - name: Upload reduced-layout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-reduced-layout-${{ matrix.platform }}-${{ github.run_id }}
+          path: target/e2e-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e-zoomed-mode:
+    name: Zoomed-mode E2E (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Install tmux on Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y tmux
+      - name: Install tmux on macOS
+        if: matrix.platform == 'macos'
+        run: brew install tmux
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Print tool versions
+        run: |
+          rustc --version
+          cargo --version
+          tmux -V
+      - name: Run zoomed-mode integration suite
+        run: cargo test --locked --test zoomed_mode_switch_e2e -- --nocapture
+      - name: Upload zoomed-mode evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-zoomed-mode-${{ matrix.platform }}-${{ github.run_id }}
+          path: target/e2e-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+  required-verification:
+    name: Required verification result
+    if: always()
+    needs:
+      - quality-gate
+      - locked-tests
+      - session-runtime-integration
+      - msrv
+      - e2e-foundation
+      - e2e-core-session
+      - e2e-smoke
+      - e2e-reduced-layout
+      - e2e-zoomed-mode
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every verification job to succeed
+        env:
+          QUALITY_RESULT: ${{ needs.quality-gate.result }}
+          LOCKED_TESTS_RESULT: ${{ needs.locked-tests.result }}
+          SESSION_RUNTIME_RESULT: ${{ needs.session-runtime-integration.result }}
+          MSRV_RESULT: ${{ needs.msrv.result }}
+          FOUNDATION_RESULT: ${{ needs.e2e-foundation.result }}
+          CORE_RESULT: ${{ needs.e2e-core-session.result }}
+          SMOKE_RESULT: ${{ needs.e2e-smoke.result }}
+          REDUCED_LAYOUT_RESULT: ${{ needs.e2e-reduced-layout.result }}
+          ZOOMED_MODE_RESULT: ${{ needs.e2e-zoomed-mode.result }}
+        run: |
+          for result in \
+            "$QUALITY_RESULT" \
+            "$LOCKED_TESTS_RESULT" \
+            "$SESSION_RUNTIME_RESULT" \
+            "$MSRV_RESULT" \
+            "$FOUNDATION_RESULT" \
+            "$CORE_RESULT" \
+            "$SMOKE_RESULT" \
+            "$REDUCED_LAYOUT_RESULT" \
+            "$ZOOMED_MODE_RESULT"; do
+            test "$result" = success || exit 1
+          done

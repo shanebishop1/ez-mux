@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::metadata::SlotMetadata;
 
 mod geometry;
+mod launch_context;
 mod metadata;
 mod mode_parse;
 mod reconcile;
@@ -16,6 +17,7 @@ pub(super) fn canonical_slot_metadata() -> HashMap<u8, SlotMetadata> {
                 worktree: String::from("wt-1"),
                 cwd: String::from("/repo/slot-1"),
                 mode: String::from("agent"),
+                suspended: false,
             },
         ),
         (
@@ -25,6 +27,7 @@ pub(super) fn canonical_slot_metadata() -> HashMap<u8, SlotMetadata> {
                 worktree: String::from("wt-2"),
                 cwd: String::from("/repo/slot-2"),
                 mode: String::from("shell"),
+                suspended: false,
             },
         ),
         (
@@ -34,6 +37,7 @@ pub(super) fn canonical_slot_metadata() -> HashMap<u8, SlotMetadata> {
                 worktree: String::from("wt-3"),
                 cwd: String::from("/repo/slot-3"),
                 mode: String::from("neovim"),
+                suspended: false,
             },
         ),
         (
@@ -43,6 +47,7 @@ pub(super) fn canonical_slot_metadata() -> HashMap<u8, SlotMetadata> {
                 worktree: String::from("wt-4"),
                 cwd: String::from("/repo/slot-4"),
                 mode: String::from("lazygit"),
+                suspended: false,
             },
         ),
         (
@@ -52,6 +57,7 @@ pub(super) fn canonical_slot_metadata() -> HashMap<u8, SlotMetadata> {
                 worktree: String::from("wt-5"),
                 cwd: String::from("/repo/slot-5"),
                 mode: String::from("shell"),
+                suspended: false,
             },
         ),
     ])

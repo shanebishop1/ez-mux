@@ -5,7 +5,10 @@ use crate::session::{
     AuxiliaryViewerOutcome, LayoutPreset, PopupShellOutcome, SlotMode, TeardownOutcome, TmuxClient,
 };
 
-use super::{analyze_slot_damage, repair_project_session, repair_project_session_and_attach};
+use super::{
+    analyze_slot_damage, analyze_slot_damage_with_suspension, repair_project_session,
+    repair_project_session_and_attach,
+};
 
 struct RepairTmuxStub {
     analysis: super::SessionDamageAnalysis,
@@ -210,7 +213,7 @@ fn missing_slot_three_keeps_slot_five_in_healthy_context() {
 }
 
 #[test]
-fn root_slot_damage_is_reported_as_non_selective() {
+fn root_slot_damage_is_recoverable_without_losing_healthy_slots() {
     let slot_to_pane = canonical_slot_to_pane();
     let live_panes = BTreeSet::from([
         String::from("%2"),
@@ -219,16 +222,123 @@ fn root_slot_damage_is_reported_as_non_selective() {
         String::from("%5"),
     ]);
 
-    let error = analyze_slot_damage(&slot_to_pane, &live_panes).expect_err("root slot should fail");
-    assert!(
-        error
-            .to_string()
-            .contains("slot 1 pane is missing; selective reconcile is unsafe")
-    );
+    let analysis =
+        analyze_slot_damage(&slot_to_pane, &live_panes).expect("root slot is repairable");
+
+    assert_eq!(analysis.healthy_slots, vec![2, 3, 4, 5]);
+    assert_eq!(analysis.missing_visible_slots, vec![1]);
+    assert_eq!(analysis.recreate_order, vec![1]);
 }
 
 #[test]
-fn repair_project_session_skips_reconcile_when_no_damage() {
+fn missing_active_slot_one_is_reported_for_every_declared_pane_count() {
+    let slot_to_pane = canonical_slot_to_pane();
+
+    for pane_count in 1_u8..=5 {
+        let live_panes = (2_u8..=pane_count)
+            .map(|slot_id| format!("%{slot_id}"))
+            .collect::<BTreeSet<_>>();
+        let suspended_slots = ((pane_count + 1)..=5).collect::<BTreeSet<_>>();
+
+        let analysis = analyze_slot_damage_with_suspension(
+            &slot_to_pane,
+            &live_panes,
+            &suspended_slots,
+            &BTreeSet::new(),
+        )
+        .expect("active slot 1 damage should be recoverable");
+
+        assert_eq!(analysis.missing_visible_slots, vec![1]);
+        assert_eq!(analysis.recreate_order, vec![1]);
+    }
+}
+
+#[test]
+fn ordinary_damage_analysis_preserves_each_declared_reduced_layout() {
+    let slot_to_pane = canonical_slot_to_pane();
+
+    for pane_count in 1_u8..=5 {
+        let live_panes = (1_u8..=pane_count)
+            .map(|slot_id| format!("%{slot_id}"))
+            .collect::<BTreeSet<_>>();
+        let suspended_slots = ((pane_count + 1)..=5).collect::<BTreeSet<_>>();
+
+        let analysis = analyze_slot_damage_with_suspension(
+            &slot_to_pane,
+            &live_panes,
+            &suspended_slots,
+            &BTreeSet::new(),
+        )
+        .expect("reduced layout should be a valid ordinary repair input");
+
+        assert_eq!(
+            analysis.healthy_slots,
+            (1_u8..=pane_count).collect::<Vec<_>>()
+        );
+        assert!(analysis.missing_visible_slots.is_empty());
+        assert!(analysis.recreate_order.is_empty());
+    }
+}
+
+#[test]
+fn ordinary_repair_does_not_revive_an_intentionally_suspended_slot() {
+    let slot_to_pane = canonical_slot_to_pane();
+    let live_panes = BTreeSet::from([String::from("%1"), String::from("%2"), String::from("%3")]);
+    let suspended_slots = BTreeSet::from([4_u8, 5]);
+
+    let analysis = analyze_slot_damage_with_suspension(
+        &slot_to_pane,
+        &live_panes,
+        &suspended_slots,
+        &BTreeSet::new(),
+    )
+    .expect("suspended slots are intentional layout state");
+
+    assert_eq!(analysis.healthy_slots, vec![1, 2, 3]);
+    assert!(analysis.missing_visible_slots.is_empty());
+}
+
+#[test]
+fn explicit_restore_requires_suspended_slots_without_changing_healthy_slots() {
+    let slot_to_pane = canonical_slot_to_pane();
+    let live_panes = BTreeSet::from([String::from("%1"), String::from("%2"), String::from("%3")]);
+    let suspended_slots = BTreeSet::from([4_u8, 5]);
+    let restore_slots = BTreeSet::from([4_u8, 5]);
+
+    let analysis = analyze_slot_damage_with_suspension(
+        &slot_to_pane,
+        &live_panes,
+        &suspended_slots,
+        &restore_slots,
+    )
+    .expect("explicit five-pane restoration should request suspended slots");
+
+    assert_eq!(analysis.healthy_slots, vec![1, 2, 3]);
+    assert_eq!(analysis.missing_visible_slots, vec![4, 5]);
+    assert_eq!(analysis.recreate_order, vec![4, 5]);
+}
+
+#[test]
+fn explicit_three_pane_restore_does_not_repair_unrequired_five_pane_slots() {
+    let slot_to_pane = canonical_slot_to_pane();
+    let live_panes = BTreeSet::from([String::from("%1"), String::from("%2"), String::from("%3")]);
+    let required_slots = BTreeSet::from([1_u8, 2, 3]);
+
+    let analysis = super::analyze_slot_damage_for_slots(
+        &slot_to_pane,
+        &live_panes,
+        &BTreeSet::new(),
+        &BTreeSet::new(),
+        Some(&required_slots),
+    )
+    .expect("three-pane preset should ignore unrequired slots");
+
+    assert!(analysis.missing_visible_slots.is_empty());
+    assert!(analysis.recreate_order.is_empty());
+}
+
+#[test]
+fn repair_project_session_validates_reconcile_when_no_damage() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project_dir = temp.path().join("project");
     std::fs::create_dir_all(&project_dir).expect("project dir");
@@ -253,7 +363,7 @@ fn repair_project_session_skips_reconcile_when_no_damage() {
 
     assert_eq!(execution.action_label(), "noop");
     assert!(execution.recreated_slots.is_empty());
-    assert_eq!(tmux.reconcile_calls.get(), 0);
+    assert_eq!(tmux.reconcile_calls.get(), 1);
 }
 
 #[test]
@@ -350,7 +460,7 @@ fn repair_project_session_and_attach_reopens_even_when_noop() {
         repair_project_session_and_attach(&project_dir, &tmux).expect("repair execution");
 
     assert_eq!(execution.action_label(), "noop");
-    assert_eq!(tmux.reconcile_calls.get(), 0);
+    assert_eq!(tmux.reconcile_calls.get(), 1);
     assert_eq!(
         tmux.attach_calls.borrow().as_slice(),
         std::slice::from_ref(&expected_session)

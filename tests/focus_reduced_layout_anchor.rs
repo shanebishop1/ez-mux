@@ -1,6 +1,12 @@
 mod support;
 
-use support::foundation_harness::FoundationHarness;
+use std::thread;
+use std::time::{Duration, Instant};
+
+use support::foundation_harness::{FoundationHarness, MAX_TMUX_SOCKET_PATH_LEN};
+
+const SLOT_METADATA_READY_TIMEOUT: Duration = Duration::from_secs(2);
+const SLOT_METADATA_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Clone, Debug)]
 struct SlotSnapshot {
@@ -19,6 +25,20 @@ struct PaneGeometry {
 }
 
 #[test]
+fn tmux_socket_path_is_bounded_and_owned_by_the_harness() {
+    let harness = FoundationHarness::new_for_suite("focus-reduced-layout-socket")
+        .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
+    let socket_path = harness.tmux_socket_path();
+
+    assert!(
+        socket_path.as_os_str().to_string_lossy().len() <= MAX_TMUX_SOCKET_PATH_LEN,
+        "socket path is too long: {}",
+        socket_path.display()
+    );
+    assert!(socket_path.starts_with("/tmp") || socket_path.starts_with("/private/tmp"));
+}
+
+#[test]
 fn two_pane_startup_makes_main_slot_noticeably_wider() {
     let harness = FoundationHarness::new_for_suite("focus-reduced-layout")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
@@ -27,8 +47,8 @@ fn two_pane_startup_makes_main_slot_noticeably_wider() {
         .run_ezm(&["--verbose", "2"], &[], 0)
         .unwrap_or_else(|error| panic!("launch failed: {error}"));
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
-    let slots = read_slot_snapshot(&harness, &session)
-        .unwrap_or_else(|error| panic!("failed reading slot snapshot: {error}"));
+    let slots = wait_for_slot_snapshot(&harness, &session, 2)
+        .unwrap_or_else(|error| panic!("failed waiting for slot snapshot: {error}"));
     let geometry = read_pane_geometry(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading pane geometry: {error}"));
 
@@ -58,8 +78,8 @@ fn four_pane_startup_makes_main_slot_wider_and_taller() {
         .run_ezm(&["--verbose", "4"], &[], 0)
         .unwrap_or_else(|error| panic!("launch failed: {error}"));
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
-    let slots = read_slot_snapshot(&harness, &session)
-        .unwrap_or_else(|error| panic!("failed reading slot snapshot: {error}"));
+    let slots = wait_for_slot_snapshot(&harness, &session, 4)
+        .unwrap_or_else(|error| panic!("failed waiting for slot snapshot: {error}"));
     let geometry = read_pane_geometry(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading pane geometry: {error}"));
 
@@ -95,6 +115,13 @@ fn focus_promotes_slot_into_startup_main_position_in_four_pane_layout() {
     assert_focus_uses_startup_main_position("focus-reduced-layout", "4", 4);
 }
 
+#[test]
+fn two_pane_focus_startup_metadata_is_ready_across_repeated_runs() {
+    for _ in 0..3 {
+        assert_focus_uses_startup_main_position("focus-reduced-layout-repeat", "2", 2);
+    }
+}
+
 fn assert_focus_uses_startup_main_position(suite_name: &str, pane_arg: &str, target_slot: u8) {
     let harness = FoundationHarness::new_for_suite(suite_name)
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
@@ -105,8 +132,11 @@ fn assert_focus_uses_startup_main_position(suite_name: &str, pane_arg: &str, tar
     let session = extract_stdout_field(&launch.stdout, "session").unwrap_or_default();
     let action = extract_stdout_field(&launch.stdout, "session_action").unwrap_or_default();
 
-    let before_slots = read_slot_snapshot(&harness, &session)
-        .unwrap_or_else(|error| panic!("failed reading slot snapshot before focus: {error}"));
+    let required_slot_count = pane_arg
+        .parse::<u8>()
+        .unwrap_or_else(|error| panic!("invalid pane count {pane_arg:?}: {error}"));
+    let before_slots = wait_for_slot_snapshot(&harness, &session, required_slot_count)
+        .unwrap_or_else(|error| panic!("failed waiting for slot snapshot before focus: {error}"));
     let before_geometry = read_pane_geometry(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading pane geometry before focus: {error}"));
 
@@ -122,8 +152,8 @@ fn assert_focus_uses_startup_main_position(suite_name: &str, pane_arg: &str, tar
         .unwrap_or_else(|error| panic!("failed reading pane geometry after focus: {error}"));
     let selected_after = selected_pane_id(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading selected pane after focus: {error}"));
-    let after_slots = read_slot_snapshot(&harness, &session)
-        .unwrap_or_else(|error| panic!("failed reading slot snapshot after focus: {error}"));
+    let after_slots = wait_for_slot_snapshot(&harness, &session, required_slot_count)
+        .unwrap_or_else(|error| panic!("failed waiting for slot snapshot after focus: {error}"));
     let target_after = pane_geometry_by_id(&after_geometry, &target_pane)
         .unwrap_or_else(|| panic!("missing target pane geometry for {target_pane}"));
 
@@ -267,6 +297,43 @@ fn extract_stdout_field(stdout: &str, key: &str) -> Option<String> {
     let tail = &stdout[start..];
     let end = tail.find(';').unwrap_or(tail.len());
     Some(tail[..end].trim().trim_end_matches('.').to_owned())
+}
+
+fn wait_for_slot_snapshot(
+    harness: &FoundationHarness,
+    session: &str,
+    required_slot_count: u8,
+) -> Result<Vec<SlotSnapshot>, String> {
+    let deadline = Instant::now() + SLOT_METADATA_READY_TIMEOUT;
+
+    loop {
+        let observation = match read_slot_snapshot(harness, session) {
+            Ok(slots) if required_slot_metadata_is_ready(&slots, required_slot_count) => {
+                return Ok(slots);
+            }
+            Ok(slots) => format!("slot metadata is incomplete: {slots:?}"),
+            Err(error) => error,
+        };
+
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out after {} ms waiting for slots 1..={required_slot_count}: {}",
+                SLOT_METADATA_READY_TIMEOUT.as_millis(),
+                observation
+            ));
+        }
+        thread::sleep(SLOT_METADATA_POLL_INTERVAL);
+    }
+}
+
+fn required_slot_metadata_is_ready(slots: &[SlotSnapshot], required_slot_count: u8) -> bool {
+    (1..=required_slot_count).all(|slot_id| {
+        slots.iter().any(|slot| {
+            slot.slot_id == slot_id
+                && !slot.pane_id.trim().is_empty()
+                && !slot.worktree.trim().is_empty()
+        })
+    })
 }
 
 fn read_slot_snapshot(

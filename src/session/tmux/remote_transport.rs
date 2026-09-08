@@ -16,6 +16,29 @@ pub(super) enum LocalShellStartup {
     DisableGitstatus,
 }
 
+#[derive(Debug)]
+struct StructuredInvocation {
+    program: &'static str,
+    arguments: Vec<InvocationArgument>,
+}
+
+#[derive(Debug)]
+enum InvocationArgument {
+    Literal(String),
+    ShellValue(String),
+}
+
+impl StructuredInvocation {
+    fn render(self) -> String {
+        let mut rendered = vec![self.program.to_owned()];
+        rendered.extend(self.arguments.into_iter().map(|argument| match argument {
+            InvocationArgument::Literal(value) => value,
+            InvocationArgument::ShellValue(value) => format!("'{}'", escape_single_quotes(&value)),
+        }));
+        rendered.join(" ")
+    }
+}
+
 pub(super) fn build_remote_invocation(
     authority: &ParsedSshAuthority,
     remote_script: &str,
@@ -63,48 +86,55 @@ fn wrap_local_login_shell(invocation: &str, startup: LocalShellStartup) -> Strin
 }
 
 fn build_ssh_invocation(authority: &ParsedSshAuthority, remote_script: &str) -> String {
-    let mut invocation = String::from("ssh -tt");
+    let mut arguments = vec![InvocationArgument::Literal(String::from("-tt"))];
     if let Some(port) = authority.port {
-        invocation.push_str(" -p ");
-        invocation.push_str(&port.to_string());
+        arguments.push(InvocationArgument::Literal(String::from("-p")));
+        arguments.push(InvocationArgument::Literal(port.to_string()));
     }
-    invocation.push_str(" '");
-    invocation.push_str(&escape_single_quotes(&authority.target));
-    invocation.push('\'');
-    invocation.push_str(" '");
-    invocation.push_str(&escape_single_quotes(remote_script));
-    invocation.push('\'');
-    invocation
+    arguments.push(InvocationArgument::Literal(String::from("--")));
+    arguments.push(InvocationArgument::ShellValue(authority.target.clone()));
+    arguments.push(InvocationArgument::ShellValue(remote_script.to_owned()));
+    StructuredInvocation {
+        program: "ssh",
+        arguments,
+    }
+    .render()
 }
 
 fn build_tssh_invocation(authority: &ParsedSshAuthority, remote_script: &str) -> String {
-    let mut invocation = String::from("tssh -tt");
+    let mut arguments = vec![InvocationArgument::Literal(String::from("-tt"))];
     if let Some(port) = authority.port {
-        invocation.push_str(" -p ");
-        invocation.push_str(&port.to_string());
+        arguments.push(InvocationArgument::Literal(String::from("-p")));
+        arguments.push(InvocationArgument::Literal(port.to_string()));
     }
-    invocation.push_str(" '");
-    invocation.push_str(&escape_single_quotes(&authority.target));
-    invocation.push('\'');
-    invocation.push_str(" '");
-    invocation.push_str(&escape_single_quotes(remote_script));
-    invocation.push('\'');
-    invocation
+    arguments.push(InvocationArgument::Literal(String::from("--")));
+    arguments.push(InvocationArgument::ShellValue(authority.target.clone()));
+    arguments.push(InvocationArgument::ShellValue(remote_script.to_owned()));
+    StructuredInvocation {
+        program: "tssh",
+        arguments,
+    }
+    .render()
 }
 
 fn build_mosh_invocation(authority: &ParsedSshAuthority, remote_script: &str) -> String {
-    let mut invocation = String::from("mosh --no-init");
+    let mut arguments = vec![InvocationArgument::Literal(String::from("--no-init"))];
     if let Some(port) = authority.port {
-        invocation.push_str(" --ssh='ssh -p ");
-        invocation.push_str(&port.to_string());
-        invocation.push('\'');
+        arguments.push(InvocationArgument::Literal(format!(
+            "--ssh='ssh -p {port} --'"
+        )));
     }
-    invocation.push_str(" '");
-    invocation.push_str(&escape_single_quotes(&authority.target));
-    invocation.push_str("' -- 'sh' '-lc' '");
-    invocation.push_str(&escape_single_quotes(remote_script));
-    invocation.push('\'');
-    invocation
+    arguments.push(InvocationArgument::Literal(String::from("--")));
+    arguments.push(InvocationArgument::ShellValue(authority.target.clone()));
+    arguments.push(InvocationArgument::Literal(String::from("--")));
+    arguments.push(InvocationArgument::Literal(String::from("'sh'")));
+    arguments.push(InvocationArgument::Literal(String::from("'-lc'")));
+    arguments.push(InvocationArgument::ShellValue(remote_script.to_owned()));
+    StructuredInvocation {
+        program: "mosh",
+        arguments,
+    }
+    .render()
 }
 
 fn escape_single_quotes(value: &str) -> String {
@@ -159,7 +189,7 @@ mod tests {
         let remote_script = "cd '/srv/remote work' && printf '%s\\n' '$HOME'";
         let invocation = build_remote_invocation(&authority, remote_script, false, false);
         let raw_transport = format!(
-            "ssh -tt -p 7443 'shell.remote.example' '{}'",
+            "ssh -tt -p 7443 -- 'shell.remote.example' '{}'",
             remote_script.replace('\'', "'\"'\"'")
         );
 
@@ -203,6 +233,7 @@ mod tests {
         assert!(invocation.starts_with("\"${SHELL:-/bin/sh}\" -lic '"));
         assert!(invocation.contains("mosh --no-init"));
         assert!(invocation.contains("ssh -p 7443"));
+        assert!(invocation.contains("ssh -p 7443 --"));
         assert!(invocation.contains("shell.remote.example"));
         assert!(invocation.contains("--"));
         assert!(invocation.contains("sh"));
@@ -222,5 +253,27 @@ mod tests {
         assert!(invocation.contains("'shell.remote.example'"));
         assert!(invocation.contains("cd '"));
         assert!(!invocation.contains("mosh --no-init"));
+    }
+
+    #[test]
+    fn every_supported_transport_ends_options_before_the_destination() {
+        let authority =
+            parse_remote_ssh_authority("operator@[2001:db8::1]:2222").expect("authority");
+        for (use_tssh, use_mosh, transport) in [
+            (false, false, "ssh"),
+            (true, false, "tssh"),
+            (false, true, "mosh"),
+        ] {
+            let invocation = build_remote_invocation(
+                &authority,
+                "cd '/srv/remote work' && exec shell",
+                use_tssh,
+                use_mosh,
+            );
+            assert!(invocation.contains(transport));
+            assert!(invocation.contains("-- '\"'\"'operator@[2001:db8::1]'"));
+            assert!(invocation.contains("[2001:db8::1]"));
+            assert!(invocation.contains("/srv/remote work"));
+        }
     }
 }

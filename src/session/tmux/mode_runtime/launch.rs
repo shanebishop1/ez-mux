@@ -63,29 +63,17 @@ pub(super) fn launch_agent_attach_command(
     if attach_url.is_empty() {
         return Err(SessionError::MissingSharedServerAttachConfig);
     }
+    crate::config::validate_server_url(attach_url, "session runtime context")
+        .map_err(|_| SessionError::InvalidSharedServerAttachUrl)?;
 
     let attach_dir = resolve_remote_path(std::path::Path::new(cwd), remote_path)?.effective_path;
     let attach_dir = attach_dir.display().to_string();
 
-    let attach_invocation = if let Some(password) = shared_server
-        .password
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        format!(
-            "opencode attach '{}' --dir '{}' --password '{}'",
-            escape_single_quotes(attach_url),
-            escape_single_quotes(&attach_dir),
-            escape_single_quotes(password)
-        )
-    } else {
-        format!(
-            "opencode attach '{}' --dir '{}'",
-            escape_single_quotes(attach_url),
-            escape_single_quotes(&attach_dir)
-        )
-    };
+    let attach_invocation = format!(
+        "opencode attach '{}' --dir '{}'",
+        escape_single_quotes(attach_url),
+        escape_single_quotes(&attach_dir)
+    );
 
     let attach_invocation =
         with_opencode_tui_config_env(attach_invocation, slot_id, opencode_theme);

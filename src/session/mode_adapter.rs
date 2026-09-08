@@ -82,7 +82,9 @@ fn sanitize_tool_environment(binary_name: &str, launch_invocation: &str) -> Stri
         return launch_invocation.to_owned();
     }
 
-    format!("unset OPENCODE_SERVER_URL OPENCODE_SERVER_PASSWORD; {launch_invocation}")
+    // Attach receives its credential from the owning tmux session environment.
+    // Clear only the ambient URL because the attach target is explicit.
+    format!("unset OPENCODE_SERVER_URL; {launch_invocation}")
 }
 
 #[cfg(test)]
@@ -90,14 +92,16 @@ mod tests {
     use super::{ModeToolFailurePolicy, launch_tool_command};
 
     #[test]
-    fn opencode_launch_clears_shared_server_environment_overrides() {
+    fn opencode_attach_clears_url_but_inherits_session_password() {
         let command = launch_tool_command(
             "opencode",
             "opencode attach 'http://127.0.0.1:4096' --dir '/repo'",
             ModeToolFailurePolicy::ContinueToShell,
         );
 
-        assert!(command.contains("unset OPENCODE_SERVER_URL OPENCODE_SERVER_PASSWORD;"));
+        assert!(command.contains("unset OPENCODE_SERVER_URL;"));
+        assert!(!command.contains("unset OPENCODE_SERVER_PASSWORD"));
+        assert!(!command.contains("--password"));
         assert!(command.contains("opencode attach 'http://127.0.0.1:4096' --dir '/repo'"));
     }
 

@@ -3,8 +3,9 @@ use std::collections::{HashMap, VecDeque};
 
 use super::{
     CommandOutput, TeardownExecutor, parse_lines, process_absence_status,
-    teardown_session_with_executor, tmux_absence_status,
+    teardown_owned_session_with_executor, teardown_session_with_executor, tmux_absence_status,
 };
+use crate::session::TeardownOwnership;
 
 #[derive(Default)]
 struct FakeTeardownExecutor {
@@ -111,31 +112,40 @@ fn teardown_filters_namespace_collects_unique_pids_and_orders_steps() {
     executor.push_tmux_output(
         &["list-sessions", "-F", "#{session_name}"],
         success_output(
-            "ezm-s123\nezm-s123__popup__1\nother\nezm-s123__aux\nezm-s12\nezm-s1234__other\n",
+            "ezm-s123\nezm-s123__popup_slot_1\nother\nezm-s123__aux\nezm-s12\nezm-s1234__other\nezm-s123__mode_cache\n",
         ),
     );
     executor.push_tmux_output(
         &[
             "list-panes",
             "-t",
-            "ezm-s123__popup__1",
+            "ezm-s123__popup_slot_1",
             "-F",
             "#{pane_pid}",
         ],
         success_output("101\n102\ninvalid\n"),
     );
     executor.push_tmux_output(
-        &["list-panes", "-t", "ezm-s123__aux", "-F", "#{pane_pid}"],
+        &[
+            "list-panes",
+            "-t",
+            "ezm-s123__mode_cache",
+            "-F",
+            "#{pane_pid}",
+        ],
         success_output("102\n103\n"),
     );
     executor.push_kill_output(101, success_output(""));
     executor.push_kill_output(102, success_output(""));
     executor.push_kill_output(103, success_output(""));
     executor.push_tmux_output(
-        &["kill-session", "-t", "ezm-s123__popup__1"],
+        &["kill-session", "-t", "ezm-s123__popup_slot_1"],
         success_output(""),
     );
-    executor.push_tmux_output(&["kill-session", "-t", "ezm-s123__aux"], success_output(""));
+    executor.push_tmux_output(
+        &["kill-session", "-t", "ezm-s123__mode_cache"],
+        success_output(""),
+    );
     executor.push_tmux_output(&["kill-session", "-t", "ezm-s123"], success_output(""));
 
     let outcome =
@@ -148,13 +158,13 @@ fn teardown_filters_namespace_collects_unique_pids_and_orders_steps() {
         executor.calls(),
         vec![
             String::from("tmux list-sessions -F #{session_name}"),
-            String::from("tmux list-panes -t ezm-s123__popup__1 -F #{pane_pid}"),
-            String::from("tmux list-panes -t ezm-s123__aux -F #{pane_pid}"),
+            String::from("tmux list-panes -t ezm-s123__popup_slot_1 -F #{pane_pid}"),
+            String::from("tmux list-panes -t ezm-s123__mode_cache -F #{pane_pid}"),
             String::from("kill -TERM 101"),
             String::from("kill -TERM 102"),
             String::from("kill -TERM 103"),
-            String::from("tmux kill-session -t ezm-s123__popup__1"),
-            String::from("tmux kill-session -t ezm-s123__aux"),
+            String::from("tmux kill-session -t ezm-s123__popup_slot_1"),
+            String::from("tmux kill-session -t ezm-s123__mode_cache"),
             String::from("tmux kill-session -t ezm-s123"),
         ]
     );
@@ -165,16 +175,22 @@ fn teardown_treats_absent_helpers_and_processes_as_idempotent() {
     let executor = FakeTeardownExecutor::default();
     executor.push_tmux_output(
         &["list-sessions", "-F", "#{session_name}"],
-        success_output("ezm-s123\nezm-s123__popup\n"),
+        success_output("ezm-s123\nezm-s123__popup_slot_1\n"),
     );
     executor.push_tmux_output(
-        &["list-panes", "-t", "ezm-s123__popup", "-F", "#{pane_pid}"],
+        &[
+            "list-panes",
+            "-t",
+            "ezm-s123__popup_slot_1",
+            "-F",
+            "#{pane_pid}",
+        ],
         success_output("200\n"),
     );
     executor.push_kill_output(200, failed_output("kill: (200): No such process"));
     executor.push_tmux_output(
-        &["kill-session", "-t", "ezm-s123__popup"],
-        failed_output("can't find session: ezm-s123__popup"),
+        &["kill-session", "-t", "ezm-s123__popup_slot_1"],
+        failed_output("can't find session: ezm-s123__popup_slot_1"),
     );
     executor.push_tmux_output(
         &["kill-session", "-t", "ezm-s123"],
@@ -195,15 +211,21 @@ fn teardown_is_idempotent_across_repeated_runs_when_targets_disappear() {
 
     executor.push_tmux_output(
         &["list-sessions", "-F", "#{session_name}"],
-        success_output("ezm-s123\nezm-s123__popup\n"),
+        success_output("ezm-s123\nezm-s123__popup_slot_1\n"),
     );
     executor.push_tmux_output(
-        &["list-panes", "-t", "ezm-s123__popup", "-F", "#{pane_pid}"],
+        &[
+            "list-panes",
+            "-t",
+            "ezm-s123__popup_slot_1",
+            "-F",
+            "#{pane_pid}",
+        ],
         success_output("400\n"),
     );
     executor.push_kill_output(400, success_output(""));
     executor.push_tmux_output(
-        &["kill-session", "-t", "ezm-s123__popup"],
+        &["kill-session", "-t", "ezm-s123__popup_slot_1"],
         success_output(""),
     );
     executor.push_tmux_output(&["kill-session", "-t", "ezm-s123"], success_output(""));
@@ -227,4 +249,94 @@ fn teardown_is_idempotent_across_repeated_runs_when_targets_disappear() {
     assert!(!second.project_session_removed);
     assert_eq!(second.helper_sessions_removed, 0);
     assert_eq!(second.helper_processes_removed, 0);
+}
+
+#[test]
+fn explicit_teardown_ignores_unrelated_prefix_sessions_and_processes() {
+    let executor = FakeTeardownExecutor::default();
+    executor.push_tmux_output(
+        &["list-sessions", "-F", "#{session_name}"],
+        success_output("ezm-s123\nezm-s123__user-owned\nezm-s123__popup_slot_1\n"),
+    );
+    executor.push_tmux_output(
+        &[
+            "list-panes",
+            "-t",
+            "ezm-s123__popup_slot_1",
+            "-F",
+            "#{pane_pid}",
+        ],
+        success_output("801\n"),
+    );
+    executor.push_kill_output(801, success_output(""));
+    executor.push_tmux_output(
+        &["kill-session", "-t", "ezm-s123__popup_slot_1"],
+        success_output(""),
+    );
+    executor.push_tmux_output(&["kill-session", "-t", "ezm-s123"], success_output(""));
+
+    let outcome =
+        teardown_session_with_executor("ezm-s123", &executor).expect("teardown should succeed");
+
+    assert_eq!(outcome.helper_sessions_removed, 1);
+    assert_eq!(outcome.helper_processes_removed, 1);
+    assert!(
+        !executor
+            .calls()
+            .iter()
+            .any(|call| call.contains("ezm-s123__user-owned"))
+    );
+}
+
+#[test]
+fn owned_teardown_uses_only_bootstrap_allowlist() {
+    let executor = FakeTeardownExecutor::default();
+    let mut ownership = TeardownOwnership::for_new_session("ezm-s123");
+    ownership.add_helper_session(String::from("ezm-s123__mode_cache"));
+    ownership.add_helper_session(String::from("ezm-s123__popup_slot_2"));
+    ownership.add_helper_session(String::from("ezm-s123__user-owned"));
+
+    executor.push_tmux_output(
+        &[
+            "list-panes",
+            "-t",
+            "ezm-s123__mode_cache",
+            "-F",
+            "#{pane_pid}",
+        ],
+        success_output("901\n"),
+    );
+    executor.push_tmux_output(
+        &[
+            "list-panes",
+            "-t",
+            "ezm-s123__popup_slot_2",
+            "-F",
+            "#{pane_pid}",
+        ],
+        success_output("902\n"),
+    );
+    executor.push_kill_output(901, success_output(""));
+    executor.push_kill_output(902, success_output(""));
+    executor.push_tmux_output(
+        &["kill-session", "-t", "ezm-s123__mode_cache"],
+        success_output(""),
+    );
+    executor.push_tmux_output(
+        &["kill-session", "-t", "ezm-s123__popup_slot_2"],
+        success_output(""),
+    );
+    executor.push_tmux_output(&["kill-session", "-t", "ezm-s123"], success_output(""));
+
+    let outcome = teardown_owned_session_with_executor("ezm-s123", &ownership, &executor)
+        .expect("owned teardown should succeed");
+
+    assert_eq!(outcome.helper_sessions_removed, 2);
+    assert_eq!(outcome.helper_processes_removed, 2);
+    assert!(
+        !executor
+            .calls()
+            .iter()
+            .any(|call| call.contains("user-owned"))
+    );
 }

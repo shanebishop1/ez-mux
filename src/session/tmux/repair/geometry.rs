@@ -1,7 +1,10 @@
 use super::super::SessionError;
-use super::super::command::{tmux_output_value, tmux_primary_window_target, tmux_run};
+use super::super::canonical_window::canonical_window_target;
+use super::super::command::{tmux_output_value, tmux_run};
+use super::super::layout::{LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_THREE_PANE};
 use super::super::options::required_session_option;
 use super::super::{DEFAULT_CENTER_WIDTH_PCT, canonical_five_pane_column_widths};
+use crate::session::three_pane_target_widths;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PaneLeftMetric {
@@ -13,7 +16,7 @@ pub(super) fn discover_right_column_anchor_pane(
     session_name: &str,
     center_pane_id: &str,
 ) -> Result<Option<String>, SessionError> {
-    let target = tmux_primary_window_target(session_name)?;
+    let target = canonical_window_target(session_name)?;
     let output =
         tmux_output_value(&["list-panes", "-t", &target, "-F", "#{pane_id}|#{pane_left}"])?;
     let metrics = parse_pane_left_metrics(&output);
@@ -57,7 +60,7 @@ pub(super) fn select_right_column_anchor(
 }
 
 pub(super) fn restore_canonical_column_widths(session_name: &str) -> Result<(), SessionError> {
-    let target = tmux_primary_window_target(session_name)?;
+    let target = canonical_window_target(session_name)?;
     let window_width_raw =
         tmux_output_value(&["display-message", "-p", "-t", &target, "#{window_width}"])?;
     let window_width = window_width_raw.trim().parse::<u16>().map_err(|error| {
@@ -95,5 +98,38 @@ pub(super) fn restore_canonical_column_widths(session_name: &str) -> Result<(), 
         &right_target.to_string(),
     ])?;
 
+    Ok(())
+}
+
+pub(super) fn restore_repaired_layout_geometry(
+    session_name: &str,
+    layout_mode: &str,
+) -> Result<(), SessionError> {
+    match layout_mode {
+        LAYOUT_MODE_FIVE_PANE => restore_canonical_column_widths(session_name),
+        LAYOUT_MODE_THREE_PANE => restore_three_pane_widths(session_name),
+        // One-, two-, and four-pane layouts retain the dimensions chosen by
+        // the user. Recreating a pane must not silently turn them into the
+        // default five-pane geometry.
+        _ => Ok(()),
+    }
+}
+
+fn restore_three_pane_widths(session_name: &str) -> Result<(), SessionError> {
+    let target = canonical_window_target(session_name)?;
+    let window_width =
+        tmux_output_value(&["display-message", "-p", "-t", &target, "#{window_width}"])?
+            .trim()
+            .parse::<u16>()
+            .map_err(|error| SessionError::TmuxCommandFailed {
+                command: format!("display-message -p -t {target} #{{window_width}}"),
+                stderr: format!("failed parsing window width: {error}"),
+            })?;
+    let (left, center, right) = three_pane_target_widths(window_width);
+    let panes = [(2_u8, left), (1_u8, center), (3_u8, right)];
+    for (slot_id, width) in panes {
+        let pane = required_session_option(session_name, &format!("@ezm_slot_{slot_id}_pane"))?;
+        tmux_run(&["resize-pane", "-t", &pane, "-x", &width.to_string()])?;
+    }
     Ok(())
 }

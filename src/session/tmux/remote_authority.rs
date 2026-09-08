@@ -1,4 +1,5 @@
 use super::SessionError;
+use std::net::Ipv6Addr;
 
 const REDACTED_SECRET_VALUE: &str = "<redacted>";
 
@@ -11,18 +12,25 @@ pub(super) struct ParsedSshAuthority {
 pub(super) fn parse_remote_ssh_authority(
     remote_server_url: &str,
 ) -> Result<ParsedSshAuthority, SessionError> {
+    if remote_server_url.chars().any(char::is_control) {
+        return Err(invalid_remote_authority(
+            remote_server_url,
+            "authority contains control characters",
+        ));
+    }
+
     let raw = remote_server_url.trim();
     if raw.is_empty() {
         return Err(invalid_remote_authority(raw, "authority is empty"));
     }
 
-    let authority = raw
-        .split_once("://")
-        .map_or(raw, |(_, remainder)| remainder)
-        .split('/')
-        .next()
-        .unwrap_or_default()
-        .trim();
+    let authority = if let Some((scheme, remainder)) = raw.split_once("://") {
+        validate_scheme(raw, scheme)?;
+        remainder.split('/').next().unwrap_or_default()
+    } else {
+        raw.split('/').next().unwrap_or_default()
+    }
+    .trim();
 
     if authority.is_empty() {
         return Err(invalid_remote_authority(raw, "host is empty"));
@@ -55,6 +63,7 @@ fn parse_authority(raw: &str, authority: &str) -> Result<(String, Option<u16>), 
                 "user segment before `@` is empty",
             ));
         }
+        validate_username(raw, user)?;
         (Some(user), host_port)
     } else {
         (None, authority)
@@ -79,6 +88,40 @@ fn parse_authority(raw: &str, authority: &str) -> Result<(String, Option<u16>), 
     Ok((target, port))
 }
 
+fn validate_scheme(raw: &str, scheme: &str) -> Result<(), SessionError> {
+    let mut characters = scheme.chars();
+    let Some(first) = characters.next() else {
+        return Err(invalid_remote_authority(raw, "URL scheme is empty"));
+    };
+    if !first.is_ascii_alphabetic()
+        || !characters.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'))
+    {
+        return Err(invalid_remote_authority(raw, "URL scheme is malformed"));
+    }
+
+    Ok(())
+}
+
+fn validate_username(raw: &str, username: &str) -> Result<(), SessionError> {
+    if username.starts_with('-') {
+        return Err(invalid_remote_authority(raw, "username is option-like"));
+    }
+    if username.contains(':') {
+        return Err(invalid_remote_authority(
+            raw,
+            "password-bearing userinfo is unsupported",
+        ));
+    }
+    if !username
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    {
+        return Err(invalid_remote_authority(raw, "username is malformed"));
+    }
+
+    Ok(())
+}
+
 fn parse_bracketed_host_and_port(
     raw: &str,
     host_port: &str,
@@ -97,6 +140,12 @@ fn parse_bracketed_host_and_port(
     }
     if contains_whitespace(host_inner) {
         return Err(invalid_remote_authority(raw, "host contains whitespace"));
+    }
+    if host_inner.parse::<Ipv6Addr>().is_err() {
+        return Err(invalid_remote_authority(
+            raw,
+            "bracketed host must be a valid IPv6 address",
+        ));
     }
 
     let remainder = host_port[(closing + 1)..].trim();
@@ -151,6 +200,18 @@ fn validate_host(raw: &str, host: &str) -> Result<(), SessionError> {
     if contains_whitespace(host) {
         return Err(invalid_remote_authority(raw, "host contains whitespace"));
     }
+    if host.starts_with('-') {
+        return Err(invalid_remote_authority(raw, "host is option-like"));
+    }
+    if !host
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    {
+        return Err(invalid_remote_authority(
+            raw,
+            "host contains unsupported characters",
+        ));
+    }
 
     Ok(())
 }
@@ -190,7 +251,7 @@ fn invalid_remote_authority(value: &str, reason: impl Into<String>) -> SessionEr
     }
 }
 
-fn redact_remote_authority_value(value: &str) -> String {
+pub(super) fn redact_remote_authority_value(value: &str) -> String {
     let (scheme_prefix, remainder) = if let Some((scheme, rest)) = value.split_once("://") {
         (format!("{scheme}://"), rest)
     } else {
@@ -203,10 +264,22 @@ fn redact_remote_authority_value(value: &str) -> String {
         (remainder, "")
     };
 
-    format!(
+    sanitize_diagnostic(&format!(
         "{scheme_prefix}{}{suffix}",
         redact_authority_userinfo_secret(authority)
-    )
+    ))
+}
+
+fn sanitize_diagnostic(value: &str) -> String {
+    value.chars().fold(String::new(), |mut rendered, ch| {
+        if ch.is_control() {
+            use std::fmt::Write;
+            let _ = write!(rendered, "\\u{{{:x}}}", ch as u32);
+        } else {
+            rendered.push(ch);
+        }
+        rendered
+    })
 }
 
 fn redact_authority_userinfo_secret(authority: &str) -> String {
@@ -234,6 +307,14 @@ mod tests {
     }
 
     #[test]
+    fn accepts_plain_host_user_and_port_forms() {
+        let parsed = parse_remote_ssh_authority("operator@shell.remote.example:2222")
+            .expect("authority should parse");
+        assert_eq!(parsed.target, "operator@shell.remote.example");
+        assert_eq!(parsed.port, Some(2222));
+    }
+
+    #[test]
     fn accepts_user_prefixed_bracketed_ipv6_authority() {
         let parsed = parse_remote_ssh_authority("ssh://operator@[2001:db8::1]:2222")
             .expect("authority should parse");
@@ -256,6 +337,42 @@ mod tests {
             .expect_err("non-numeric port should fail");
         let rendered = error.to_string();
         assert!(rendered.contains("port `port` must be numeric"));
+    }
+
+    #[test]
+    fn rejects_option_like_destinations() {
+        for value in ["-F/tmp/ssh-config", "-oProxyCommand=sentinel"] {
+            let error = parse_remote_ssh_authority(value).expect_err("option should fail");
+            assert!(error.to_string().contains("option-like"));
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_usernames() {
+        for value in ["@shell.remote.example", "bad user@shell.remote.example"] {
+            let error = parse_remote_ssh_authority(value).expect_err("username should fail");
+            assert!(error.to_string().contains("invalid remote ssh authority"));
+        }
+    }
+
+    #[test]
+    fn rejects_password_userinfo_without_leaking_the_password() {
+        let error = parse_remote_ssh_authority("operator:unique-secret@shell.remote.example")
+            .expect_err("password userinfo should fail");
+        let rendered = error.to_string();
+        assert!(rendered.contains("password-bearing userinfo is unsupported"));
+        assert!(!rendered.contains("unique-secret"));
+        assert!(rendered.contains(REDACTED_SECRET_VALUE));
+    }
+
+    #[test]
+    fn rejects_control_characters_and_redacts_them_in_diagnostics() {
+        let error = parse_remote_ssh_authority("shell.remote\n.example")
+            .expect_err("control character should fail");
+        let rendered = error.to_string();
+        assert!(rendered.contains("control characters"));
+        assert!(rendered.contains("\\u{a}"));
+        assert!(!rendered.contains('\n'));
     }
 
     #[test]
