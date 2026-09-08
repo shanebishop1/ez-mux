@@ -52,6 +52,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("--evidence-manifest", workflow)
         self.assertIn("artifacts/release-assets", workflow)
 
+    def test_failed_gate_fallback_uses_a_valid_heredoc_terminator(self) -> None:
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        fallback = workflow.index("name: Ensure a failed gate decision exists")
+        archive = workflow.index("name: Archive assembled evidence")
+        step = workflow[fallback:archive]
+        self.assertIn("          python3 - <<'PY'\n          import json", step)
+        self.assertIn("\n          PY\n", step)
+
     def test_npm_publication_requires_github_release_and_evidence(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("- release\n", workflow)

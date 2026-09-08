@@ -561,28 +561,28 @@ jobs:
         run: |
           if [ ! -f "$GATE_PATH" ]; then
             mkdir -p "$(dirname "$GATE_PATH")"
-            python3 - <<'PY'
-            import json
-            import os
-            from pathlib import Path
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
 
-            Path(os.environ["GATE_PATH"]).write_text(
-                json.dumps(
-                    {
-                        "schema_version": "ezm-release-gate-decision/v1",
-                        "gate": "release-readiness",
-                        "passed": False,
-                        "blocking_reasons": [
-                            {"code": "workflow-prerequisite-failed", "message": "a required workflow prerequisite did not succeed"}
-                        ],
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            PY
+          Path(os.environ["GATE_PATH"]).write_text(
+              json.dumps(
+                  {
+                      "schema_version": "ezm-release-gate-decision/v1",
+                      "gate": "release-readiness",
+                      "passed": False,
+                      "blocking_reasons": [
+                          {"code": "workflow-prerequisite-failed", "message": "a required workflow prerequisite did not succeed"}
+                      ],
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
           fi
 
       - name: Archive assembled evidence
