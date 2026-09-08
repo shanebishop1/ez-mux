@@ -23,6 +23,8 @@ pub enum SlotRegistryError {
     InvalidSlotId { slot_id: u8 },
     #[error("slot {slot_id} is already bound and remapping is blocked")]
     RemapBlocked { slot_id: u8 },
+    #[error("slot {slot_id} cannot be bound to an empty pane id")]
+    EmptyPaneId { slot_id: u8 },
     #[error("canonical layout requires exactly 5 panes, got {pane_count}")]
     InvalidPaneCount { pane_count: usize },
     #[error("at least one worktree is required for slot assignment")]
@@ -51,6 +53,9 @@ impl SlotRegistry {
     ) -> Result<(), SlotRegistryError> {
         if !CANONICAL_SLOT_IDS.contains(&slot_id) {
             return Err(SlotRegistryError::InvalidSlotId { slot_id });
+        }
+        if pane_id.trim().is_empty() {
+            return Err(SlotRegistryError::EmptyPaneId { slot_id });
         }
 
         for (&existing_slot_id, existing_binding) in &self.slots {
@@ -220,6 +225,17 @@ mod tests {
                 conflicting_slot_id: 2,
             }
         );
+    }
+
+    #[test]
+    fn registry_rejects_empty_pane_identity() {
+        let mut registry = SlotRegistry::default();
+
+        let error = registry
+            .bind(1, String::from("  "), std::path::PathBuf::from("/wt/1"))
+            .expect_err("empty pane ids cannot establish canonical identity");
+
+        assert_eq!(error, SlotRegistryError::EmptyPaneId { slot_id: 1 });
     }
 
     #[test]

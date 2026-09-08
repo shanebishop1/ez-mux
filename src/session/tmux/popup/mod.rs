@@ -40,7 +40,7 @@ pub(super) fn toggle_popup_shell(
     let popup_session = session::popup_session_name(session_name, slot_id);
 
     if session::session_exists(&popup_session)? {
-        if display::popup_visible_for_client(client_tty)? {
+        if display::popup_visible_for_client(client_tty, &popup_session)? {
             display::close_popup(client_tty)?;
             validate_canonical_slot_registry(session_name)?;
             return Ok(PopupShellOutcome {
@@ -55,7 +55,6 @@ pub(super) fn toggle_popup_shell(
 
         set_session_option(&popup_session, "@ezm_popup_origin_pane", &origin_slot_pane)?;
         set_session_option(&popup_session, "@ezm_popup_cwd", &cwd)?;
-        context::apply_popup_remote_context_environment(&popup_session, remote_context.as_ref())?;
         session::disable_popup_session_auto_destroy(&popup_session)?;
         display::show_popup(&origin_slot_pane, &popup_session, &cwd, client_tty)?;
 
@@ -84,7 +83,6 @@ pub(super) fn toggle_popup_shell(
     )?;
     set_session_option(&popup_session, "@ezm_popup_origin_pane", &origin_slot_pane)?;
     set_session_option(&popup_session, "@ezm_popup_cwd", &cwd)?;
-    context::apply_popup_remote_context_environment(&popup_session, remote_context.as_ref())?;
     session::disable_popup_session_auto_destroy(&popup_session)?;
     display::show_popup(&origin_slot_pane, &popup_session, &cwd, client_tty)?;
 
@@ -101,8 +99,4 @@ pub(super) fn toggle_popup_shell(
 
 pub(super) fn reconcile_popup_parent_cleanup_hook() -> Result<(), SessionError> {
     hooks::reconcile_popup_parent_cleanup_hook()
-}
-
-pub(super) fn popup_parent_cleanup_hook_install_command() -> Vec<String> {
-    hooks::popup_parent_cleanup_hook_install_command()
 }

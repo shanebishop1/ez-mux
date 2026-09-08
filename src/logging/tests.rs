@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tempfile::tempdir;
-use time::OffsetDateTime;
 
 use super::Clock;
 use super::LogOpener;
@@ -20,11 +20,11 @@ use super::resolve_primary_log_root;
 use crate::config::OperatingSystem;
 
 struct FixedClock {
-    now: OffsetDateTime,
+    now: SystemTime,
 }
 
 impl Clock for FixedClock {
-    fn now_utc(&self) -> OffsetDateTime {
+    fn now(&self) -> SystemTime {
         self.now
     }
 }
@@ -160,9 +160,9 @@ fn creates_unique_per_launch_log_files() {
     env.insert(String::from("HOME"), String::from("/tmp/home"));
 
     let clock = FixedClock {
-        now: OffsetDateTime::from_unix_timestamp(1_710_000_000).expect("timestamp"),
+        now: UNIX_EPOCH + Duration::from_secs(1_710_000_000),
     };
-    let run_ids = SequenceRunIds::from(&["run-a", "run-b"]);
+    let run_ids = SequenceRunIds::from(&["run-a", "run/../b"]);
 
     let first = initialize_launch_log(
         &env,
@@ -190,8 +190,100 @@ fn creates_unique_per_launch_log_files() {
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
         .expect("name");
-    assert!(first_name.ends_with("-run-a.log"));
-    assert_eq!(first_name.len(), "YYYYMMDD-HHMMSS-run-a.log".len());
+    assert_eq!(first_name, "20240309-160000-000000000-run-a.log");
+    assert!(
+        first_name
+            .bytes()
+            .all(|byte| { byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') })
+    );
+    assert!(
+        second
+            .file_path
+            .ends_with("20240309-160000-000000000-run_2f_2e_2e_2fb.log")
+    );
+    assert_eq!(second.file_path.parent(), Some(second.root.as_path()));
+}
+
+#[test]
+fn launch_log_names_sort_chronologically_within_one_second() {
+    let state_root = tempdir().expect("state root");
+    let fallback_root = tempdir().expect("fallback root");
+    let env = HashMap::from([
+        (
+            String::from("XDG_STATE_HOME"),
+            state_root.path().display().to_string(),
+        ),
+        (String::from("HOME"), String::from("/tmp/home")),
+    ]);
+    let run_ids = SequenceRunIds::from(&["first", "second"]);
+
+    let first = initialize_launch_log(
+        &env,
+        OperatingSystem::Linux,
+        &FixedClock {
+            now: UNIX_EPOCH + Duration::new(1_710_000_000, 1),
+        },
+        &run_ids,
+        fallback_root.path(),
+    )
+    .expect("first launch log");
+    let second = initialize_launch_log(
+        &env,
+        OperatingSystem::Linux,
+        &FixedClock {
+            now: UNIX_EPOCH + Duration::new(1_710_000_000, 2),
+        },
+        &run_ids,
+        fallback_root.path(),
+    )
+    .expect("second launch log");
+
+    assert!(first.file_path.file_name() < second.file_path.file_name());
+    assert_eq!(
+        latest_log_file(&second.root).expect("latest log"),
+        second.file_path
+    );
+}
+
+#[test]
+fn launch_log_creation_retries_filename_collisions() {
+    let state_root = tempdir().expect("state root");
+    let fallback_root = tempdir().expect("fallback root");
+    let env = HashMap::from([
+        (
+            String::from("XDG_STATE_HOME"),
+            state_root.path().display().to_string(),
+        ),
+        (String::from("HOME"), String::from("/tmp/home")),
+    ]);
+    let clock = FixedClock {
+        now: UNIX_EPOCH + Duration::from_secs(1_710_000_000),
+    };
+    let run_ids = SequenceRunIds::from(&["same", "same", "retry"]);
+
+    let first = initialize_launch_log(
+        &env,
+        OperatingSystem::Linux,
+        &clock,
+        &run_ids,
+        fallback_root.path(),
+    )
+    .expect("first launch log");
+    let second = initialize_launch_log(
+        &env,
+        OperatingSystem::Linux,
+        &clock,
+        &run_ids,
+        fallback_root.path(),
+    )
+    .expect("collision retry should create a log");
+
+    assert_ne!(first.file_path, second.file_path);
+    assert!(
+        second
+            .file_path
+            .ends_with("20240309-160000-000000000-retry.log")
+    );
 }
 
 #[test]
@@ -210,7 +302,7 @@ fn falls_back_when_primary_log_root_creation_fails() {
     env.insert(String::from("HOME"), String::from("/tmp/home"));
 
     let clock = FixedClock {
-        now: OffsetDateTime::from_unix_timestamp(1_710_000_000).expect("timestamp"),
+        now: UNIX_EPOCH + Duration::from_secs(1_710_000_000),
     };
     let run_ids = SequenceRunIds::from(&["fallback"]);
 
@@ -242,7 +334,7 @@ fn appends_launch_event_lines_to_existing_log_file() {
     env.insert(String::from("HOME"), String::from("/tmp/home"));
 
     let clock = FixedClock {
-        now: OffsetDateTime::from_unix_timestamp(1_710_000_000).expect("timestamp"),
+        now: UNIX_EPOCH + Duration::from_secs(1_710_000_000),
     };
     let run_ids = SequenceRunIds::from(&["event-append"]);
 

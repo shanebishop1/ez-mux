@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$#" -lt 1 ]; then
-  echo "usage: sh scripts/install/run-platform-install-validation.sh <linux|macos> [--candidate-bin <path> | --candidate-package <path>] [--dry-run]" >&2
+  echo "usage: sh scripts/install/run-platform-install-validation.sh <linux|macos> [--candidate-bin <path> | --candidate-package <path>] [--expected-version <version>] [--dry-run]" >&2
   exit 64
 fi
 
@@ -14,6 +14,7 @@ shift
 
 candidate_kind=""
 candidate_path=""
+expected_version=""
 dry_run=0
 
 while [ "$#" -gt 0 ]; do
@@ -34,6 +35,14 @@ while [ "$#" -gt 0 ]; do
       fi
       candidate_kind="package"
       candidate_path="$2"
+      shift 2
+      ;;
+    --expected-version)
+      if [ "$#" -lt 2 ]; then
+        echo "missing value for --expected-version" >&2
+        exit 64
+      fi
+      expected_version="$2"
       shift 2
       ;;
     --dry-run)
@@ -111,6 +120,7 @@ write_summary() {
   installed_ezm_json="$(json_escape "$installed_ezm")"
   help_output_path_json="$(json_escape "$help_output_path")"
   version_output_path_json="$(json_escape "$version_output_path")"
+  expected_version_json="$(json_escape "$expected_version")"
   validation_status_json="$(json_escape "$validation_status")"
   commit_sha_json="$(json_escape "$commit_sha")"
   shell_path_json="$(json_escape "$shell_path")"
@@ -132,6 +142,7 @@ write_summary() {
   "platform": "$platform_json",
   "candidate_kind": "$candidate_kind_json",
   "candidate_path": "$candidate_path_json",
+  "expected_version": "$expected_version_json",
   "install_root": "$install_root_json",
   "installed_ezm": "$installed_ezm_json",
   "contract_smoke": {
@@ -160,6 +171,7 @@ EOF
   "platform": "$platform_json",
   "candidate_kind": "$candidate_kind_json",
   "candidate_path": "$candidate_path_json",
+  "expected_version": "$expected_version_json",
   "install_root": "$install_root_json",
   "installed_ezm": "$installed_ezm_json",
   "contract_smoke": {
@@ -191,14 +203,15 @@ if [ "$dry_run" -eq 1 ]; then
   echo "EZM_INSTALL_PLATFORM=$platform"
   echo "EZM_CANDIDATE_KIND=$candidate_kind"
   echo "EZM_CANDIDATE_PATH=$candidate_path"
+  echo "EZM_EXPECTED_VERSION=$expected_version"
   echo "EZM_INSTALL_ROOT=$install_root"
   case "$candidate_kind" in
     binary)
       echo "install -m 755 $candidate_path $install_bin_dir/ezm"
       ;;
     package)
-      echo "tar -xf $candidate_path -C $staging_dir"
-      echo "install extracted ezm binary into $install_bin_dir/ezm"
+      echo "python3 scripts/release/verify_release_artifact.py --archive <candidate> --extract-to <private-staging>"
+      echo "install verified archive member into $install_bin_dir/ezm"
       ;;
   esac
   echo "PATH=$install_bin_dir:\$PATH ezm --help"
@@ -232,26 +245,22 @@ case "$candidate_kind" in
     install -m 755 "$candidate_path" "$install_bin_dir/ezm"
     ;;
   package)
-    tar -xf "$candidate_path" -C "$staging_dir"
-
-    extracted_binary=""
-    if [ -x "$staging_dir/ezm" ]; then
-      extracted_binary="$staging_dir/ezm"
-    elif [ -x "$staging_dir/bin/ezm" ]; then
-      extracted_binary="$staging_dir/bin/ezm"
+    if [ -n "$expected_version" ]; then
+      python3 "$repo_root/scripts/release/verify_release_artifact.py" \
+        --archive "$candidate_path" \
+        --platform "$platform" \
+        --extract-to "$staging_dir" \
+        --expected-version "$expected_version" >/dev/null
     else
-      for path in "$staging_dir"/*/ezm "$staging_dir"/*/bin/ezm; do
-        if [ -x "$path" ]; then
-          extracted_binary="$path"
-          break
-        fi
-      done
+      python3 "$repo_root/scripts/release/verify_release_artifact.py" \
+        --archive "$candidate_path" \
+        --platform "$platform" \
+        --extract-to "$staging_dir" >/dev/null
     fi
-
-    if [ -z "$extracted_binary" ]; then
-      echo "no executable ezm found in package: $candidate_path" >&2
-      exit 67
-    fi
+    # The verifier rejects traversal, links, extra members, and non-executable
+    # payloads before copying the one allowed member into the private staging
+    # directory.  Do not extract an untrusted candidate directly.
+    extracted_binary="$staging_dir/ezm"
 
     install -m 755 "$extracted_binary" "$install_bin_dir/ezm"
     ;;
@@ -285,7 +294,21 @@ case "$help_output" in
 esac
 
 case "$version_output" in
-  *ezm*) version_contains_ezm=true ;;
+  *ezm*)
+    version_contains_ezm=true
+    if [ -n "$expected_version" ]; then
+      case "$version_output" in
+        *"ezm $expected_version"*) ;;
+        *)
+          validation_status="failed"
+          write_summary
+          print_machine_readable_paths
+          echo "post-install check failed: --version output does not contain ezm $expected_version" >&2
+          exit 69
+          ;;
+      esac
+    fi
+    ;;
   *)
     validation_status="failed"
     write_summary

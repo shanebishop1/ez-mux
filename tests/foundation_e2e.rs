@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use support::foundation_harness::{CmdOutput, FoundationHarness, TmuxSettleEvidence};
 
-const FOUNDATION_IDS: [&str; 4] = ["E2E-00", "E2E-15", "E2E-17", "E2E-18"];
+const FOUNDATION_IDS: [&str; 6] = ["E2E-00", "E2E-15", "E2E-17", "E2E-18", "E2E-19", "E2E-20"];
 
 #[derive(Serialize)]
 struct RunMetadata {
@@ -67,6 +67,8 @@ fn foundation_e2e_suite() {
         case_e2e_15(&harness),
         case_e2e_17(&harness),
         case_e2e_18(&harness),
+        case_e2e_19(&harness),
+        case_e2e_20(&harness),
     ];
 
     write_case_artifacts(&harness.artifact_dir.join("cases"), &cases)
@@ -312,6 +314,16 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
     let mut assertions = Vec::new();
     let mut samples = Vec::new();
 
+    let env_project = harness.work_dir().join("precedence").join("env-project");
+    let file_project = harness.work_dir().join("precedence").join("file-project");
+    let default_project = harness
+        .work_dir()
+        .join("precedence")
+        .join("default-project");
+    fs::create_dir_all(&env_project).expect("E2E-17 env project");
+    fs::create_dir_all(&file_project).expect("E2E-17 file project");
+    fs::create_dir_all(&default_project).expect("E2E-17 default project");
+
     let config_file = harness.work_dir().join("precedence").join("config.toml");
     FoundationHarness::write_file(
         &config_file,
@@ -322,7 +334,8 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
     let config_path = config_file.display().to_string();
 
     let env_over_file = harness
-        .run_ezm(
+        .run_ezm_in_dir(
+            &env_project,
             &["--verbose"],
             &[
                 ("EZM_CONFIG", &config_path),
@@ -335,12 +348,17 @@ fn case_e2e_17(harness: &FoundationHarness) -> CaseEvidence {
     samples.push(sample(&["--verbose"], &env_over_file));
 
     let file_over_default = harness
-        .run_ezm(&["--verbose"], &[("EZM_CONFIG", &config_path)], 0)
+        .run_ezm_in_dir(
+            &file_project,
+            &["--verbose"],
+            &[("EZM_CONFIG", &config_path)],
+            0,
+        )
         .unwrap_or_else(|error| panic!("E2E-17 file-over-default invocation failed: {error}"));
     samples.push(sample(&["--verbose"], &file_over_default));
 
     let default_only = harness
-        .run_ezm(&["--verbose"], &[], 0)
+        .run_ezm_in_dir(&default_project, &["--verbose"], &[], 0)
         .unwrap_or_else(|error| panic!("E2E-17 default invocation failed: {error}"));
     samples.push(sample(&["--verbose"], &default_only));
 
@@ -455,6 +473,506 @@ fn case_e2e_18(harness: &FoundationHarness) -> CaseEvidence {
         samples,
         settle: map_settle(settle),
     }
+}
+
+fn case_e2e_19(harness: &FoundationHarness) -> CaseEvidence {
+    let projects = prepare_session_auth_projects(harness);
+    set_global_session_auth_fixture(harness);
+    let runs = run_session_auth_scenarios(harness, &projects);
+    let sessions = extract_session_auth_sessions(&runs);
+    let auth = capture_session_auth(harness, &sessions);
+    let helper_internal = exercise_popup_parent_context(harness, &sessions.a);
+
+    let assertions = session_auth_assertions(&runs, &auth, &helper_internal);
+    let samples = vec![
+        sample(&["--verbose"], &runs.a),
+        sample(&["--verbose"], &runs.b),
+        sample(&["--verbose"], &runs.empty),
+    ];
+    let settle = harness
+        .settle_tmux_snapshot(Duration::from_millis(50), Duration::from_secs(2))
+        .unwrap_or_else(|error| panic!("E2E-19 settle evidence failed: {error}"));
+    let pass = session_auth_passes(&runs, &auth, &helper_internal, settle.stable);
+
+    CaseEvidence {
+        id: String::from("E2E-19"),
+        pass,
+        assertions,
+        samples,
+        settle: map_settle(settle),
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn case_e2e_20(harness: &FoundationHarness) -> CaseEvidence {
+    let root = harness.work_dir().join("config-only");
+    let project = root.join("config-project");
+    fs::create_dir_all(&project).expect("E2E-20 project");
+
+    let config_a = root.join("owner.toml");
+    FoundationHarness::write_file(
+        &config_a,
+        "ezm_remote_path = \"/srv/config-remotes\"\nezm_remote_server_url = \"https://shell.config.example:7443\"\nezm_use_tssh = false\nezm_use_mosh = false\nperles_dir = \".config-perles\"\nperles_db = \"/srv/config-perles.db\"\n",
+    )
+    .unwrap_or_else(|error| panic!("E2E-20 failed preparing owner config: {error}"));
+    let config_b = root.join("conflicting.toml");
+    FoundationHarness::write_file(
+        &config_b,
+        "ezm_remote_path = \"/srv/contaminating-remotes\"\nezm_remote_server_url = \"https://shell.contaminating.example:7443\"\nezm_use_tssh = true\nezm_use_mosh = true\nperles_dir = \".other-perles\"\nperles_db = \"/srv/other-perles.db\"\n",
+    )
+    .unwrap_or_else(|error| panic!("E2E-20 failed preparing conflicting config: {error}"));
+
+    let config_a_path = config_a.display().to_string();
+    let config_b_path = config_b.display().to_string();
+    let launch = harness
+        .run_ezm_in_dir(
+            &project,
+            &["--verbose", "--no-worktrees"],
+            &[("EZM_CONFIG", &config_a_path)],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-20 config-only launch failed: {error}"));
+    let session = extract_session_name(&launch.stdout)
+        .unwrap_or_else(|| panic!("E2E-20 launch missing session name: {}", launch.stdout));
+    let expected_remote_dir = extract_stdout_field(&launch.stdout, "remote_project_dir")
+        .unwrap_or_else(|| panic!("E2E-20 launch missing remote project directory"));
+
+    let shell_command = run_config_only_internal(
+        harness,
+        &project,
+        &config_b_path,
+        &[
+            "__internal",
+            "mode",
+            "--session",
+            &session,
+            "--slot",
+            "1",
+            "--mode",
+            "shell",
+        ],
+        "mode switch",
+    );
+    let shell_start = slot_start_command(harness, &session, 1);
+
+    let popup = run_config_only_internal(
+        harness,
+        &project,
+        &config_b_path,
+        &["__internal", "popup", "--session", &session, "--slot", "1"],
+        "popup open",
+    );
+    let popup_session = format!("{session}__popup_slot_1");
+    let popup_start = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &format!("{popup_session}:0.0"),
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-20 failed reading popup command: {error}"));
+
+    let auxiliary = run_config_only_internal(
+        harness,
+        &project,
+        &config_b_path,
+        &[
+            "__internal",
+            "auxiliary",
+            "--session",
+            &session,
+            "--action",
+            "open",
+        ],
+        "auxiliary open",
+    );
+    let auxiliary_start = harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            &format!("{session}:perles.0"),
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-20 failed reading auxiliary command: {error}"));
+
+    let reopen = harness
+        .run_ezm_in_dir(
+            &project,
+            &["--verbose", "--no-worktrees"],
+            &[("EZM_CONFIG", &config_b_path)],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-20 config-only reopen failed: {error}"));
+    let reopen_remote_path = extract_remote_path_field(&reopen.stdout);
+    let reopen_remote_url = extract_stdout_field(&reopen.stdout, "ezm_remote_server_url");
+    let reopen_path_source = extract_stdout_field(&reopen.stdout, "remote_path_source");
+    let reopen_url_source = extract_stdout_field(&reopen.stdout, "ezm_remote_server_url_source");
+
+    let shell_uses_owner = shell_start.contains("shell.config.example")
+        && shell_start.contains(&expected_remote_dir)
+        && !shell_start.contains("contaminating");
+    let popup_uses_owner = popup_start.contains("shell.config.example")
+        && popup_start.contains(&expected_remote_dir)
+        && !popup_start.contains("contaminating");
+    let auxiliary_uses_owner = auxiliary_start.contains("shell.config.example")
+        && !auxiliary_start.contains("contaminating");
+    let launch_uses_owner = launch.stdout.contains("remote_path_source=file")
+        && launch.stdout.contains(&expected_remote_dir)
+        && launch.stdout.contains("shell.config.example");
+    let reopen_uses_owner = reopen_remote_path.as_deref() == Some("/srv/config-remotes")
+        && reopen_remote_url.as_deref() == Some("https://shell.config.example:7443")
+        && reopen_path_source.as_deref() == Some("session")
+        && reopen_url_source.as_deref() == Some("session");
+
+    let assertions = vec![
+        format!("config-only launch exit code = {}", launch.exit_code),
+        format!("config-only launch uses owner context = {launch_uses_owner}"),
+        format!("mode uses owner context without env values = {shell_uses_owner}"),
+        format!("popup uses owner context without env values = {popup_uses_owner}"),
+        format!("auxiliary uses owner context without env values = {auxiliary_uses_owner}"),
+        format!("reopen retains owning session context = {reopen_uses_owner}"),
+        format!("conflicting config did not contaminate reopen = {reopen_uses_owner}"),
+    ];
+    let samples = vec![
+        sample(&["--verbose", "--no-worktrees"], &launch),
+        sample(&["__internal", "mode", "--mode", "shell"], &shell_command),
+        sample(&["__internal", "popup", "--slot", "1"], &popup),
+        sample(&["__internal", "auxiliary", "--action", "open"], &auxiliary),
+        sample(&["--verbose", "--no-worktrees"], &reopen),
+    ];
+    let settle = harness
+        .settle_tmux_snapshot(Duration::from_millis(50), Duration::from_secs(2))
+        .unwrap_or_else(|error| panic!("E2E-20 settle evidence failed: {error}"));
+
+    CaseEvidence {
+        id: String::from("E2E-20"),
+        pass: launch.exit_code == 0
+            && shell_command.exit_code == 0
+            && popup.exit_code == 0
+            && auxiliary.exit_code == 0
+            && reopen.exit_code == 0
+            && launch_uses_owner
+            && shell_uses_owner
+            && popup_uses_owner
+            && auxiliary_uses_owner
+            && reopen_uses_owner
+            && settle.stable,
+        assertions,
+        samples,
+        settle: map_settle(settle),
+    }
+}
+
+fn run_config_only_internal(
+    harness: &FoundationHarness,
+    project: &Path,
+    config_path: &str,
+    args: &[&str],
+    operation: &str,
+) -> CmdOutput {
+    harness
+        .run_ezm_in_dir(project, args, &[("EZM_CONFIG", config_path)], 0)
+        .unwrap_or_else(|error| panic!("E2E-20 {operation} failed: {error}"))
+}
+
+fn slot_start_command(harness: &FoundationHarness, session: &str, slot: u8) -> String {
+    let panes = harness
+        .tmux_capture(&[
+            "list-panes",
+            "-t",
+            session,
+            "-F",
+            "#{pane_id}|#{@ezm_slot_id}",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-20 failed listing slot panes: {error}"));
+    let pane_id = panes
+        .lines()
+        .find_map(|line| {
+            let (pane_id, slot_id) = line.split_once('|')?;
+            (slot_id.trim() == slot.to_string()).then_some(pane_id.trim())
+        })
+        .unwrap_or_else(|| panic!("E2E-20 slot {slot} pane was not found"));
+    harness
+        .tmux_capture(&[
+            "display-message",
+            "-p",
+            "-t",
+            pane_id,
+            "#{pane_start_command}",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-20 failed reading slot command: {error}"))
+}
+
+fn extract_remote_path_field(stdout: &str) -> Option<String> {
+    extract_stdout_field(stdout, "remote_path")
+}
+
+fn extract_stdout_field(stdout: &str, field: &str) -> Option<String> {
+    stdout
+        .lines()
+        .find_map(|line| line.split(&format!("{field}=")).nth(1))
+        .and_then(|tail| tail.split(';').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+struct SessionAuthProjects {
+    a: PathBuf,
+    b: PathBuf,
+    empty: PathBuf,
+}
+
+fn prepare_session_auth_projects(harness: &FoundationHarness) -> SessionAuthProjects {
+    let root = harness.work_dir().join("session-auth");
+    let project_a = root.join("project-a");
+    let project_b = root.join("project-b");
+    let project_empty = root.join("project-empty");
+    fs::create_dir_all(&project_a).expect("E2E-19 project A");
+    fs::create_dir_all(&project_b).expect("E2E-19 project B");
+    fs::create_dir_all(&project_empty).expect("E2E-19 empty project");
+
+    SessionAuthProjects {
+        a: project_a,
+        b: project_b,
+        empty: project_empty,
+    }
+}
+
+fn set_global_session_auth_fixture(harness: &FoundationHarness) {
+    harness
+        .tmux_capture(&[
+            "set-environment",
+            "-g",
+            "OPENCODE_SERVER_PASSWORD",
+            "global-secret-must-remain",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-19 failed setting global fixture: {error}"));
+}
+
+struct SessionAuthRuns {
+    a: CmdOutput,
+    b: CmdOutput,
+    empty: CmdOutput,
+}
+
+fn run_session_auth_scenarios(
+    harness: &FoundationHarness,
+    projects: &SessionAuthProjects,
+) -> SessionAuthRuns {
+    let project_a = harness
+        .run_ezm_in_dir(
+            &projects.a,
+            &["--verbose"],
+            &[
+                ("EZM_REMOTE_PATH", "/srv/remotes"),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.example:7443"),
+                ("OPENCODE_SERVER_URL", "http://opencode-a.example:4096"),
+                ("OPENCODE_SERVER_PASSWORD", "session-password-a"),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-19 project A failed: {error}"));
+    let project_b = harness
+        .run_ezm_in_dir(
+            &projects.b,
+            &["--verbose"],
+            &[
+                ("EZM_REMOTE_PATH", "/srv/remotes"),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.example:7443"),
+                ("OPENCODE_SERVER_URL", "http://opencode-b.example:4096"),
+                ("OPENCODE_SERVER_PASSWORD", "session-password-b"),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-19 project B failed: {error}"));
+    let project_empty = harness
+        .run_ezm_in_dir(
+            &projects.empty,
+            &["--verbose"],
+            &[
+                ("EZM_REMOTE_PATH", "/srv/remotes"),
+                ("EZM_REMOTE_SERVER_URL", "https://shell.example:7443"),
+                ("OPENCODE_SERVER_URL", "http://opencode-empty.example:4096"),
+            ],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-19 empty project failed: {error}"));
+
+    SessionAuthRuns {
+        a: project_a,
+        b: project_b,
+        empty: project_empty,
+    }
+}
+
+struct SessionAuthSessions {
+    a: String,
+    b: String,
+    empty: String,
+}
+
+fn extract_session_auth_sessions(runs: &SessionAuthRuns) -> SessionAuthSessions {
+    let a = extract_session_name(&runs.a.stdout)
+        .unwrap_or_else(|| panic!("E2E-19 project A missing session name: {}", runs.a.stdout));
+    let b = extract_session_name(&runs.b.stdout)
+        .unwrap_or_else(|| panic!("E2E-19 project B missing session name: {}", runs.b.stdout));
+    let empty = extract_session_name(&runs.empty.stdout).unwrap_or_else(|| {
+        panic!(
+            "E2E-19 empty project missing session name: {}",
+            runs.empty.stdout
+        )
+    });
+
+    SessionAuthSessions { a, b, empty }
+}
+
+struct SessionAuthValues {
+    project_a: String,
+    project_b: String,
+    project_empty: String,
+    global: String,
+}
+
+fn capture_session_auth(
+    harness: &FoundationHarness,
+    sessions: &SessionAuthSessions,
+) -> SessionAuthValues {
+    let project_a = capture_session_password(harness, &sessions.a, "project A auth");
+    let project_b = capture_session_password(harness, &sessions.b, "project B auth");
+    let project_empty = capture_session_password(harness, &sessions.empty, "empty-project auth");
+    let global = harness
+        .tmux_capture(&["show-environment", "-g", "OPENCODE_SERVER_PASSWORD"])
+        .unwrap_or_else(|error| panic!("E2E-19 failed reading global auth: {error}"));
+
+    SessionAuthValues {
+        project_a,
+        project_b,
+        project_empty,
+        global,
+    }
+}
+
+fn capture_session_password(harness: &FoundationHarness, session: &str, context: &str) -> String {
+    harness
+        .tmux_capture(&[
+            "show-environment",
+            "-t",
+            session,
+            "OPENCODE_SERVER_PASSWORD",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-19 failed reading {context}: {error}"))
+}
+
+fn exercise_popup_parent_context(harness: &FoundationHarness, session_a: &str) -> CmdOutput {
+    let helper_session = format!("{session_a}__popup_slot_1");
+    harness
+        .tmux_capture(&["new-session", "-d", "-s", &helper_session, "sleep", "30"])
+        .unwrap_or_else(|error| panic!("E2E-19 failed creating helper session: {error}"));
+    harness
+        .tmux_capture(&[
+            "set-option",
+            "-t",
+            &helper_session,
+            "@ezm_popup_origin_session",
+            session_a,
+        ])
+        .unwrap_or_else(|error| panic!("E2E-19 failed recording helper parent: {error}"));
+    harness
+        .tmux_capture(&[
+            "set-option",
+            "-t",
+            session_a,
+            "@ezm_runtime_remote_server_url",
+            "not a valid authority",
+        ])
+        .unwrap_or_else(|error| panic!("E2E-19 failed setting parent context fixture: {error}"));
+    let helper_internal = harness
+        .run_ezm(
+            &[
+                "__internal",
+                "popup",
+                "--session",
+                &helper_session,
+                "--slot",
+                "1",
+            ],
+            &[],
+            0,
+        )
+        .unwrap_or_else(|error| panic!("E2E-19 helper internal invocation failed: {error}"));
+    let _ = harness.tmux_capture(&["kill-session", "-t", &helper_session]);
+    helper_internal
+}
+
+fn session_auth_assertions(
+    runs: &SessionAuthRuns,
+    auth: &SessionAuthValues,
+    helper_internal: &CmdOutput,
+) -> Vec<String> {
+    vec![
+        format!(
+            "project A session auth is distinct: {}",
+            auth.project_a.trim() == "OPENCODE_SERVER_PASSWORD=session-password-a"
+        ),
+        format!(
+            "project B session auth is distinct: {}",
+            auth.project_b.trim() == "OPENCODE_SERVER_PASSWORD=session-password-b"
+        ),
+        format!(
+            "passwords do not cross projects: {}",
+            auth.project_a != auth.project_b
+                && !auth.project_a.contains("session-password-b")
+                && !auth.project_b.contains("session-password-a")
+        ),
+        format!(
+            "empty project masks inherited auth: {}",
+            auth.project_empty.trim() == "OPENCODE_SERVER_PASSWORD="
+        ),
+        format!(
+            "global auth remains unchanged: {}",
+            auth.global.trim() == "OPENCODE_SERVER_PASSWORD=global-secret-must-remain"
+        ),
+        format!(
+            "diagnostics omit fake secrets: {}",
+            !runs.a.stderr.contains("session-password-a")
+                && !runs.b.stderr.contains("session-password-b")
+        ),
+        format!(
+            "helper internal flow resolves parent context: {}",
+            helper_internal
+                .stderr
+                .contains("invalid remote ssh authority")
+        ),
+    ]
+}
+
+fn session_auth_passes(
+    runs: &SessionAuthRuns,
+    auth: &SessionAuthValues,
+    helper_internal: &CmdOutput,
+    settle_stable: bool,
+) -> bool {
+    runs.a.exit_code == 0
+        && runs.b.exit_code == 0
+        && runs.empty.exit_code == 0
+        && auth.project_a.trim() == "OPENCODE_SERVER_PASSWORD=session-password-a"
+        && auth.project_b.trim() == "OPENCODE_SERVER_PASSWORD=session-password-b"
+        && auth.project_empty.trim() == "OPENCODE_SERVER_PASSWORD="
+        && auth.global.trim() == "OPENCODE_SERVER_PASSWORD=global-secret-must-remain"
+        && !runs.a.stderr.contains("session-password-a")
+        && !runs.b.stderr.contains("session-password-b")
+        && helper_internal
+            .stderr
+            .contains("invalid remote ssh authority")
+        && settle_stable
+}
+
+fn extract_session_name(output: &str) -> Option<String> {
+    let value = output.split("session=").nth(1)?;
+    Some(value.split(';').next()?.trim().to_owned())
 }
 
 fn sample(args: &[&str], output: &CmdOutput) -> CommandSample {

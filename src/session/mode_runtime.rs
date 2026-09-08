@@ -6,7 +6,6 @@ use super::TmuxClient;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedServerAttachConfig {
     pub url: String,
-    pub password: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]

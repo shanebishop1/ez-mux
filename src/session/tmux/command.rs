@@ -31,6 +31,7 @@ pub(super) fn tmux_run_batch(commands: &[Vec<String>]) -> Result<(), SessionErro
     }
 
     let diagnostics = tmux_batch_command_for_diagnostics(commands);
+    let secret_values = secret_values_from_batch(commands);
     let started_at = Instant::now();
     let flat_refs = flattened_args
         .iter()
@@ -51,7 +52,7 @@ pub(super) fn tmux_run_batch(commands: &[Vec<String>]) -> Result<(), SessionErro
 
     Err(SessionError::TmuxCommandFailed {
         command: diagnostics,
-        stderr: format_output_diagnostics(&output),
+        stderr: format_output_diagnostics_with_secrets(&output, &secret_values),
     })
 }
 
@@ -76,7 +77,7 @@ pub(super) fn tmux_run(args: &[&str]) -> Result<(), SessionError> {
 
     Err(SessionError::TmuxCommandFailed {
         command: tmux_command_for_diagnostics(args),
-        stderr: format_output_diagnostics(&output),
+        stderr: format_output_diagnostics_with_args(&output, args),
     })
 }
 
@@ -92,7 +93,7 @@ pub(super) fn tmux_output_value(args: &[&str]) -> Result<String, SessionError> {
 
     Err(SessionError::TmuxCommandFailed {
         command: tmux_command_for_diagnostics(args),
-        stderr: format_output_diagnostics(&output),
+        stderr: format_output_diagnostics_with_args(&output, args),
     })
 }
 
@@ -158,7 +159,7 @@ fn retry_legacy_window_zero_list_panes(
 
     Err(SessionError::TmuxCommandFailed {
         command: tmux_command_for_diagnostics(&retry_args),
-        stderr: format_output_diagnostics(&retry_output),
+        stderr: format_output_diagnostics_with_args(&retry_output, &retry_args),
     })
 }
 
@@ -168,7 +169,7 @@ fn tmux_command_for_diagnostics(args: &[&str]) -> String {
 
 fn tmux_command_for_diagnostics_owned(mut args: Vec<String>) -> String {
     redact_set_environment_secret_value(&mut args, OPENCODE_SERVER_PASSWORD_ENV);
-    args.join(" ")
+    redact_diagnostic_text(&args.join(" "), &[])
 }
 
 fn tmux_batch_command_for_diagnostics(commands: &[Vec<String>]) -> String {
@@ -178,6 +179,26 @@ fn tmux_batch_command_for_diagnostics(commands: &[Vec<String>]) -> String {
         .map(|command| tmux_command_for_diagnostics_owned(command.clone()))
         .collect::<Vec<_>>()
         .join(" \\; ")
+}
+
+fn secret_values_from_batch(commands: &[Vec<String>]) -> Vec<String> {
+    commands
+        .iter()
+        .flat_map(|command| secret_values_from_owned_args(command))
+        .collect()
+}
+
+fn secret_values_from_args(args: &[&str]) -> Vec<String> {
+    let owned = args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    secret_values_from_owned_args(&owned)
+}
+
+fn secret_values_from_owned_args(args: &[String]) -> Vec<String> {
+    args.windows(2)
+        .filter(|window| window[0] == OPENCODE_SERVER_PASSWORD_ENV)
+        .map(|window| window[1].clone())
+        .filter(|value| !value.is_empty())
+        .collect()
 }
 
 fn redact_set_environment_secret_value(args: &mut [String], secret_key: &str) {
@@ -227,12 +248,16 @@ fn trace_tmux_command(command: &str, output: &Output, elapsed: std::time::Durati
         .status
         .code()
         .map_or_else(|| String::from("signal"), |code| code.to_string());
-    eprintln!(
+    eprintln!("{}", render_startup_trace(command, &status_code, elapsed));
+}
+
+fn render_startup_trace(command: &str, status_code: &str, elapsed: std::time::Duration) -> String {
+    format!(
         "startup-trace tmux delta_ms={:.2} status={} cmd=tmux {}",
         elapsed.as_secs_f64() * 1000.0,
         status_code,
         command
-    );
+    )
 }
 
 fn startup_trace_tmux_enabled() -> bool {
@@ -250,20 +275,103 @@ fn startup_trace_tmux_enabled() -> bool {
 }
 
 pub(super) fn format_output_diagnostics(output: &Output) -> String {
+    format_output_diagnostics_with_secrets(output, &[])
+}
+
+fn format_output_diagnostics_with_args(output: &Output, args: &[&str]) -> String {
+    let secret_values = secret_values_from_args(args);
+    format_output_diagnostics_with_secrets(output, &secret_values)
+}
+
+fn format_output_diagnostics_with_secrets(output: &Output, secret_values: &[String]) -> String {
     let status = output
         .status
         .code()
         .map_or_else(|| String::from("signal"), |code| code.to_string());
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    let stdout = redact_diagnostic_text(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        secret_values,
+    );
+    let stderr = redact_diagnostic_text(
+        String::from_utf8_lossy(&output.stderr).trim(),
+        secret_values,
+    );
 
     format!("status={status}; stdout={stdout:?}; stderr={stderr:?}")
+}
+
+fn redact_diagnostic_text(value: &str, secret_values: &[String]) -> String {
+    let mut rendered = redact_embedded_authorities(value);
+    rendered = redact_named_secret_values(&rendered);
+    for secret in secret_values.iter().filter(|secret| !secret.is_empty()) {
+        rendered = rendered.replace(secret, REDACTED_SECRET_VALUE);
+    }
+    rendered
+}
+
+fn redact_embedded_authorities(value: &str) -> String {
+    let mut rendered = String::with_capacity(value.len());
+    let mut cursor = 0;
+
+    while let Some(relative_scheme_end) = value[cursor..].find("://") {
+        let scheme_end = cursor + relative_scheme_end;
+        let scheme_start = value[..scheme_end]
+            .char_indices()
+            .rev()
+            .take_while(|(_, ch)| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.'))
+            .last()
+            .map_or(scheme_end, |(index, _)| index);
+        if scheme_start == scheme_end {
+            break;
+        }
+
+        let end = value[scheme_start..]
+            .char_indices()
+            // URL userinfo permits sub-delimiters such as `;`, `,`, `(`, and
+            // `)`. Keep them inside the candidate so a credential cannot end
+            // the scanner before the authority's `@` delimiter.
+            .find(|(_, ch)| ch.is_whitespace() || matches!(ch, '\'' | '"' | '`'))
+            .map_or(value.len(), |(index, _)| scheme_start + index);
+
+        rendered.push_str(&value[cursor..scheme_start]);
+        rendered.push_str(&super::remote_authority::redact_remote_authority_value(
+            &value[scheme_start..end],
+        ));
+        cursor = end;
+    }
+
+    rendered.push_str(&value[cursor..]);
+    rendered
+}
+
+fn redact_named_secret_values(value: &str) -> String {
+    let marker = format!("{OPENCODE_SERVER_PASSWORD_ENV}=");
+    let mut rendered = String::with_capacity(value.len());
+    let mut cursor = 0;
+
+    while let Some(relative_start) = value[cursor..].find(&marker) {
+        let start = cursor + relative_start;
+        let value_start = start + marker.len();
+        let value_end = value[value_start..]
+            .char_indices()
+            // Credentials may legitimately contain URL/sub-delimiter
+            // punctuation. Stop only at quoting or whitespace boundaries.
+            .find(|(_, ch)| ch.is_whitespace() || matches!(ch, '\'' | '"' | '`'))
+            .map_or(value.len(), |(index, _)| value_start + index);
+        rendered.push_str(&value[cursor..value_start]);
+        rendered.push_str(REDACTED_SECRET_VALUE);
+        cursor = value_end;
+    }
+
+    rendered.push_str(&value[cursor..]);
+    rendered
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        REDACTED_SECRET_VALUE, legacy_window_zero_session_target, parse_primary_window_target,
+        REDACTED_SECRET_VALUE, format_output_diagnostics_with_args,
+        legacy_window_zero_session_target, parse_primary_window_target, render_startup_trace,
         tmux_batch_command_for_diagnostics, tmux_command_for_diagnostics,
     };
 
@@ -371,5 +479,89 @@ mod tests {
         assert!(!rendered.contains("super-secret"));
         assert!(rendered.contains(REDACTED_SECRET_VALUE));
         assert!(rendered.contains("set-option -t demo @foo bar"));
+    }
+
+    #[test]
+    fn command_diagnostics_redact_url_userinfo_and_password_streams() {
+        let secret = "unique-b2-command-secret";
+        let output = std::process::Command::new("sh")
+            .args([
+                "-c",
+                &format!(
+                    "printf 'url=https://operator:{secret}@remote.example:7443/path\\n'; printf 'OPENCODE_SERVER_PASSWORD={secret}\\n' >&2"
+                ),
+            ])
+            .output()
+            .expect("shell should emit fixture diagnostics");
+        let args = ["set-environment", "-g", "OPENCODE_SERVER_PASSWORD", secret];
+
+        let rendered = format_output_diagnostics_with_args(&output, &args);
+
+        assert!(!rendered.contains(secret));
+        assert!(rendered.contains("operator:<redacted>@remote.example:7443/path"));
+        assert!(rendered.contains("OPENCODE_SERVER_PASSWORD=<redacted>"));
+    }
+
+    #[test]
+    fn command_diagnostics_keep_executable_data_separate_from_redacted_rendering() {
+        let secret = "unique-b2-executable-secret";
+        let executable = vec![
+            String::from("set-environment"),
+            String::from("-g"),
+            String::from("OPENCODE_SERVER_PASSWORD"),
+            secret.to_owned(),
+        ];
+        let rendered = super::tmux_batch_command_for_diagnostics(std::slice::from_ref(&executable));
+
+        assert_eq!(executable[3], secret);
+        assert!(!rendered.contains(secret));
+        assert!(rendered.contains(REDACTED_SECRET_VALUE));
+    }
+
+    #[test]
+    fn startup_trace_renders_only_the_redacted_command_boundary() {
+        let secret = "unique-b2-startup-trace-secret";
+        let command = super::tmux_command_for_diagnostics(&[
+            "display-popup",
+            &format!("https://operator:{secret}@remote.example:7443/path"),
+        ]);
+        let trace = render_startup_trace(&command, "1", std::time::Duration::from_millis(4));
+
+        assert!(!trace.contains(secret));
+        assert!(trace.contains("operator:<redacted>@remote.example:7443/path"));
+    }
+
+    #[test]
+    fn startup_trace_redacts_url_userinfo_containing_sub_delimiters() {
+        for punctuation in [';', ',', '(', ')'] {
+            let sentinel = format!("trace{punctuation}credential");
+            let command = super::tmux_command_for_diagnostics(&[
+                "display-popup",
+                &format!("https://operator:{sentinel}@remote.example:7443/path"),
+            ]);
+            let trace = render_startup_trace(&command, "1", std::time::Duration::from_millis(4));
+
+            assert!(!trace.contains(&sentinel));
+            assert!(trace.contains("operator:<redacted>@remote.example:7443/path"));
+        }
+    }
+
+    #[test]
+    fn output_diagnostics_redact_named_passwords_with_sub_delimiters() {
+        for punctuation in [';', ',', '(', ')'] {
+            let sentinel = format!("named{punctuation}credential");
+            let output = std::process::Command::new("sh")
+                .args([
+                    "-c",
+                    &format!("printf '%s\\n' 'OPENCODE_SERVER_PASSWORD={sentinel}' >&2"),
+                ])
+                .output()
+                .expect("shell should emit fixture diagnostics");
+
+            let rendered = super::format_output_diagnostics(&output);
+
+            assert!(!rendered.contains(&sentinel));
+            assert!(rendered.contains("OPENCODE_SERVER_PASSWORD=<redacted>"));
+        }
     }
 }

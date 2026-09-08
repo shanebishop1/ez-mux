@@ -1,9 +1,9 @@
 use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
-    CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot, extract_stdout_field,
-    map_settle, poll_until, prepare_fresh_create_path, read_slot_snapshot, sample,
-    send_prefix_keybind, settle_snapshot,
+    CaseEvidence, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, SessionSnapshot, check_key_binding,
+    extract_stdout_field, map_settle, poll_until, prepare_fresh_create_path, read_slot_snapshot,
+    sample, send_prefix_keybind, settle_snapshot,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -70,12 +70,12 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         ("N", "prefix", "N", "--mode neovim"),
         ("G", "prefix", "G", "--mode lazygit"),
     ];
-    let keybind_matrix_present = mode_keybind_matrix.iter().all(|(_, table, key, marker)| {
-        harness
-            .tmux_capture(&["list-keys", "-T", table, key])
-            .unwrap_or_default()
-            .contains(marker)
-    });
+    let mode_keybind_checks = mode_keybind_matrix
+        .iter()
+        .map(|(_, table, key, marker)| check_key_binding(harness, table, key, &[*marker]))
+        .collect::<Vec<_>>();
+    let keybind_matrix_present = mode_keybind_checks.iter().all(|check| check.pass);
+    assertions.extend(mode_keybind_checks.into_iter().map(|check| check.detail));
     assertions.push(format!(
         "mode keybind matrix present for u/a/S/N/G = {keybind_matrix_present}"
     ));

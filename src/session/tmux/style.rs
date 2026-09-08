@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use super::SessionError;
-use super::command::{tmux_output_value, tmux_primary_window_target, tmux_run, tmux_run_batch};
+use super::canonical_window::canonical_window_target;
+use super::command::{tmux_output_value, tmux_run, tmux_run_batch};
 use super::options::canonical_slot_mismatch_error;
 
 const SLOT_GLYPH_PRESET_KEY: &str = "@ezm_slot_glyph_preset";
@@ -139,7 +140,7 @@ fn apply_runtime_style_with_slot_state(
     let target = if let Some(target) = target_override {
         target.to_owned()
     } else {
-        tmux_primary_window_target(session_name)?
+        canonical_window_target(session_name)?
     };
     commands.push(vec![
         String::from("set-window-option"),
@@ -190,7 +191,7 @@ fn apply_runtime_style_with_slot_state(
 }
 
 pub(super) fn refresh_active_border(session_name: &str) -> Result<(), SessionError> {
-    let target = tmux_primary_window_target(session_name)?;
+    let target = canonical_window_target(session_name)?;
     tmux_run(&[
         "set-window-option",
         "-t",

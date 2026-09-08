@@ -23,6 +23,19 @@ fn pane_mode_spec_declares_expected_active_slots() {
 }
 
 #[test]
+fn pane_mode_spec_active_count_matches_the_declared_reduced_layout() {
+    for pane_count in 1_u8..=5 {
+        let spec = pane_mode_spec(pane_count);
+        assert_eq!(spec.required_slots(), spec.active_slots);
+        assert_eq!(spec.active_slots.len(), usize::from(pane_count));
+        assert_eq!(
+            spec.suspended_slots.len(),
+            5_usize.saturating_sub(usize::from(pane_count))
+        );
+    }
+}
+
+#[test]
 fn allowed_suspended_slots_are_defined_for_known_layout_modes() {
     assert_eq!(
         allowed_suspended_slots("one-pane"),

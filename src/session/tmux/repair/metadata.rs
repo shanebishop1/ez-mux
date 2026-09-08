@@ -2,8 +2,12 @@ use std::collections::{BTreeSet, HashMap};
 
 use super::super::CANONICAL_SLOT_IDS;
 use super::super::SessionError;
-use super::super::command::{tmux_output, tmux_output_value, tmux_primary_window_target};
-use super::super::options::{required_session_option, set_pane_option, set_session_option};
+use super::super::canonical_window::canonical_window_target_for_repair;
+use super::super::command::{tmux_output, tmux_output_value};
+use super::super::layout::{LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_KEY};
+use super::super::options::{
+    required_session_option, set_pane_option, set_session_option, show_session_option,
+};
 
 #[derive(Debug, Clone)]
 pub(super) struct SlotMetadata {
@@ -11,6 +15,7 @@ pub(super) struct SlotMetadata {
     pub(super) worktree: String,
     pub(super) cwd: String,
     pub(super) mode: String,
+    pub(super) suspended: bool,
 }
 
 pub(super) fn load_slot_metadata(
@@ -22,10 +27,13 @@ pub(super) fn load_slot_metadata(
         let worktree_key = format!("@ezm_slot_{slot_id}_worktree");
         let cwd_key = format!("@ezm_slot_{slot_id}_cwd");
         let mode_key = format!("@ezm_slot_{slot_id}_mode");
+        let suspended_key = format!("@ezm_slot_{slot_id}_suspended");
         let pane_id = required_session_option(session_name, &pane_key)?;
         let worktree = required_session_option(session_name, &worktree_key)?;
         let cwd = required_session_option(session_name, &cwd_key)?;
         let mode = required_session_option(session_name, &mode_key)?;
+        let suspended = show_session_option(session_name, &suspended_key)?
+            .is_some_and(|value| value.trim() == "1");
         let _ = metadata.insert(
             slot_id,
             SlotMetadata {
@@ -33,14 +41,20 @@ pub(super) fn load_slot_metadata(
                 worktree,
                 cwd,
                 mode,
+                suspended,
             },
         );
     }
     Ok(metadata)
 }
 
+pub(super) fn load_layout_mode(session_name: &str) -> Result<String, SessionError> {
+    Ok(show_session_option(session_name, LAYOUT_MODE_KEY)?
+        .unwrap_or_else(|| LAYOUT_MODE_FIVE_PANE.to_owned()))
+}
+
 pub(super) fn list_live_window_panes(session_name: &str) -> Result<BTreeSet<String>, SessionError> {
-    let target = tmux_primary_window_target(session_name)?;
+    let target = canonical_window_target_for_repair(session_name)?;
     let output = tmux_output_value(&["list-panes", "-t", &target, "-F", "#{pane_id}"])?;
     Ok(output
         .lines()

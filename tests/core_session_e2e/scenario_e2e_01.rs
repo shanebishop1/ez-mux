@@ -1,12 +1,16 @@
 use crate::support::foundation_harness::FoundationHarness;
 
 use super::core_support::{
-    CaseEvidence, SessionSnapshot, extract_stdout_field, map_settle, sample, settle_snapshot,
+    CaseEvidence, SessionSnapshot, check_key_binding, extract_stdout_field, map_settle,
+    prepare_fresh_create_path, sample, settle_snapshot,
 };
 
 pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     let mut assertions = Vec::new();
     let mut samples = Vec::new();
+
+    let expected_session = prepare_fresh_create_path(harness, harness.project_root())
+        .unwrap_or_else(|error| panic!("E2E-01 setup failed: {error}"));
 
     let first = harness
         .run_ezm(&[], &[], 0)
@@ -31,6 +35,10 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     assertions.push(format!("first session = {first_session}"));
     assertions.push(format!("second session = {second_session}"));
     assertions.push(format!(
+        "first session matches declared fresh identity = {}",
+        first_session == expected_session
+    ));
+    assertions.push(format!(
         "session names match = {}",
         first_session == second_session
     ));
@@ -39,9 +47,15 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         second_probe.observed_attached_client
     ));
     assertions.push(format!("pty probe exit code = {}", second_probe.exit_code));
+    assertions.push(format!(
+        "pty probe diagnostics = {}",
+        second_probe.diagnostics
+    ));
 
-    let create_keybind_present = keybind_matrix_present(harness);
-    let attach_keybind_present = keybind_matrix_present(harness);
+    let (create_keybind_present, create_keybind_diagnostics) = keybind_matrix_present(harness);
+    let (attach_keybind_present, attach_keybind_diagnostics) = keybind_matrix_present(harness);
+    assertions.extend(create_keybind_diagnostics);
+    assertions.extend(attach_keybind_diagnostics);
     assertions.push(format!(
         "keybind matrix present after create path = {create_keybind_present}"
     ));
@@ -79,6 +93,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && first_action == "create"
         && second_action == "attach"
         && !first_session.is_empty()
+        && first_session == expected_session
         && first_session == second_session
         && second_probe.observed_attached_client
         && create_keybind_present
@@ -104,7 +119,7 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
     }
 }
 
-fn keybind_matrix_present(harness: &FoundationHarness) -> bool {
+fn keybind_matrix_present(harness: &FoundationHarness) -> (bool, Vec<String>) {
     let key_checks = [
         ("prefix", "f", "ezm-focus"),
         ("prefix", "u", "__internal mode"),
@@ -118,10 +133,11 @@ fn keybind_matrix_present(harness: &FoundationHarness) -> bool {
         ("ezm-focus", "1", "__internal focus"),
     ];
 
-    key_checks.iter().all(|(table, key, marker)| {
-        harness
-            .tmux_capture(&["list-keys", "-T", table, key])
-            .unwrap_or_default()
-            .contains(marker)
-    })
+    let checks = key_checks
+        .iter()
+        .map(|(table, key, marker)| check_key_binding(harness, table, key, &[*marker]))
+        .collect::<Vec<_>>();
+    let pass = checks.iter().all(|check| check.pass);
+    let diagnostics = checks.into_iter().map(|check| check.detail).collect();
+    (pass, diagnostics)
 }

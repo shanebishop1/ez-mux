@@ -20,14 +20,14 @@ pub struct LaunchLog {
 }
 
 pub trait Clock {
-    fn now_utc(&self) -> time::OffsetDateTime;
+    fn now(&self) -> SystemTime;
 }
 
 pub struct SystemClock;
 
 impl Clock for SystemClock {
-    fn now_utc(&self) -> time::OffsetDateTime {
-        time::OffsetDateTime::now_utc()
+    fn now(&self) -> SystemTime {
+        SystemTime::now()
     }
 }
 
@@ -47,7 +47,7 @@ impl RunIdSource for SystemRunIdSource {
             .as_nanos();
         let count = RUN_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        format!("{:x}{nanos:x}{count:x}", std::process::id())
+        format!("{:08x}-{nanos:032x}-{count:016x}", std::process::id())
     }
 }
 
@@ -172,7 +172,7 @@ fn create_unique_log_file(
     run_id_source: &impl RunIdSource,
 ) -> Result<PathBuf, LoggingError> {
     for _ in 0..8 {
-        let name = log_filename(clock, run_id_source)?;
+        let name = log_filename(clock, run_id_source);
         let path = root.join(name);
 
         match OpenOptions::new().create_new(true).write(true).open(&path) {
@@ -200,22 +200,63 @@ fn create_unique_log_file(
     })
 }
 
-fn log_filename(
-    clock: &impl Clock,
-    run_id_source: &impl RunIdSource,
-) -> Result<String, LoggingError> {
-    let timestamp = clock
-        .now_utc()
-        .format(&time::macros::format_description!(
-            "[year][month][day]-[hour][minute][second]"
-        ))
-        .map_err(LoggingError::TimestampFormat)?;
+fn log_filename(clock: &impl Clock, run_id_source: &impl RunIdSource) -> String {
+    let timestamp = filename_timestamp(clock.now());
+    let run_id = safe_run_id(&run_id_source.next_run_id());
+    format!("{timestamp}-{run_id}.{LOG_FILE_EXTENSION}")
+}
 
-    Ok(format!(
-        "{timestamp}-{}.{}",
-        run_id_source.next_run_id(),
-        LOG_FILE_EXTENSION
-    ))
+fn filename_timestamp(now: SystemTime) -> String {
+    let elapsed = now.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let seconds = elapsed.as_secs();
+    let second_of_day = seconds % 86_400;
+    let (year, month, day) = civil_date(seconds / 86_400);
+    let hour = second_of_day / 3_600;
+    let minute = second_of_day % 3_600 / 60;
+    let second = second_of_day % 60;
+    let nanos = elapsed.subsec_nanos();
+
+    format!("{year:04}{month:02}{day:02}-{hour:02}{minute:02}{second:02}-{nanos:09}")
+}
+
+// Converts non-negative days since 1970-01-01 to a proleptic Gregorian date.
+fn civil_date(days_since_epoch: u64) -> (u64, u64, u64) {
+    let shifted_days = days_since_epoch + 719_468;
+    let era = shifted_days / 146_097;
+    let day_of_era = shifted_days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let march_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * march_month + 2) / 5 + 1;
+    let month = if march_month < 10 {
+        march_month + 3
+    } else {
+        march_month - 9
+    };
+    year += u64::from(month <= 2);
+    (year, month, day)
+}
+
+fn safe_run_id(run_id: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut safe = String::with_capacity(run_id.len().min(64));
+
+    for byte in run_id.bytes().take(64) {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
+            safe.push(char::from(byte));
+        } else {
+            safe.push('_');
+            safe.push(char::from(HEX[usize::from(byte >> 4)]));
+            safe.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+    }
+
+    if safe.is_empty() {
+        safe.push_str("run");
+    }
+    safe
 }
 
 fn escape_log_detail(detail: &str) -> String {

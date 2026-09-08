@@ -2,6 +2,7 @@ use std::cmp::Reverse;
 
 use super::CANONICAL_SLOT_IDS;
 use super::SessionError;
+use super::canonical_window::canonical_window_target;
 use super::command::tmux_output_value;
 use super::layout::{
     LAYOUT_MODE_FIVE_PANE, LAYOUT_MODE_FOUR_PANE, LAYOUT_MODE_KEY, LAYOUT_MODE_ONE_PANE,
@@ -44,7 +45,7 @@ fn resolve_focus_anchor_pane(session_name: &str) -> Result<String, SessionError>
 }
 
 fn load_pane_positions(session_name: &str) -> Result<Vec<PanePosition>, SessionError> {
-    let target = format!("{session_name}:0");
+    let target = canonical_window_target(session_name)?;
     let output = tmux_output_value(&[
         "list-panes",
         "-t",

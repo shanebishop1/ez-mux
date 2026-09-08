@@ -1,17 +1,17 @@
 use crate::session::three_pane_target_widths;
 use crate::session::three_pane_widths_within_tolerance;
+use std::collections::BTreeSet;
 
 use super::super::DEFAULT_CENTER_WIDTH_PCT;
 use super::super::LayoutPreset;
 use super::super::SessionError;
 use super::super::canonical_five_pane_column_widths;
-use super::super::command::{
-    format_output_diagnostics, tmux_output, tmux_output_value, tmux_primary_window_target, tmux_run,
-};
+use super::super::canonical_window::canonical_window_target;
+use super::super::command::{format_output_diagnostics, tmux_output, tmux_output_value, tmux_run};
 use super::super::options::{
     required_pane_option, required_session_option, set_session_option, show_session_option,
 };
-use super::super::repair::reconcile_session_damage;
+use super::super::repair::reconcile_session_damage_for_slots;
 use super::super::slot_swap::validate_canonical_slot_registry;
 use super::super::style::apply_runtime_style_defaults;
 use super::LAYOUT_MODE_FIVE_PANE;
@@ -54,6 +54,13 @@ fn apply_or_restore_three_pane_preset(session_name: &str) -> Result<(), SessionE
 }
 
 fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
+    // A preset is an explicit request to restore its required panes. This is
+    // intentionally different from ordinary repair, which preserves reduced
+    // layouts and their suspended slots.
+    prepare_three_pane_transition(session_name)?;
+    let required_slots = BTreeSet::from([1_u8, 2, 3]);
+    let _ = reconcile_session_damage_for_slots(session_name, &required_slots, &required_slots)?;
+
     let left_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
     let center_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
     let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;
@@ -67,7 +74,7 @@ fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
         kill_pane_if_present(&pane_id)?;
     }
 
-    let target = tmux_primary_window_target(session_name)?;
+    let target = canonical_window_target(session_name)?;
 
     let window_width =
         tmux_output_value(&["display-message", "-p", "-t", &target, "#{window_width}"])?
@@ -116,6 +123,31 @@ fn apply_three_pane_preset(session_name: &str) -> Result<(), SessionError> {
     validate_canonical_slot_registry(session_name)?;
     apply_runtime_style_defaults(session_name)?;
 
+    Ok(())
+}
+
+fn prepare_three_pane_transition(session_name: &str) -> Result<(), SessionError> {
+    // Declare the explicit target before loading repair metadata. Slots 4/5
+    // are valid suspended members of three-pane mode, even while their panes
+    // are temporarily present during a five-pane -> three-pane transition.
+    // Clear flags while reconciling the required target, but retain all
+    // restore metadata for the reverse transition. Persist slots 4/5 before
+    // resolving the canonical window so their live panes are recognized as
+    // suspended workspace members during this transition.
+    for slot_id in 1_u8..=5 {
+        let key = slot_suspended_key(slot_id);
+        if slot_id <= 3
+            && show_session_option(session_name, &key)?.is_some_and(|value| value.trim() == "1")
+        {
+            set_session_option(session_name, &key, "0")?;
+        }
+    }
+    for slot_id in [4_u8, 5] {
+        let pane_key = format!("@ezm_slot_{slot_id}_pane");
+        let pane_id = required_session_option(session_name, &pane_key)?;
+        persist_slot_suspension_metadata(session_name, slot_id, &pane_id)?;
+    }
+    set_session_option(session_name, LAYOUT_MODE_KEY, LAYOUT_MODE_THREE_PANE)?;
     Ok(())
 }
 
@@ -177,12 +209,14 @@ fn restore_five_pane_layout(session_name: &str) -> Result<(), SessionError> {
     let slot_four_restore = load_slot_restore_metadata(session_name, 4)?;
     let slot_five_restore = load_slot_restore_metadata(session_name, 5)?;
 
-    let _ = reconcile_session_damage(session_name)?;
+    let restore_slots = BTreeSet::from([4_u8, 5]);
+    let required_slots = BTreeSet::from([1_u8, 2, 3, 4, 5]);
+    let _ = reconcile_session_damage_for_slots(session_name, &required_slots, &restore_slots)?;
 
     verify_restored_slot_continuity(session_name, 4, &slot_four_restore)?;
     verify_restored_slot_continuity(session_name, 5, &slot_five_restore)?;
 
-    let target = tmux_primary_window_target(session_name)?;
+    let target = canonical_window_target(session_name)?;
     let left_pane = required_session_option(session_name, "@ezm_slot_2_pane")?;
     let center_pane = required_session_option(session_name, "@ezm_slot_1_pane")?;
     let right_pane = required_session_option(session_name, "@ezm_slot_3_pane")?;

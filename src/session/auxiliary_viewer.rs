@@ -1,5 +1,6 @@
 use super::SessionError;
 use super::TmuxClient;
+use crate::config::SessionRuntimeContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryViewerAction {
@@ -42,4 +43,19 @@ pub fn auxiliary_viewer(
     tmux: &impl TmuxClient,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
     tmux.auxiliary_viewer(session_name, open, use_tssh, use_mosh)
+}
+
+/// Creates/reuses or closes the auxiliary viewer using the caller's resolved
+/// project context. No remote settings are read from the process environment.
+///
+/// # Errors
+/// Returns an error when the tmux backend cannot reconcile the auxiliary
+/// viewer surface.
+pub fn auxiliary_viewer_with_runtime_context(
+    session_name: &str,
+    open: bool,
+    context: &SessionRuntimeContext,
+    tmux: &impl TmuxClient,
+) -> Result<AuxiliaryViewerOutcome, SessionError> {
+    tmux.auxiliary_viewer_with_runtime_context(session_name, open, context)
 }

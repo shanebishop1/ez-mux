@@ -560,6 +560,45 @@ fn invalid_server_url_fails_fast() {
 }
 
 #[test]
+fn opencode_server_url_rejects_userinfo_with_valid_url_punctuation_without_disclosure() {
+    for punctuation in [';', ',', '(', ')'] {
+        let sentinel = format!("credential{punctuation}sentinel");
+        let mut env = HashMap::new();
+        env.insert(
+            String::from(OPENCODE_SERVER_URL_ENV),
+            format!("https://operator:{sentinel}@shared.example:4096/api"),
+        );
+
+        let error = resolve_remote_runtime(&env, &FileConfig::default())
+            .expect_err("OpenCode URL userinfo must be rejected");
+        let rendered = error.to_string();
+
+        assert!(matches!(
+            error,
+            ConfigError::UnsupportedOpenCodeServerUrlUserinfo {
+                origin: "env OPENCODE_SERVER_URL"
+            }
+        ));
+        assert!(!rendered.contains(&sentinel));
+        assert!(rendered.contains("URL userinfo is unsupported"));
+    }
+}
+
+#[test]
+fn persisted_opencode_url_userinfo_is_canonicalized_without_credentials() {
+    for punctuation in [';', ',', '(', ')'] {
+        let sentinel = format!("credential{punctuation}sentinel");
+        let value = format!("https://operator:{sentinel}@shared.example:4096/api?q=1");
+
+        let canonical = super::server_url_without_userinfo(&value)
+            .expect("persisted URL userinfo should be removable");
+
+        assert_eq!(canonical, "https://shared.example:4096/api?q=1");
+        assert!(!canonical.contains(&sentinel));
+    }
+}
+
+#[test]
 fn remote_shared_server_env_constants_are_contract_stable() {
     assert_eq!(EZM_REMOTE_PATH_ENV, "EZM_REMOTE_PATH");
     assert_eq!(EZM_REMOTE_SERVER_URL_ENV, "EZM_REMOTE_SERVER_URL");
@@ -567,6 +606,75 @@ fn remote_shared_server_env_constants_are_contract_stable() {
     assert_eq!(EZM_USE_MOSH_ENV, "EZM_USE_MOSH");
     assert_eq!(OPENCODE_SERVER_URL_ENV, "OPENCODE_SERVER_URL");
     assert_eq!(OPENCODE_SERVER_PASSWORD_ENV, "OPENCODE_SERVER_PASSWORD");
+}
+
+#[test]
+fn runtime_context_is_the_single_non_secret_launch_boundary() {
+    let mut env = HashMap::new();
+    env.insert(
+        String::from(EZM_REMOTE_PATH_ENV),
+        String::from("/env/remotes"),
+    );
+    env.insert(
+        String::from(OPENCODE_SERVER_URL_ENV),
+        String::from("http://opencode.example:4096"),
+    );
+    env.insert(
+        String::from(OPENCODE_SERVER_PASSWORD_ENV),
+        String::from("unique-phase-c-secret"),
+    );
+    env.insert(String::from(PERLES_DIR_ENV), String::from("/env/perles"));
+    let file = FileConfig {
+        agent_command: Some(String::from("exec claude")),
+        perles_dir: Some(String::from("/file/perles")),
+        ..FileConfig::default()
+    };
+
+    let runtime = resolve_runtime_context(&env, &file).expect("runtime context should resolve");
+    let session = runtime.session_context();
+
+    assert_eq!(
+        runtime.remote.remote_path.value.as_deref(),
+        Some("/env/remotes")
+    );
+    assert_eq!(runtime.agent_command.as_deref(), Some("exec claude"));
+    assert_eq!(
+        runtime.auxiliary.perles_dir.value.as_deref(),
+        Some("/env/perles")
+    );
+    assert_eq!(
+        session.shared_server_url.as_deref(),
+        Some("http://opencode.example:4096")
+    );
+    assert!(!format!("{runtime:?}").contains("unique-phase-c-secret"));
+    assert!(!format!("{session:?}").contains("unique-phase-c-secret"));
+}
+
+#[test]
+fn auxiliary_runtime_prefers_primary_env_then_legacy_env_then_file() {
+    let mut env = HashMap::new();
+    env.insert(
+        String::from(LEGACY_BEADS_DIR_ENV),
+        String::from("/legacy/dir"),
+    );
+    env.insert(String::from(PERLES_DB_ENV), String::from("/env/db"));
+    let file = FileConfig {
+        perles_dir: Some(String::from("/file/dir")),
+        perles_db: Some(String::from("/file/db")),
+        ..FileConfig::default()
+    };
+
+    let runtime = resolve_auxiliary_runtime(&env, &file);
+
+    assert_eq!(runtime.perles_dir.value.as_deref(), Some("/legacy/dir"));
+    assert_eq!(runtime.perles_dir.source, ValueSource::Env);
+    assert_eq!(runtime.perles_db.value.as_deref(), Some("/env/db"));
+    assert_eq!(runtime.perles_db.source, ValueSource::Env);
+}
+
+#[test]
+fn value_source_documents_session_precedence() {
+    assert_eq!(ValueSource::Session.label(), "session");
 }
 
 #[test]

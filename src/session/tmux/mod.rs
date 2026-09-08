@@ -12,15 +12,18 @@ use super::SlotMode;
 use super::SlotModeLaunchContext;
 use super::SlotRegistry;
 use super::TeardownOutcome;
+use super::TeardownOwnership;
 use super::ZoomFlagSupport;
 use super::build_registry_for_canonical_panes;
 use super::canonical_five_pane_column_widths;
 use super::pick_center_pane;
 use super::tmux_diagnostics_exit_status;
-use super::zoom_flag_support_for_command;
+use crate::config::SessionRuntimeContext;
 
 mod attach;
 mod auxiliary;
+mod canonical_window;
+mod canonical_window_selection;
 mod command;
 mod keybinds;
 mod layout;
@@ -31,11 +34,22 @@ mod remote_authority;
 mod remote_env;
 mod remote_transport;
 mod repair;
+mod runtime_auth;
+mod runtime_context_persistence;
 mod slot_focus;
 mod slot_swap;
 mod style;
 mod teardown;
 mod worktree;
+mod zoom;
+
+pub(crate) fn validate_remote_ssh_authority(value: &str) -> Result<(), SessionError> {
+    remote_authority::parse_remote_ssh_authority(value).map(|_| ())
+}
+
+pub(crate) fn redact_remote_authority_for_diagnostics(value: &str) -> String {
+    remote_authority::redact_remote_authority_value(value)
+}
 
 pub trait TmuxClient {
     /// Returns whether the named tmux session is currently present.
@@ -143,11 +157,79 @@ pub trait TmuxClient {
         use_mosh: bool,
     ) -> Result<AuxiliaryViewerOutcome, SessionError>;
 
+    /// Reconciles the non-secret runtime context owned by one project session.
+    /// Implementations may be no-ops in deterministic/fake clients.
+    ///
+    /// # Errors
+    /// Returns an error when the backend cannot persist the context.
+    fn reconcile_session_runtime_context(
+        &self,
+        _session_name: &str,
+        _context: &SessionRuntimeContext,
+    ) -> Result<(), SessionError> {
+        Ok(())
+    }
+
+    /// Reconciles the session-scoped `OpenCode` authentication environment.
+    /// Implementations must never write the credential to tmux global state.
+    ///
+    /// # Errors
+    /// Returns an error when the backend cannot set the session environment.
+    fn reconcile_session_runtime_auth(
+        &self,
+        _session_name: &str,
+        _password: Option<&str>,
+    ) -> Result<(), SessionError> {
+        Ok(())
+    }
+
+    /// Returns persisted context when present, otherwise the caller's
+    /// already-resolved context. This keeps existing sessions authoritative.
+    ///
+    /// # Errors
+    /// Returns an error when the backend cannot inspect the session context.
+    fn resolve_session_runtime_context(
+        &self,
+        _session_name: &str,
+        context: &SessionRuntimeContext,
+    ) -> Result<SessionRuntimeContext, SessionError> {
+        Ok(context.clone())
+    }
+
+    /// Creates/reuses or closes the auxiliary viewer with explicit context.
+    ///
+    /// # Errors
+    /// Returns an error when the backend cannot reconcile the auxiliary viewer.
+    fn auxiliary_viewer_with_runtime_context(
+        &self,
+        session_name: &str,
+        open: bool,
+        context: &SessionRuntimeContext,
+    ) -> Result<AuxiliaryViewerOutcome, SessionError> {
+        self.auxiliary_viewer(session_name, open, context.use_tssh, context.use_mosh)
+    }
+
     /// Removes helper sessions/processes and the project session.
     ///
     /// # Errors
     /// Returns an error when teardown reconciliation fails.
     fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError>;
+
+    /// Removes only the project session and helper resources recorded by the
+    /// current bootstrap invocation.
+    ///
+    /// # Errors
+    /// Returns an error when an owned teardown action fails unexpectedly.
+    fn teardown_owned_session(
+        &self,
+        session_name: &str,
+        ownership: &TeardownOwnership,
+    ) -> Result<TeardownOutcome, SessionError> {
+        Err(SessionError::TmuxCommandFailed {
+            command: format!("rollback teardown -t {session_name}"),
+            stderr: format!("owned teardown is not supported for ownership record {ownership:?}"),
+        })
+    }
 
     /// Reports missing visible panes and required backing panes.
     ///
@@ -224,6 +306,30 @@ impl TmuxClient for ProcessTmuxClient {
         style::apply_runtime_style_defaults(session_name)
     }
 
+    fn reconcile_session_runtime_context(
+        &self,
+        session_name: &str,
+        context: &SessionRuntimeContext,
+    ) -> Result<(), SessionError> {
+        remote_env::reconcile_session_runtime_context(session_name, context)
+    }
+
+    fn reconcile_session_runtime_auth(
+        &self,
+        session_name: &str,
+        password: Option<&str>,
+    ) -> Result<(), SessionError> {
+        remote_env::reconcile_session_runtime_auth(session_name, password)
+    }
+
+    fn resolve_session_runtime_context(
+        &self,
+        session_name: &str,
+        _context: &SessionRuntimeContext,
+    ) -> Result<SessionRuntimeContext, SessionError> {
+        remote_env::resolve_owned_session_runtime_context(session_name)
+    }
+
     fn bootstrap_default_layout(
         &self,
         session_name: &str,
@@ -286,11 +392,43 @@ impl TmuxClient for ProcessTmuxClient {
         use_tssh: bool,
         use_mosh: bool,
     ) -> Result<AuxiliaryViewerOutcome, SessionError> {
-        auxiliary::auxiliary_viewer(session_name, open, use_tssh, use_mosh)
+        auxiliary::auxiliary_viewer(
+            session_name,
+            open,
+            &SessionRuntimeContext {
+                remote_path: None,
+                remote_server_url: None,
+                use_tssh,
+                use_mosh,
+                perles_dir: None,
+                perles_db: None,
+                shared_server_url: None,
+                agent_command: None,
+                opencode_themes_enabled: true,
+                opencode_themes_by_slot: std::collections::HashMap::new(),
+            },
+        )
+    }
+
+    fn auxiliary_viewer_with_runtime_context(
+        &self,
+        session_name: &str,
+        open: bool,
+        context: &SessionRuntimeContext,
+    ) -> Result<AuxiliaryViewerOutcome, SessionError> {
+        auxiliary::auxiliary_viewer(session_name, open, context)
     }
 
     fn teardown_session(&self, session_name: &str) -> Result<TeardownOutcome, SessionError> {
         teardown::teardown_session(session_name)
+    }
+
+    fn teardown_owned_session(
+        &self,
+        session_name: &str,
+        ownership: &TeardownOwnership,
+    ) -> Result<TeardownOutcome, SessionError> {
+        teardown::teardown_owned_session(session_name, ownership)
     }
 
     fn analyze_session_damage(
@@ -306,4 +444,10 @@ impl TmuxClient for ProcessTmuxClient {
     ) -> Result<super::SessionRepairOutcome, SessionError> {
         repair::reconcile_session_damage(session_name)
     }
+}
+
+pub(crate) fn resolve_owned_session_runtime_context(
+    session_name: &str,
+) -> Result<SessionRuntimeContext, SessionError> {
+    remote_env::resolve_owned_session_runtime_context(session_name)
 }

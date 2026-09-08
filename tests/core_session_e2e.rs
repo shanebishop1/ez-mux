@@ -32,11 +32,79 @@ mod scenario_e2e_13;
 mod scenario_e2e_16;
 #[path = "core_session_e2e/scenario_e2e_19.rs"]
 mod scenario_e2e_19;
+#[path = "core_session_e2e/scenario_e2e_20.rs"]
+mod scenario_e2e_20;
+#[path = "core_session_e2e/scenario_e2e_21.rs"]
+mod scenario_e2e_21;
 
 use core_support::{
-    CORE_IDS, RunMetadata, SuiteEvidence, read_commit_sha, write_case_artifacts, write_json,
+    CORE_IDS, CaseEvidence, RunMetadata, SuiteEvidence, read_commit_sha, write_case_artifacts,
+    write_json,
 };
 use support::foundation_harness::FoundationHarness;
+
+struct ScenarioStateGuard<'a> {
+    harness: &'a FoundationHarness,
+    active: bool,
+}
+
+impl<'a> ScenarioStateGuard<'a> {
+    fn new(harness: &'a FoundationHarness, id: &str) -> Self {
+        harness.reset_scenario_state().unwrap_or_else(|error| {
+            panic!("{id} failed restoring declared initial state: {error}")
+        });
+        Self {
+            harness,
+            active: true,
+        }
+    }
+
+    fn finish(mut self) -> Result<(), String> {
+        let result = self.harness.reset_scenario_state();
+        if result.is_ok() {
+            self.active = false;
+        }
+        result
+    }
+}
+
+impl Drop for ScenarioStateGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            if let Err(error) = self.harness.reset_scenario_state() {
+                eprintln!("core_session_e2e: scenario cleanup retry failed: {error}");
+            }
+        }
+    }
+}
+
+fn run_scenario(
+    harness: &FoundationHarness,
+    id: &str,
+    run: impl FnOnce() -> CaseEvidence,
+) -> CaseEvidence {
+    let started = std::time::Instant::now();
+    eprintln!("core_session_e2e: starting {id}");
+    let state_guard = ScenarioStateGuard::new(harness, id);
+    let mut evidence = run();
+    match state_guard.finish() {
+        Ok(()) => evidence.assertions.push(String::from(
+            "scenario-owned tmux state cleaned exactly = true",
+        )),
+        Err(error) => {
+            evidence.pass = false;
+            evidence.assertions.push(format!(
+                "scenario-owned tmux state cleaned exactly = false ({error})"
+            ));
+        }
+    }
+    eprintln!(
+        "core_session_e2e: finished {id} in {} ms (pass={})",
+        started.elapsed().as_millis(),
+        evidence.pass
+    );
+    evidence
+}
 
 #[test]
 fn core_session_e2e_suite() {
@@ -44,21 +112,23 @@ fn core_session_e2e_suite() {
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
 
     let cases = vec![
-        scenario_e2e_01::run(&harness),
-        scenario_e2e_02::run(&harness),
-        scenario_e2e_03::run(&harness),
-        scenario_e2e_04::run(&harness),
-        scenario_e2e_05::run(&harness),
-        scenario_e2e_06::run(&harness),
-        scenario_e2e_07::run(&harness),
-        scenario_e2e_08::run(&harness),
-        scenario_e2e_09::run(&harness),
-        scenario_e2e_10::run(&harness),
-        scenario_e2e_11::run(&harness),
-        scenario_e2e_12::run(&harness),
-        scenario_e2e_13::run(&harness),
-        scenario_e2e_16::run(&harness),
-        scenario_e2e_19::run(&harness),
+        run_scenario(&harness, "E2E-01", || scenario_e2e_01::run(&harness)),
+        run_scenario(&harness, "E2E-02", || scenario_e2e_02::run(&harness)),
+        run_scenario(&harness, "E2E-03", || scenario_e2e_03::run(&harness)),
+        run_scenario(&harness, "E2E-04", || scenario_e2e_04::run(&harness)),
+        run_scenario(&harness, "E2E-05", || scenario_e2e_05::run(&harness)),
+        run_scenario(&harness, "E2E-06", || scenario_e2e_06::run(&harness)),
+        run_scenario(&harness, "E2E-07", || scenario_e2e_07::run(&harness)),
+        run_scenario(&harness, "E2E-08", || scenario_e2e_08::run(&harness)),
+        run_scenario(&harness, "E2E-09", || scenario_e2e_09::run(&harness)),
+        run_scenario(&harness, "E2E-10", || scenario_e2e_10::run(&harness)),
+        run_scenario(&harness, "E2E-11", || scenario_e2e_11::run(&harness)),
+        run_scenario(&harness, "E2E-12", || scenario_e2e_12::run(&harness)),
+        run_scenario(&harness, "E2E-13", || scenario_e2e_13::run(&harness)),
+        run_scenario(&harness, "E2E-16", || scenario_e2e_16::run(&harness)),
+        run_scenario(&harness, "E2E-19", || scenario_e2e_19::run(&harness)),
+        run_scenario(&harness, "E2E-20", || scenario_e2e_20::run(&harness)),
+        run_scenario(&harness, "E2E-21", || scenario_e2e_21::run(&harness)),
     ];
 
     write_case_artifacts(&harness.artifact_dir.join("cases"), &cases)
@@ -87,8 +157,30 @@ fn core_session_e2e_suite() {
     write_json(&harness.artifact_dir.join("summary.json"), &summary)
         .unwrap_or_else(|error| panic!("failed writing summary evidence: {error}"));
 
-    assert_eq!(
-        summary.metadata.fail_total, 0,
-        "core session E2E suite contains failures; inspect summary artifact"
+    if summary.metadata.fail_total != 0 {
+        let failed_ids = summary
+            .cases
+            .iter()
+            .filter(|case| !case.pass)
+            .map(|case| case.id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        panic!(
+            "core session E2E suite failed scenario(s): {failed_ids}; summary artifact: {}",
+            harness.artifact_dir.join("summary.json").display()
+        );
+    }
+}
+
+#[test]
+fn e2e21_one_pane_slot_one_recovery() {
+    let harness = FoundationHarness::new_for_suite("core-session-e2e-21")
+        .unwrap_or_else(|error| panic!("E2E-21 focused harness setup failed: {error}"));
+    let evidence = run_scenario(&harness, "E2E-21", || scenario_e2e_21::run(&harness));
+
+    assert!(
+        evidence.pass,
+        "E2E-21 focused reproduction failed: {:?}",
+        evidence.assertions
     );
 }

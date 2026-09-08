@@ -12,8 +12,6 @@ use super::execute_kill_session_flow_for_project_dir;
 use super::execute_with_opener;
 use super::format_kill_message;
 use super::format_repair_message;
-use super::internal_focus_success_message;
-use super::internal_swap_success_message;
 use super::shared_server_attach_config;
 use crate::cli::{Cli, Command, LogsCommand};
 use crate::config::{
@@ -187,22 +185,30 @@ fn kill_message_reports_session_and_teardown_counts() {
 
 struct InterruptingTmuxClient {
     teardown_calls: std::cell::RefCell<Vec<String>>,
+    session_exists_calls: std::cell::Cell<u32>,
 }
 
 impl InterruptingTmuxClient {
     fn new() -> Self {
         Self {
             teardown_calls: std::cell::RefCell::new(Vec::new()),
+            session_exists_calls: std::cell::Cell::new(0),
         }
     }
 
     fn teardown_calls(&self) -> Vec<String> {
         self.teardown_calls.borrow().clone()
     }
+
+    fn session_exists_calls(&self) -> u32 {
+        self.session_exists_calls.get()
+    }
 }
 
 impl TmuxClient for InterruptingTmuxClient {
     fn session_exists(&self, _: &str) -> Result<bool, SessionError> {
+        self.session_exists_calls
+            .set(self.session_exists_calls.get() + 1);
         Ok(true)
     }
 
@@ -314,14 +320,10 @@ impl TmuxClient for InterruptingTmuxClient {
 }
 
 #[test]
-fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
+fn interrupted_existing_attach_never_tears_down_the_session() {
     let temp = tempdir().expect("tempdir");
     let project_dir = temp.path().join("project");
     std::fs::create_dir(&project_dir).expect("project dir");
-
-    let expected_session = crate::session::resolve_session_identity(&project_dir)
-        .expect("session identity")
-        .session_name;
 
     let tmux = InterruptingTmuxClient::new();
     let error = execute_default_session_flow_for_project_dir(
@@ -336,7 +338,7 @@ fn interrupted_default_flow_runs_teardown_and_maps_to_app_interrupt() {
     .expect_err("interrupt should map to app error");
 
     assert!(matches!(error, AppError::Interrupted));
-    assert_eq!(tmux.teardown_calls(), vec![expected_session]);
+    assert!(tmux.teardown_calls().is_empty());
 }
 
 #[test]
@@ -358,16 +360,6 @@ fn kill_flow_targets_project_scoped_session_identity() {
 }
 
 #[test]
-fn internal_focus_completion_message_is_suppressed_for_keybind_invocations() {
-    assert!(internal_focus_success_message("ezm-test-session", 3).is_empty());
-}
-
-#[test]
-fn internal_swap_completion_message_is_suppressed_for_keybind_invocations() {
-    assert!(internal_swap_success_message("ezm-test-session", 2).is_empty());
-}
-
-#[test]
 fn shared_server_attach_config_is_disabled_for_local_mode() {
     let runtime = remote_runtime_resolution(None);
 
@@ -380,7 +372,6 @@ fn shared_server_attach_config_is_enabled_for_remote_mode_when_explicit() {
 
     let attach = shared_server_attach_config(&runtime).expect("attach config");
     assert_eq!(attach.url, "http://devbox-ez-1:4096");
-    assert_eq!(attach.password.as_deref(), Some("secret"));
 }
 
 #[test]
@@ -450,7 +441,6 @@ fn shared_server_attach_config_accepts_hostname_remote_server_url_with_remote_pa
 
     let attach = shared_server_attach_config(&runtime).expect("attach config");
     assert_eq!(attach.url, "http://devbox-ez-1:4096");
-    assert_eq!(attach.password.as_deref(), Some("weinthisyuh78"));
 }
 
 #[test]
@@ -475,6 +465,48 @@ fn contract_summary_is_emitted_in_verbose_mode() {
     assert!(summary.starts_with("ezm contract locked;"));
     assert!(summary.contains("routing_mode=local"));
     assert!(summary.contains("remote_routing_active=false"));
+}
+
+#[test]
+fn verbose_contract_summary_redacts_credential_bearing_urls() {
+    let secret = "unique-b2-summary-secret";
+    let mut runtime = remote_runtime_resolution(Some("/srv/remotes"));
+    runtime.remote_server_url.value = Some(format!(
+        "ssh://operator:{secret}@shell.remote.example:7443/projects"
+    ));
+    runtime.shared_server.url.value =
+        Some(format!("http://operator:{secret}@devbox-ez-1:4096/api"));
+
+    let summary = default_contract_summary_message(true, &sample_launch_outcome(true), &runtime);
+
+    assert!(!summary.contains(secret));
+    assert!(summary.contains("operator:<redacted>@shell.remote.example:7443/projects"));
+    assert!(summary.contains("operator:<redacted>@devbox-ez-1:4096/api"));
+}
+
+#[test]
+fn invalid_remote_authority_is_rejected_before_tmux_session_initialization() {
+    let temp = tempdir().expect("tempdir");
+    let project_dir = temp.path().join("project");
+    std::fs::create_dir(&project_dir).expect("project dir");
+    let tmux = InterruptingTmuxClient::new();
+    let secret = "unique-b2-invalid-secret";
+
+    let error = execute_default_session_flow_for_project_dir(
+        &project_dir,
+        Some("/srv/remotes"),
+        Some(&format!("ssh://operator:{secret}@shell.remote.example")),
+        crate::session::RemoteTransportFlags::default(),
+        5,
+        false,
+        &tmux,
+    )
+    .expect_err("invalid authority should fail before tmux");
+
+    let rendered = error.to_string();
+    assert!(!rendered.contains(secret));
+    assert!(rendered.contains("password-bearing userinfo is unsupported"));
+    assert_eq!(tmux.session_exists_calls(), 0);
 }
 
 fn remote_runtime_resolution(remote_path: Option<&str>) -> RemoteRuntimeResolution {

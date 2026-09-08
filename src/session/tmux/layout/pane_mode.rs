@@ -33,6 +33,10 @@ pub(super) struct PaneModeSpec {
 }
 
 impl PaneModeSpec {
+    pub(super) const fn required_slots(self) -> &'static [u8] {
+        self.active_slots
+    }
+
     pub(super) fn logical_slot_for_physical(self, physical_slot_id: u8) -> u8 {
         match self.pane_count {
             4 => match physical_slot_id {

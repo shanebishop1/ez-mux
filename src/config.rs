@@ -6,8 +6,14 @@ use serde::Deserialize;
 use thiserror::Error;
 
 mod load;
+mod runtime;
 
 pub use load::{load_config, resolve_config_path};
+pub use runtime::{
+    AuxiliaryRuntimeResolution, OpencodeThemeRuntimeResolution, RemoteRuntimeResolution,
+    ResolvedValue, RuntimeContext, SessionRuntimeContext, SharedServerRuntimeResolution,
+    ValueSource,
+};
 
 pub const EZM_CONFIG_ENV: &str = "EZM_CONFIG";
 pub const EZM_BIN_ENV: &str = "EZM_BIN";
@@ -15,8 +21,24 @@ pub const EZM_REMOTE_PATH_ENV: &str = "EZM_REMOTE_PATH";
 pub const EZM_REMOTE_SERVER_URL_ENV: &str = "EZM_REMOTE_SERVER_URL";
 pub const EZM_USE_TSSH_ENV: &str = "EZM_USE_TSSH";
 pub const EZM_USE_MOSH_ENV: &str = "EZM_USE_MOSH";
+pub const PERLES_DIR_ENV: &str = "PERLES_DIR";
+pub const PERLES_DB_ENV: &str = "PERLES_DB";
+pub const LEGACY_BEADS_DIR_ENV: &str = "BEADS_DIR";
+pub const LEGACY_BEADS_DB_ENV: &str = "BEADS_DB";
 pub const OPENCODE_SERVER_URL_ENV: &str = "OPENCODE_SERVER_URL";
 pub const OPENCODE_SERVER_PASSWORD_ENV: &str = "OPENCODE_SERVER_PASSWORD";
+pub const EZM_RUNTIME_CONTEXT_VERSION_OPTION: &str = "@ezm_runtime_context_version";
+pub const EZM_RUNTIME_REMOTE_PATH_OPTION: &str = "@ezm_runtime_remote_path";
+pub const EZM_RUNTIME_REMOTE_SERVER_URL_OPTION: &str = "@ezm_runtime_remote_server_url";
+pub const EZM_RUNTIME_USE_TSSH_OPTION: &str = "@ezm_runtime_use_tssh";
+pub const EZM_RUNTIME_USE_MOSH_OPTION: &str = "@ezm_runtime_use_mosh";
+pub const EZM_RUNTIME_PERLES_DIR_OPTION: &str = "@ezm_runtime_perles_dir";
+pub const EZM_RUNTIME_PERLES_DB_OPTION: &str = "@ezm_runtime_perles_db";
+pub const EZM_RUNTIME_OPENCODE_SERVER_URL_OPTION: &str = "@ezm_runtime_opencode_server_url";
+pub const EZM_RUNTIME_AGENT_COMMAND_OPTION: &str = "@ezm_runtime_agent_command";
+pub const EZM_RUNTIME_OPENCODE_THEMES_ENABLED_OPTION: &str = "@ezm_runtime_opencode_themes_enabled";
+pub const EZM_RUNTIME_OPENCODE_THEME_PREFIX: &str = "@ezm_runtime_opencode_theme_";
+pub const EZM_RUNTIME_CONTEXT_VERSION: &str = "1";
 pub const MIN_PANE_COUNT: u8 = 1;
 pub const MAX_PANE_COUNT: u8 = 5;
 pub const DEFAULT_PANE_COUNT: u8 = 5;
@@ -89,6 +111,10 @@ pub enum ConfigError {
     #[error("invalid OpenCode server URL from {origin}: expected absolute http(s) URL")]
     InvalidOpenCodeServerUrl { origin: &'static str },
     #[error(
+        "invalid OpenCode server URL from {origin}: URL userinfo is unsupported; provide credentials with OPENCODE_SERVER_PASSWORD"
+    )]
+    UnsupportedOpenCodeServerUrlUserinfo { origin: &'static str },
+    #[error(
         "invalid pane count from {origin}: expected value in range {MIN_PANE_COUNT}..={MAX_PANE_COUNT}, got {value}"
     )]
     InvalidPaneCount { origin: &'static str, value: u8 },
@@ -101,6 +127,8 @@ pub struct FileConfig {
     pub ezm_remote_server_url: Option<String>,
     pub ezm_use_tssh: Option<bool>,
     pub ezm_use_mosh: Option<bool>,
+    pub perles_dir: Option<String>,
+    pub perles_db: Option<String>,
     pub opencode_server_url: Option<String>,
     pub opencode_server_password: Option<String>,
     pub agent_command: Option<String>,
@@ -114,64 +142,6 @@ pub struct LoadedConfig {
     pub values: FileConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValueSource {
-    Cli,
-    Env,
-    File,
-    Default,
-}
-
-impl ValueSource {
-    #[must_use]
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Cli => "cli",
-            Self::Env => "env",
-            Self::File => "file",
-            Self::Default => "default",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedValue<T> {
-    pub value: T,
-    pub source: ValueSource,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SharedServerRuntimeResolution {
-    pub url: ResolvedValue<Option<String>>,
-    pub password: ResolvedValue<Option<String>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemoteRuntimeResolution {
-    pub remote_path: ResolvedValue<Option<String>>,
-    pub remote_server_url: ResolvedValue<Option<String>>,
-    pub use_tssh: ResolvedValue<bool>,
-    pub use_mosh: ResolvedValue<bool>,
-    pub shared_server: SharedServerRuntimeResolution,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpencodeThemeRuntimeResolution {
-    pub enabled: bool,
-    pub themes_by_slot: HashMap<u8, String>,
-}
-
-impl OpencodeThemeRuntimeResolution {
-    #[must_use]
-    pub fn theme_for_slot(&self, slot_id: u8) -> Option<&str> {
-        if !self.enabled {
-            return None;
-        }
-
-        self.themes_by_slot.get(&slot_id).map(String::as_str)
-    }
-}
-
 const DEFAULT_OPENCODE_SLOT_THEMES: [(u8, &str); 5] = [
     (1, "nightowl"),
     (2, "orng"),
@@ -180,7 +150,7 @@ const DEFAULT_OPENCODE_SLOT_THEMES: [(u8, &str); 5] = [
     (5, "monokai"),
 ];
 
-/// Resolves remote-path and shared-server runtime values from env/config.
+/// Resolves the complete runtime boundary from env/config.
 ///
 /// Precedence for each setting in this slice is `env > config > defaults`.
 ///
@@ -241,6 +211,47 @@ pub fn resolve_remote_runtime(
             password: server_password,
         },
     })
+}
+
+/// Resolves all values used by startup, mode, popup, and auxiliary launches.
+///
+/// This is intentionally the only app-level resolver. Lower layers receive
+/// its result and must not reinterpret process environment values.
+///
+/// # Errors
+///
+/// Returns [`ConfigError`] when a resolved `OpenCode` server URL is invalid.
+pub fn resolve_runtime_context(
+    env: &impl EnvProvider,
+    file_config: &FileConfig,
+) -> Result<RuntimeContext, ConfigError> {
+    Ok(RuntimeContext {
+        remote: resolve_remote_runtime(env, file_config)?,
+        auxiliary: resolve_auxiliary_runtime(env, file_config),
+        agent_command: resolve_agent_command(file_config),
+        opencode_theme: resolve_opencode_theme_runtime(file_config),
+    })
+}
+
+#[must_use]
+pub fn resolve_auxiliary_runtime(
+    env: &impl EnvProvider,
+    file_config: &FileConfig,
+) -> AuxiliaryRuntimeResolution {
+    AuxiliaryRuntimeResolution {
+        perles_dir: resolve_optional_setting(
+            None,
+            env.get_var(PERLES_DIR_ENV)
+                .or_else(|| env.get_var(LEGACY_BEADS_DIR_ENV)),
+            file_config.perles_dir.clone(),
+        ),
+        perles_db: resolve_optional_setting(
+            None,
+            env.get_var(PERLES_DB_ENV)
+                .or_else(|| env.get_var(LEGACY_BEADS_DB_ENV)),
+            file_config.perles_db.clone(),
+        ),
+    }
 }
 
 #[must_use]
@@ -322,6 +333,7 @@ fn pane_count_origin(source: ValueSource) -> &'static str {
         ValueSource::Cli => "cli --panes",
         ValueSource::File => "config panes",
         ValueSource::Env => "env",
+        ValueSource::Session => "session",
         ValueSource::Default => "default",
     }
 }
@@ -469,11 +481,12 @@ fn source_scope(
         ValueSource::Cli => "cli",
         ValueSource::Env => env_source,
         ValueSource::File => file_source,
+        ValueSource::Session => "session",
         ValueSource::Default => "default",
     }
 }
 
-fn validate_server_url(url: &str, source: &'static str) -> Result<(), ConfigError> {
+pub(crate) fn validate_server_url(url: &str, source: &'static str) -> Result<(), ConfigError> {
     let Some((scheme, remainder)) = url.split_once("://") else {
         return Err(ConfigError::InvalidOpenCodeServerUrl { origin: source });
     };
@@ -481,12 +494,37 @@ fn validate_server_url(url: &str, source: &'static str) -> Result<(), ConfigErro
         return Err(ConfigError::InvalidOpenCodeServerUrl { origin: source });
     }
 
-    let authority = remainder.split('/').next().unwrap_or_default().trim();
-    if authority.is_empty() {
+    let authority_end = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
+    let authority = &remainder[..authority_end];
+    if authority.is_empty()
+        || authority.chars().any(char::is_whitespace)
+        || authority.chars().any(char::is_control)
+    {
         return Err(ConfigError::InvalidOpenCodeServerUrl { origin: source });
+    }
+    if authority.contains('@') {
+        return Err(ConfigError::UnsupportedOpenCodeServerUrlUserinfo { origin: source });
     }
 
     Ok(())
+}
+
+/// Removes URL userinfo while preserving the scheme, host, port, and suffix.
+/// This is used only to scrub state persisted by older versions; new input is
+/// rejected instead of silently changing authentication semantics.
+pub(crate) fn server_url_without_userinfo(url: &str) -> Option<String> {
+    let (scheme, remainder) = url.split_once("://")?;
+    let authority_end = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
+    let authority = &remainder[..authority_end];
+    let (_, host_port) = authority.rsplit_once('@')?;
+    if host_port.is_empty() {
+        return None;
+    }
+
+    let canonical = format!("{scheme}://{host_port}{}", &remainder[authority_end..]);
+    validate_server_url(&canonical, "persisted session context")
+        .is_ok()
+        .then_some(canonical)
 }
 
 #[cfg(test)]

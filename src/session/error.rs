@@ -23,6 +23,22 @@ pub enum SessionError {
     InvalidRemoteSshAuthority { value: String, reason: String },
     #[error("agent mode requires shared-server attach configuration")]
     MissingSharedServerAttachConfig,
+    #[error(
+        "agent mode shared-server URL must be an absolute http(s) URL without userinfo; provide credentials with OPENCODE_SERVER_PASSWORD"
+    )]
+    InvalidSharedServerAttachUrl,
+    #[error(
+        "session `{session_name}` has no owned runtime-context marker and no recoverable session-scoped legacy settings; refusing to import the current process/config context. Run `ezm kill` from the owning project and relaunch to reconcile explicitly"
+    )]
+    UnsafeLegacyRuntimeContextMigration { session_name: String },
+    #[error(
+        "session `{session_name}` has legacy OpenCode server settings that cannot be migrated safely; URL userinfo is unsupported. Reconcile with a credential-free OPENCODE_SERVER_URL and OPENCODE_SERVER_PASSWORD"
+    )]
+    UnsafeLegacyOpenCodeUrlMigration { session_name: String },
+    #[error(
+        "session `{session_name}` has an invalid OpenCode server URL; URL userinfo is unsupported and credentials must be provided with OPENCODE_SERVER_PASSWORD"
+    )]
+    UnsafeSessionOpenCodeUrl { session_name: String },
     #[error("tmux command `{command}` failed: {stderr}")]
     TmuxCommandFailed { command: String, stderr: String },
     #[error("failed spawning tmux command `{command}`: {source}")]

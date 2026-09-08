@@ -1,10 +1,13 @@
 [package]
 name = "ez-mux"
-version = "0.2.30"
+version = "0.2.31"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 description = "Deterministic tmux workspace orchestrator"
+repository = "https://github.com/shanebishop1/ez-mux"
+homepage = "https://github.com/shanebishop1/ez-mux#readme"
+documentation = "https://github.com/shanebishop1/ez-mux#readme"
 default-run = "ezm"
 
 [[bin]]
@@ -23,7 +26,6 @@ clap = { version = "4.5.38", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
 signal-hook = "0.3.18"
 thiserror = "2.0.12"
-time = { version = "0.3.41", features = ["formatting", "macros"] }
 toml = "0.8.23"
 
 [dev-dependencies]

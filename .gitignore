@@ -27,8 +27,18 @@ target
 __pycache__/
 *.pyc
 
+# macOS metadata
+.DS_Store
+
 # Planning / AI config
 docs
+!docs/
+docs/*
+!docs/assets/
+docs/assets/*
+!docs/assets/ezm-terminal-demo.gif
+!docs/plans/
+!docs/plans/portfolio-readiness.md
 .agents
 .beads
 .opencode

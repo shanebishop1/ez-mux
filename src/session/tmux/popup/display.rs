@@ -37,14 +37,21 @@ pub(super) fn close_popup(client_tty: Option<&str>) -> Result<(), SessionError> 
     result
 }
 
-pub(super) fn popup_visible_for_client(client_tty: Option<&str>) -> Result<bool, SessionError> {
+pub(super) fn popup_visible_for_client(
+    client_tty: Option<&str>,
+    popup_session: &str,
+) -> Result<bool, SessionError> {
     let args = popup_active_probe_args(client_tty);
     let args_ref = args.iter().map(String::as_str).collect::<Vec<_>>();
     let output = tmux_output(&args_ref)?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        return Ok(stdout.trim() == "1");
+        if !stdout.trim().is_empty() {
+            return Ok(stdout.trim() == "1");
+        }
+
+        return popup_session_has_attached_client(popup_session);
     }
 
     let stderr = format_output_diagnostics(&output);
@@ -55,6 +62,26 @@ pub(super) fn popup_visible_for_client(client_tty: Option<&str>) -> Result<bool,
     Err(SessionError::TmuxCommandFailed {
         command: args.join(" "),
         stderr,
+    })
+}
+
+fn popup_session_has_attached_client(popup_session: &str) -> Result<bool, SessionError> {
+    let args = [
+        "display-message",
+        "-p",
+        "-t",
+        popup_session,
+        "#{session_attached}",
+    ];
+    let output = tmux_output(&args)?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Ok(stdout.trim().parse::<u32>().is_ok_and(|count| count > 0));
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: args.join(" "),
+        stderr: format_output_diagnostics(&output),
     })
 }
 

@@ -309,7 +309,6 @@ fn agent_mode_uses_shared_server_attach_url_and_mapped_dir() {
         Some("/srv/remotes"),
         &SharedServerAttachConfig {
             url: String::from("http://127.0.0.1:4096"),
-            password: None,
         },
         None,
     )
@@ -320,20 +319,23 @@ fn agent_mode_uses_shared_server_attach_url_and_mapped_dir() {
 }
 
 #[test]
-fn agent_mode_password_is_included_when_configured() {
+fn agent_mode_uses_inherited_password_without_password_argv() {
     let command = launch_agent_attach_command(
         1,
         "/tmp/local-only",
         None,
         &SharedServerAttachConfig {
             url: String::from("http://127.0.0.1:4096"),
-            password: Some(String::from("secret-token")),
         },
         None,
     )
     .expect("agent command should resolve");
 
-    assert!(command.contains("--password 'secret-token'"));
+    assert!(command.contains("opencode attach"));
+    assert!(command.contains("unset OPENCODE_SERVER_URL;"));
+    assert!(!command.contains("unset OPENCODE_SERVER_PASSWORD"));
+    assert!(!command.contains("secret-token"));
+    assert!(!command.contains("--password"));
 }
 
 #[test]
@@ -342,10 +344,7 @@ fn agent_mode_requires_non_empty_attach_url_when_shared_server_config_is_used() 
         1,
         "/tmp/local-only",
         None,
-        &SharedServerAttachConfig {
-            url: String::new(),
-            password: None,
-        },
+        &SharedServerAttachConfig { url: String::new() },
         None,
     )
     .expect_err("empty shared server config should fail");
@@ -355,6 +354,27 @@ fn agent_mode_requires_non_empty_attach_url_when_shared_server_config_is_used() 
             .to_string()
             .contains("agent mode requires shared-server attach configuration")
     );
+}
+
+#[test]
+fn agent_mode_rejects_attach_url_userinfo_with_sub_delimiters_without_disclosure() {
+    for punctuation in [';', ',', '(', ')'] {
+        let sentinel = format!("attach{punctuation}credential");
+        let error = launch_agent_attach_command(
+            1,
+            "/tmp/local-only",
+            None,
+            &SharedServerAttachConfig {
+                url: format!("https://operator:{sentinel}@shared.example:4096"),
+            },
+            None,
+        )
+        .expect_err("attach URL userinfo must be rejected");
+        let rendered = error.to_string();
+
+        assert!(!rendered.contains(&sentinel));
+        assert!(rendered.contains("without userinfo"));
+    }
 }
 
 #[test]
@@ -386,7 +406,6 @@ fn agent_mode_uses_remote_path_mapping_without_operator() {
             remote_context(Some("/srv/remotes"), None),
             Some(&SharedServerAttachConfig {
                 url: String::from("http://127.0.0.1:4096"),
-                password: None,
             }),
             None,
             None,
@@ -405,7 +424,6 @@ fn agent_mode_theme_sets_custom_tui_config_for_attach_launches() {
         None,
         &SharedServerAttachConfig {
             url: String::from("http://127.0.0.1:4096"),
-            password: None,
         },
         Some("orng"),
     )
@@ -453,7 +471,6 @@ fn agent_mode_uses_configured_override_command_when_present() {
             RemoteModeContext::default(),
             Some(&SharedServerAttachConfig {
                 url: String::from("http://127.0.0.1:4096"),
-                password: Some(String::from("secret")),
             }),
             Some("exec claude || exec \"${SHELL:-/bin/sh}\" -l"),
             Some("nightowl"),

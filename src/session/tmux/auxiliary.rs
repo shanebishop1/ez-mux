@@ -4,26 +4,21 @@ use super::options::show_session_option;
 use super::remote_authority::parse_remote_ssh_authority;
 use super::remote_transport::{build_remote_invocation, remote_transport_label};
 use super::slot_swap::validate_canonical_slot_registry;
-use crate::config::{EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV};
+use crate::config::{PERLES_DB_ENV, PERLES_DIR_ENV, SessionRuntimeContext};
 use crate::session::resolve_remote_path;
 use crate::session::{AuxiliaryViewerAction, AuxiliaryViewerOutcome};
 use std::path::{Path, PathBuf};
 
 const AUXILIARY_WINDOW_NAME: &str = "perles";
-const PERLES_DIR_ENV: &str = "PERLES_DIR";
-const PERLES_DB_ENV: &str = "PERLES_DB";
-const LEGACY_BEADS_DIR_ENV: &str = "BEADS_DIR";
-const LEGACY_BEADS_DB_ENV: &str = "BEADS_DB";
 
 pub(super) fn auxiliary_viewer(
     session_name: &str,
     open: bool,
-    use_tssh: bool,
-    use_mosh: bool,
+    context: &SessionRuntimeContext,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
     let existing = find_window_id_by_name(session_name, AUXILIARY_WINDOW_NAME)?;
     if open {
-        return open_auxiliary_viewer(session_name, existing, use_tssh, use_mosh);
+        return open_auxiliary_viewer(session_name, existing, context);
     }
 
     close_auxiliary_viewer(session_name, existing)
@@ -32,8 +27,7 @@ pub(super) fn auxiliary_viewer(
 fn open_auxiliary_viewer(
     session_name: &str,
     existing: Option<String>,
-    use_tssh: bool,
-    use_mosh: bool,
+    context: &SessionRuntimeContext,
 ) -> Result<AuxiliaryViewerOutcome, SessionError> {
     if let Some(window_id) = existing {
         return Ok(AuxiliaryViewerOutcome {
@@ -45,14 +39,12 @@ fn open_auxiliary_viewer(
     }
 
     let cwd = resolve_auxiliary_cwd(session_name)?;
-    let remote_path = std::env::var(EZM_REMOTE_PATH_ENV).ok();
-    let remote_server_url = std::env::var(EZM_REMOTE_SERVER_URL_ENV).ok();
     let remote_launch = resolve_auxiliary_remote_launch(
         &cwd,
-        remote_path.as_deref(),
-        remote_server_url.as_deref(),
-        use_tssh,
-        use_mosh,
+        context.remote_path.as_deref(),
+        context.remote_server_url.as_deref(),
+        context.use_tssh,
+        context.use_mosh,
     )?;
 
     let local_perles_executable = if remote_launch.is_none() {
@@ -74,7 +66,12 @@ fn open_auxiliary_viewer(
         validate_canonical_slot_registry(session_name)?;
     }
 
-    let command = build_auxiliary_launch_command(remote_launch.as_ref(), local_perles_executable)?;
+    let command = build_auxiliary_launch_command(
+        remote_launch.as_ref(),
+        local_perles_executable,
+        context.perles_dir.as_deref(),
+        context.perles_db.as_deref(),
+    )?;
     let window_id = tmux_output_value(&[
         "new-window",
         "-d",
@@ -131,17 +128,13 @@ fn close_auxiliary_viewer(
 fn build_auxiliary_launch_command(
     remote_launch: Option<&AuxiliaryRemoteLaunch>,
     local_perles_executable: Option<PathBuf>,
+    perles_dir: Option<&str>,
+    perles_db: Option<&str>,
 ) -> Result<String, SessionError> {
     if let Some(remote_launch) = remote_launch {
         return build_auxiliary_command_for_remote(remote_launch);
     }
 
-    let perles_dir = std::env::var(PERLES_DIR_ENV)
-        .ok()
-        .or_else(|| std::env::var(LEGACY_BEADS_DIR_ENV).ok());
-    let perles_db = std::env::var(PERLES_DB_ENV)
-        .ok()
-        .or_else(|| std::env::var(LEGACY_BEADS_DB_ENV).ok());
     let perles_executable =
         local_perles_executable.ok_or_else(|| SessionError::TmuxCommandFailed {
             command: String::from("auxiliary-viewer discover perles"),
@@ -149,8 +142,8 @@ fn build_auxiliary_launch_command(
         })?;
     Ok(build_auxiliary_local_launch_command(
         &perles_executable,
-        perles_dir.as_deref(),
-        perles_db.as_deref(),
+        perles_dir,
+        perles_db,
     ))
 }
 
