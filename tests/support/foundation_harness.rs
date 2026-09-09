@@ -1229,7 +1229,6 @@ impl FoundationHarness {
     }
 
     fn start_tmux_server(&self) -> Result<(), String> {
-        self.tmux_raw(&["start-server"])?;
         self.tmux_raw(&[
             "new-session",
             "-d",
