@@ -24,7 +24,7 @@ use metadata::{
     ModeMetadataState, apply_mode_metadata, compensate_mode_metadata, load_previous_mode_metadata,
     verify_mode_metadata,
 };
-use persistent::activate_mode_pane;
+use persistent::{activate_mode_pane, prepare_mode_pane};
 #[cfg(test)]
 use remote_launch::{escape_single_quotes, launch_command_with_remote_dir_from_mapping};
 #[cfg(test)]
@@ -178,14 +178,14 @@ fn switch_slot_mode_persistent_path(
         worktree: &worktree,
         launch_command: &launch_command,
     };
-    let activated = activate_mode_pane(session_name, slot_id, &pane_id, &activation_spec)?;
+    let activated = prepare_mode_pane(session_name, slot_id, &activation_spec)?;
 
     let target = ModeMetadataState {
         session_cwd: activated.pane_cwd.clone(),
         session_mode: mode.label().to_owned(),
         pane_cwd: activated.pane_cwd,
         pane_mode: mode.label().to_owned(),
-        pane_worktree: worktree,
+        pane_worktree: worktree.clone(),
     };
 
     if let Err(error) = apply_mode_metadata(
@@ -200,22 +200,49 @@ fn switch_slot_mode_persistent_path(
             slot_id,
             &keys.cwd,
             &keys.mode,
-            &activated.pane_id,
+            &pane_id,
             &previous,
             error,
         );
     }
 
-    verify_mode_metadata(
+    if let Err(error) = verify_mode_metadata(
         session_name,
         slot_id,
         &keys.cwd,
         &keys.mode,
         &activated.pane_id,
         &target,
-    )?;
+    ) {
+        return compensate_mode_metadata(
+            session_name,
+            slot_id,
+            &keys.cwd,
+            &keys.mode,
+            &pane_id,
+            &previous,
+            error,
+        );
+    }
 
-    validate_canonical_slot_registry(session_name)?;
+    if let Err(error) = activate_mode_pane(
+        session_name,
+        slot_id,
+        &pane_id,
+        &activated.pane_id,
+        &activation_spec,
+    ) {
+        return compensate_mode_metadata(
+            session_name,
+            slot_id,
+            &keys.cwd,
+            &keys.mode,
+            &pane_id,
+            &previous,
+            error,
+        );
+    }
+
     refresh_active_border_for_slot(session_name, slot_id)?;
     Ok(())
 }

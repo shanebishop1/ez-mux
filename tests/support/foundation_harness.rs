@@ -1489,7 +1489,7 @@ fn install_fake_perles_script(fake_bin_dir: &Path) -> Result<(), String> {
 
 fn install_tmux_wrapper(fake_bin_dir: &Path, real_tmux_bin: &Path) -> Result<(), String> {
     let script = format!(
-        "#!/usr/bin/env sh\nexec '{}' -S \"${{E2E_TMUX_SOCKET}}\" -f /dev/null \"$@\"\n",
+        "#!/usr/bin/env sh\nif [ -n \"${{E2E_TMUX_FAIL_MATCH:-}}\" ] && [ -n \"${{E2E_TMUX_FAIL_ONCE:-}}\" ]; then\n  case \" $* \" in\n    *\"${{E2E_TMUX_FAIL_MATCH}}\"*)\n      if mkdir \"${{E2E_TMUX_FAIL_ONCE}}\" 2>/dev/null; then\n        printf '%s\\n' \"injected tmux failure: $E2E_TMUX_FAIL_MATCH\" >&2\n        exit 42\n      fi\n      ;;\n  esac\nfi\nexec '{}' -S \"${{E2E_TMUX_SOCKET}}\" -f /dev/null \"$@\"\n",
         real_tmux_bin.display()
     );
     write_executable(&fake_bin_dir.join("tmux"), &script)

@@ -1,9 +1,10 @@
 use super::super::SessionError;
 use super::super::command::{format_output_diagnostics, tmux_output, tmux_output_value, tmux_run};
 use super::super::options::{
-    set_pane_option, set_session_option, show_pane_option, show_session_option,
+    set_pane_option, set_session_option, show_pane_option, show_session_option, unset_pane_option,
     unset_session_option,
 };
+use super::super::slot_swap::validate_canonical_slot_registry;
 use super::super::zoom::{run_with_zoom_fallback, zoom_flag_support};
 use super::pane_runtime::respawn_slot_mode;
 
@@ -32,10 +33,9 @@ pub(super) fn cleanup_legacy_mode_cache_sessions(session_name: &str) -> Result<(
     kill_legacy_mode_cache_window(session_name)
 }
 
-pub(super) fn activate_mode_pane(
+pub(super) fn prepare_mode_pane(
     session_name: &str,
     slot_id: u8,
-    current_pane_id: &str,
     spec: &ModeActivationSpec<'_>,
 ) -> Result<ActivatedModePane, SessionError> {
     let target_backing_key = backing_pane_key(slot_id, spec.target_mode);
@@ -53,6 +53,7 @@ pub(super) fn activate_mode_pane(
             spec.worktree,
             spec.launch_command,
         )?;
+        set_session_option(session_name, &target_backing_key, &pane_id)?;
         target_pane_id = Some(pane_id);
         spec.launch_cwd.to_owned()
     };
@@ -62,28 +63,191 @@ pub(super) fn activate_mode_pane(
         stderr: String::from("failed resolving target backing pane"),
     })?;
 
+    Ok(ActivatedModePane {
+        pane_id: target_pane_id,
+        pane_cwd,
+    })
+}
+
+pub(super) fn activate_mode_pane(
+    session_name: &str,
+    slot_id: u8,
+    current_pane_id: &str,
+    target_pane_id: &str,
+    spec: &ModeActivationSpec<'_>,
+) -> Result<(), SessionError> {
+    let snapshot = ActivationSnapshot::capture(session_name, slot_id, current_pane_id, spec)?;
+    let result =
+        stage_mode_pane_activation(session_name, slot_id, current_pane_id, target_pane_id, spec);
+
+    if let Err(error) = result {
+        return Err(compensate_staged_activation(
+            session_name,
+            slot_id,
+            current_pane_id,
+            spec,
+            &snapshot,
+            error,
+        ));
+    }
+
+    // This is intentionally the final fallible state transition. Registry and
+    // metadata are validated before the visible topology changes, so a failed
+    // swap leaves the previous topology available for compensation.
+    if target_pane_id != current_pane_id {
+        if let Err(error) = swap_visible_with_backing(current_pane_id, target_pane_id) {
+            return Err(compensate_staged_activation(
+                session_name,
+                slot_id,
+                current_pane_id,
+                spec,
+                &snapshot,
+                error,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ActivationSnapshot {
+    slot_pane: Option<String>,
+    current_backing: Option<String>,
+    target_backing: Option<String>,
+    current_cwd: Option<String>,
+    current_mode: Option<String>,
+    current_worktree: Option<String>,
+}
+
+impl ActivationSnapshot {
+    fn capture(
+        session_name: &str,
+        slot_id: u8,
+        current_pane_id: &str,
+        spec: &ModeActivationSpec<'_>,
+    ) -> Result<Self, SessionError> {
+        Ok(Self {
+            slot_pane: show_session_option(session_name, &slot_pane_key(slot_id))?,
+            current_backing: show_session_option(
+                session_name,
+                &backing_pane_key(slot_id, spec.current_mode),
+            )?,
+            target_backing: show_session_option(
+                session_name,
+                &backing_pane_key(slot_id, spec.target_mode),
+            )?,
+            current_cwd: show_pane_option(current_pane_id, "@ezm_slot_cwd")?,
+            current_mode: show_pane_option(current_pane_id, "@ezm_slot_mode")?,
+            current_worktree: show_pane_option(current_pane_id, "@ezm_slot_worktree")?,
+        })
+    }
+}
+
+fn stage_mode_pane_activation(
+    session_name: &str,
+    slot_id: u8,
+    current_pane_id: &str,
+    target_pane_id: &str,
+    spec: &ModeActivationSpec<'_>,
+) -> Result<(), SessionError> {
     set_pane_option(current_pane_id, "@ezm_slot_cwd", spec.launch_cwd)?;
     set_pane_option(current_pane_id, "@ezm_slot_mode", spec.current_mode)?;
     set_pane_option(current_pane_id, "@ezm_slot_worktree", spec.worktree)?;
-
-    if target_pane_id != current_pane_id {
-        swap_visible_with_backing(current_pane_id, &target_pane_id)?;
-    }
-
-    set_session_option(session_name, &slot_pane_key(slot_id), &target_pane_id)?;
+    set_session_option(session_name, &slot_pane_key(slot_id), target_pane_id)?;
     set_session_option(
         session_name,
         &backing_pane_key(slot_id, spec.current_mode),
         current_pane_id,
     )?;
-    unset_session_option(session_name, &target_backing_key)?;
-    set_pane_option(&target_pane_id, "@ezm_slot_id", &slot_id.to_string())?;
-    set_pane_option(&target_pane_id, "@ezm_slot_worktree", spec.worktree)?;
+    unset_session_option(session_name, &backing_pane_key(slot_id, spec.target_mode))?;
+    set_pane_option(target_pane_id, "@ezm_slot_id", &slot_id.to_string())?;
+    set_pane_option(target_pane_id, "@ezm_slot_worktree", spec.worktree)?;
+    validate_canonical_slot_registry(session_name)
+}
 
-    Ok(ActivatedModePane {
-        pane_id: target_pane_id,
-        pane_cwd,
-    })
+fn compensate_staged_activation(
+    session_name: &str,
+    slot_id: u8,
+    current_pane_id: &str,
+    spec: &ModeActivationSpec<'_>,
+    snapshot: &ActivationSnapshot,
+    original_error: SessionError,
+) -> SessionError {
+    let mut rollback_errors = Vec::new();
+    restore_session_option(
+        session_name,
+        &slot_pane_key(slot_id),
+        snapshot.slot_pane.as_deref(),
+        &mut rollback_errors,
+    );
+    restore_session_option(
+        session_name,
+        &backing_pane_key(slot_id, spec.current_mode),
+        snapshot.current_backing.as_deref(),
+        &mut rollback_errors,
+    );
+    restore_session_option(
+        session_name,
+        &backing_pane_key(slot_id, spec.target_mode),
+        snapshot.target_backing.as_deref(),
+        &mut rollback_errors,
+    );
+    restore_pane_option(
+        current_pane_id,
+        "@ezm_slot_cwd",
+        snapshot.current_cwd.as_deref(),
+        &mut rollback_errors,
+    );
+    restore_pane_option(
+        current_pane_id,
+        "@ezm_slot_mode",
+        snapshot.current_mode.as_deref(),
+        &mut rollback_errors,
+    );
+    restore_pane_option(
+        current_pane_id,
+        "@ezm_slot_worktree",
+        snapshot.current_worktree.as_deref(),
+        &mut rollback_errors,
+    );
+
+    if rollback_errors.is_empty() {
+        return original_error;
+    }
+
+    SessionError::TmuxCommandFailed {
+        command: format!("activate-mode-pane-compensate -t {session_name} --slot {slot_id}"),
+        stderr: format!(
+            "mode pane activation failed: {original_error}; pre-swap rollback failed: {}",
+            rollback_errors.join("; ")
+        ),
+    }
+}
+
+fn restore_session_option(
+    session_name: &str,
+    key: &str,
+    value: Option<&str>,
+    errors: &mut Vec<String>,
+) {
+    let result = value.map_or_else(
+        || unset_session_option(session_name, key),
+        |value| set_session_option(session_name, key, value),
+    );
+    if let Err(error) = result {
+        errors.push(error.to_string());
+    }
+}
+
+fn restore_pane_option(pane_id: &str, key: &str, value: Option<&str>, errors: &mut Vec<String>) {
+    let result = value.map_or_else(
+        || unset_pane_option(pane_id, key),
+        |value| set_pane_option(pane_id, key, value),
+    );
+    if let Err(error) = result {
+        errors.push(error.to_string());
+    }
 }
 
 fn resolve_cached_backing_pane(
