@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class WorkflowContractTests(unittest.TestCase):
     def test_ci_requires_complete_locked_surface_and_runtime_integration(self) -> None:
         workflow = (ROOT / ".github/workflows/ci-quality-gate.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 -m unittest discover -s scripts/release -p 'test_*.py'", workflow)
         self.assertIn("run: cargo test --locked\n", workflow)
         self.assertIn("--test session_runtime_integration", workflow)
         self.assertIn("required-verification:", workflow)
@@ -21,6 +22,7 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_release_has_independent_e2e_matrix_and_all_required_results(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 -m unittest discover -s scripts/release -p 'test_*.py'", workflow)
         self.assertIn("e2e:", workflow)
         self.assertIn("fail-fast: false", workflow)
         self.assertIn("suite: foundation", workflow)

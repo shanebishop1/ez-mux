@@ -75,6 +75,9 @@ jobs:
       - name: Runtime source structure audit
         run: python3 scripts/audit_runtime_file_sizes.py
 
+      - name: Run release validation tests
+        run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
+
       - name: cargo fmt check
         run: cargo fmt --all -- --check
 
