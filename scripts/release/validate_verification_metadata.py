@@ -72,7 +72,7 @@ def main() -> int:
         raise SystemExit("error: npm publication rejected because evaluated evidence manifest hash changed")
     if evidence.get("bundle_id") != manifest.get("bundle_id") or gate.get("bundle_id") != manifest.get("bundle_id"):
         raise SystemExit("error: npm publication rejected because evidence does not refer to the evaluated bundle")
-    bundle_evaluation = evaluate_release_gate(args.evidence_manifest)
+    bundle_evaluation = evaluate_release_gate(args.evidence_manifest, args.workflow_results)
     if bundle_evaluation.get("passed") is not True:
         raise SystemExit("error: npm publication rejected because evaluated bundle contents changed")
     inputs = verification.get("inputs")
