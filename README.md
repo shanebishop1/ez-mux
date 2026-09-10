@@ -1,21 +1,22 @@
 # ez-mux
 
+**Multiple agents. Separate worktrees. One tmux workspace.**
+
+`ez-mux` (`ezm`) keeps parallel development in one keyboard-driven workspace. Give each worktree a stable slot, switch between its agent, shell, Neovim, and Lazygit without restarting those tools, and bring the task that needs you into focus.
+
 <img width="1000" height="560" alt="Animated terminal demonstration of ezm launching five panes, focusing slot 2, switching it to shell mode, and reducing the workspace to three panes" src="docs/assets/ezm-terminal-demo.gif" />
 
-`ez-mux` (`ezm`) turns a Git working tree into a deterministic tmux workspace for multitasking across worktrees and agent tools. It is an opinionated runtime layer rather than a layout-only session file: slots have stable identities, modes can be changed in place, and project-local runtime settings stay with the project session.
+## How it works
 
-## Highlights
+Run `ezm` in your project. It discovers your Git worktrees, assigns them to up to five numbered slots, and opens your workspace. Use tmux keybinds to focus a slot, switch tools, pop open a shell, or change layouts. Detach when you're done; run `ezm` again to reattach.
 
-- Stable five-slot identity (`1..5`) with deterministic worktree assignment.
-- Slot modes for `agent`, `shell`, `neovim`, and `lazygit`.
-- Focus, swap-to-center, popup shell, layout presets, and repair actions through tmux keybinds.
-- Optional `perles` auxiliary window for work tracking.
-- Optional SSH-backed remote routing with path remapping; `mosh` and `tssh` can be selected per project.
-- Optional OpenCode shared-server attach for agent mode.
+## Why ez-mux?
 
-The product is aimed at workflows where several agents or tools need to remain available at once. If all you need is “start this layout from config”, a simpler session manager such as tmuxinator may be a better fit.
+- **Keep your place.** Slot identities stay stable as you rearrange panes or switch layouts; tools keep running when you switch modes.
+- **Manage the workspace, not the plumbing.** Worktree assignment, tool switching, popup shells, keybinds, and repair are built in.
+- **Use your tools, locally or remotely.** OpenCode by default, or your own agent command; optional shared-server attach, SSH/mosh/tssh routing, and a `perles` work-tracking window.
 
-> The recording above is a real, sanitized demonstration of the current `ezm` binary running against a temporary Git project on an isolated tmux server.
+Use it when you want to move between several live tasks without rebuilding your terminal setup. If you only need to launch a fixed layout, a session manager such as tmuxinator may be enough. `ezm` manages the workspace after launch, too.
 
 ## Install
 
