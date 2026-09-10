@@ -62,7 +62,7 @@ install -m 755 target/release/ezm ~/.local/bin/ezm
 
 ## Requirements and optional integrations
 
-Supported host operating systems are Linux and macOS. The tested tmux feature floor is **tmux 3.2 or newer**: the popup workflow depends on `display-popup`, introduced in tmux 3.2. The repository's CI records the tmux version supplied by each Linux/macOS runner; it does not currently pin a separate lower-bound runner job.
+Supported host operating systems are Linux and macOS. The feature-based minimum is **tmux 3.2 or newer**: the popup workflow depends on `display-popup`, introduced in tmux 3.2. The repository's CI records the tmux version supplied by each Linux/macOS runner; compatibility with the exact 3.2 lower bound has not been independently verified by a pinned runner job.
 
 ### Required for the normal workflow
 
@@ -260,6 +260,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --lib
 cargo test --locked
 python3 scripts/audit_runtime_file_sizes.py
+python3 -m unittest discover -s scripts/release -p 'test_*.py'
 ```
 
 The CI workflow also runs the real tmux suites. Each suite starts its own private tmux server and never uses the user's default tmux server:
@@ -290,7 +291,7 @@ Integration tests write machine-readable evidence under:
 target/e2e-evidence/<suite>/<run-id>/
 ```
 
-The normal suite names are `foundation`, `core-session-orchestration`, `cross-platform-smoke`, `focus-reduced-layout`, `focus-reduced-layout-socket`, and `zoomed-mode-switch`. Core and smoke runs include `summary.json`; individual case evidence is under `cases/`. CI uploads the E2E evidence directory on failure for PRs and for every release-platform run. Release verification records and assembled release evidence are produced under `dist/` by the release workflow and are not checked into the repository.
+The normal suite names are `foundation`, `core-session-orchestration`, `cross-platform-smoke`, `focus-reduced-layout`, `focus-reduced-layout-socket`, and `zoomed-mode-switch`. Core and smoke runs include `summary.json`; individual case evidence is under `cases/`. CI attempts to upload available E2E evidence after each suite, whether it passes or fails, including release-platform runs. Release verification records and assembled release evidence are produced under `dist/` by the release workflow and are not checked into the repository.
 
 ### Architecture map
 
