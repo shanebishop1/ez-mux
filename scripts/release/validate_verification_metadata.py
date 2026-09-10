@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from assemble_release_bundle import evaluate_release_gate
+from release_gate import evaluate_release_gate
 
 
 REQUIRED_JOBS = (

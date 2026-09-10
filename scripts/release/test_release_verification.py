@@ -30,7 +30,8 @@ def load_script(name: str):
 package_release_archive = load_script("package_release_archive")
 validate_release_ref = load_script("validate_release_ref")
 verify_release_artifact = load_script("verify_release_artifact")
-assemble_release_bundle = load_script("assemble_release_bundle")
+release_evidence = load_script("release_evidence")
+release_gate = load_script("release_gate")
 
 
 class ReleaseVerificationTests(unittest.TestCase):
@@ -55,7 +56,7 @@ class ReleaseVerificationTests(unittest.TestCase):
                 "platform": platform,
                 "category": category,
                 "path": relative,
-                "sha256": assemble_release_bundle.sha256_file(path),
+                "sha256": release_evidence.sha256_file(path),
                 "size_bytes": path.stat().st_size,
                 "source_path": relative,
             }
@@ -90,8 +91,8 @@ class ReleaseVerificationTests(unittest.TestCase):
                 )
             return evidence
 
-        for suite, case_ids in assemble_release_bundle.EXPECTED_CASE_IDS_BY_SUITE.items():
-            for platform in assemble_release_bundle.REQUIRED_OS:
+        for suite, case_ids in release_evidence.EXPECTED_CASE_IDS_BY_SUITE.items():
+            for platform in release_evidence.REQUIRED_OS:
                 suffix = "" if platform == "linux" else "/macos"
                 core_schema = suite != "foundation"
                 cases = [case(case_id, core_schema=core_schema) for case_id in case_ids]
@@ -174,19 +175,19 @@ class ReleaseVerificationTests(unittest.TestCase):
                 "os": platform,
                 "commit_sha": self.WORKFLOW_COMMIT_SHA,
                 "test_ids": list(
-                    assemble_release_bundle.EXPECTED_CASE_IDS_BY_SUITE.get(suite, ("E2E-00",))
+                    release_evidence.EXPECTED_CASE_IDS_BY_SUITE.get(suite, ("E2E-00",))
                 ),
-                "pass_total": len(assemble_release_bundle.EXPECTED_CASE_IDS_BY_SUITE.get(suite, ("E2E-00",))),
+                "pass_total": len(release_evidence.EXPECTED_CASE_IDS_BY_SUITE.get(suite, ("E2E-00",))),
                 "fail_total": 0,
             }
-            for suite in assemble_release_bundle.REQUIRED_RELEASE_SUITES
-            for platform in assemble_release_bundle.REQUIRED_OS
+            for suite in release_evidence.REQUIRED_RELEASE_SUITES
+            for platform in release_evidence.REQUIRED_OS
         ]
         paths_by_category = {}
         for record in records:
             paths_by_category.setdefault(record["category"], []).append(record["path"])
         manifest = {
-            "schema_version": assemble_release_bundle.SCHEMA_VERSION,
+            "schema_version": release_evidence.SCHEMA_VERSION,
             "bundle_id": "release-0.2.30",
             "artifacts": records,
             "evidence_index": {
@@ -215,7 +216,7 @@ class ReleaseVerificationTests(unittest.TestCase):
                         "version": "0.2.30",
                         "commit_sha": commit_sha or self.WORKFLOW_COMMIT_SHA,
                     },
-                    "jobs": {job: "success" for job in assemble_release_bundle.REQUIRED_WORKFLOW_JOBS},
+                    "jobs": {job: "success" for job in release_evidence.REQUIRED_WORKFLOW_JOBS},
                 }
             ),
             encoding="utf-8",
@@ -228,7 +229,7 @@ class ReleaseVerificationTests(unittest.TestCase):
         for record in data["artifacts"]:
             artifact_path = manifest.parent / record["path"]
             if artifact_path.is_file():
-                record["sha256"] = assemble_release_bundle.sha256_file(artifact_path)
+                record["sha256"] = release_evidence.sha256_file(artifact_path)
                 record["size_bytes"] = artifact_path.stat().st_size
         manifest.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -236,17 +237,17 @@ class ReleaseVerificationTests(unittest.TestCase):
         workflow_results = self._write_workflow_results(manifest.parent)
         return {
             item["code"]
-            for item in assemble_release_bundle.evaluate_release_gate(manifest, workflow_results)["blocking_reasons"]
+            for item in release_gate.evaluate_release_gate(manifest, workflow_results)["blocking_reasons"]
         }
 
     def test_realistic_current_e2e_fixture_passes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ezm-release-test-") as temp_dir:
             manifest = self._write_evaluated_manifest(Path(temp_dir))
             workflow_results = self._write_workflow_results(manifest.parent)
-            decision = assemble_release_bundle.evaluate_release_gate(manifest, workflow_results)
+            decision = release_gate.evaluate_release_gate(manifest, workflow_results)
             self.assertTrue(decision["passed"], decision["blocking_reasons"])
             self.assertEqual(
-                assemble_release_bundle.FULL_REGRESSION_IDS,
+                release_evidence.FULL_REGRESSION_IDS,
                 tuple(
                     [f"E2E-{index:02d}" for index in range(14)]
                     + ["E2E-15", "E2E-16", "E2E-17", "E2E-18", "E2E-19", "E2E-20", "E2E-21"]
@@ -257,7 +258,7 @@ class ReleaseVerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ezm-release-test-") as temp_dir:
             manifest = self._write_evaluated_manifest(Path(temp_dir))
             workflow_results = self._write_workflow_results(manifest.parent, "different-commit")
-            decision = assemble_release_bundle.evaluate_release_gate(manifest, workflow_results)
+            decision = release_gate.evaluate_release_gate(manifest, workflow_results)
             self.assertFalse(decision["passed"])
             self.assertIn("e2e-commit-sha-mismatch", {item["code"] for item in decision["blocking_reasons"]})
 
@@ -297,10 +298,10 @@ class ReleaseVerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ezm-release-test-") as temp_dir:
             manifest = self._write_evaluated_manifest(Path(temp_dir))
             workflow_results = self._write_workflow_results(manifest.parent)
-            self.assertTrue(assemble_release_bundle.evaluate_release_gate(manifest, workflow_results)["passed"])
+            self.assertTrue(release_gate.evaluate_release_gate(manifest, workflow_results)["passed"])
             native_path = manifest.parent / "artifacts/native-verification/linux.json"
             native_path.write_text(native_path.read_text(encoding="utf-8").replace('"passed"', '"failed"'), encoding="utf-8")
-            decision = assemble_release_bundle.evaluate_release_gate(manifest, workflow_results)
+            decision = release_gate.evaluate_release_gate(manifest, workflow_results)
             self.assertFalse(decision["passed"])
             self.assertIn("manifest-artifact-hash-mismatch", {item["code"] for item in decision["blocking_reasons"]})
 
@@ -308,13 +309,13 @@ class ReleaseVerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ezm-release-test-") as temp_dir:
             manifest = self._write_evaluated_manifest(Path(temp_dir))
             workflow_results = self._write_workflow_results(manifest.parent)
-            self.assertTrue(assemble_release_bundle.evaluate_release_gate(manifest, workflow_results)["passed"])
+            self.assertTrue(release_gate.evaluate_release_gate(manifest, workflow_results)["passed"])
             data = json.loads(manifest.read_text(encoding="utf-8"))
             data["artifacts"] = [record for record in data["artifacts"] if record["category"] != "native-verification" or record["platform"] != "macos"]
             data["native_verification"] = [entry for entry in data["native_verification"] if entry["platform"] != "macos"]
             data["evidence_index"]["native_verification"] = [path for path in data["evidence_index"]["native_verification"] if not path.endswith("/macos.json")]
             manifest.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            decision = assemble_release_bundle.evaluate_release_gate(manifest, workflow_results)
+            decision = release_gate.evaluate_release_gate(manifest, workflow_results)
             self.assertFalse(decision["passed"])
             self.assertIn("native-verification-records-missing", {item["code"] for item in decision["blocking_reasons"]})
 
