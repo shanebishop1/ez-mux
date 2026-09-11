@@ -234,7 +234,10 @@ jobs:
           EZM_SMOKE_TEST_THREADS: "1"
         run: |
           case "$E2E_SUITE" in
-            foundation|core-session|reduced-layout|zoomed-mode)
+            foundation)
+              cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture --test-threads 1
+              ;;
+            core-session|reduced-layout|zoomed-mode)
               cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture
               ;;
             smoke)
