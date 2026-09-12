@@ -172,7 +172,7 @@ fn list_pane_pids(
     executor: &impl TeardownExecutor,
     session_name: &str,
 ) -> Result<Vec<u32>, SessionError> {
-    let args = ["list-panes", "-t", session_name, "-F", "#{pane_pid}"];
+    let args = ["list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"];
     let output = executor.tmux_output(&args)?;
     if output.success {
         return Ok(parse_lines(&output.stdout)

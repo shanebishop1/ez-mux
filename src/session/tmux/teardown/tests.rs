@@ -118,6 +118,7 @@ fn teardown_filters_namespace_collects_unique_pids_and_orders_steps() {
     executor.push_tmux_output(
         &[
             "list-panes",
+            "-s",
             "-t",
             "ezm-s123__popup_slot_1",
             "-F",
@@ -128,6 +129,7 @@ fn teardown_filters_namespace_collects_unique_pids_and_orders_steps() {
     executor.push_tmux_output(
         &[
             "list-panes",
+            "-s",
             "-t",
             "ezm-s123__mode_cache",
             "-F",
@@ -158,8 +160,8 @@ fn teardown_filters_namespace_collects_unique_pids_and_orders_steps() {
         executor.calls(),
         vec![
             String::from("tmux list-sessions -F #{session_name}"),
-            String::from("tmux list-panes -t ezm-s123__popup_slot_1 -F #{pane_pid}"),
-            String::from("tmux list-panes -t ezm-s123__mode_cache -F #{pane_pid}"),
+            String::from("tmux list-panes -s -t ezm-s123__popup_slot_1 -F #{pane_pid}"),
+            String::from("tmux list-panes -s -t ezm-s123__mode_cache -F #{pane_pid}"),
             String::from("kill -TERM 101"),
             String::from("kill -TERM 102"),
             String::from("kill -TERM 103"),
@@ -180,6 +182,7 @@ fn teardown_treats_absent_helpers_and_processes_as_idempotent() {
     executor.push_tmux_output(
         &[
             "list-panes",
+            "-s",
             "-t",
             "ezm-s123__popup_slot_1",
             "-F",
@@ -216,6 +219,7 @@ fn teardown_is_idempotent_across_repeated_runs_when_targets_disappear() {
     executor.push_tmux_output(
         &[
             "list-panes",
+            "-s",
             "-t",
             "ezm-s123__popup_slot_1",
             "-F",
@@ -261,6 +265,7 @@ fn explicit_teardown_ignores_unrelated_prefix_sessions_and_processes() {
     executor.push_tmux_output(
         &[
             "list-panes",
+            "-s",
             "-t",
             "ezm-s123__popup_slot_1",
             "-F",
@@ -299,6 +304,7 @@ fn owned_teardown_uses_only_bootstrap_allowlist() {
     executor.push_tmux_output(
         &[
             "list-panes",
+            "-s",
             "-t",
             "ezm-s123__mode_cache",
             "-F",
@@ -309,6 +315,7 @@ fn owned_teardown_uses_only_bootstrap_allowlist() {
     executor.push_tmux_output(
         &[
             "list-panes",
+            "-s",
             "-t",
             "ezm-s123__popup_slot_2",
             "-F",

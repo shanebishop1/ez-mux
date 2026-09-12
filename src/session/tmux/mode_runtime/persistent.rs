@@ -339,7 +339,7 @@ fn create_mode_backing_pane(session_name: &str, cwd: &str) -> Result<String, Ses
     }
 
     tmux_output_value(&[
-        "split-window",
+        "new-window",
         "-d",
         "-t",
         &mode_cache_session,
