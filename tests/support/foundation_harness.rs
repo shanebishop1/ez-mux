@@ -3,6 +3,8 @@
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
+#[cfg(test)]
+use std::sync::{MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 
 use portable_pty::{Child as PtyChild, MasterPty};
@@ -29,6 +31,16 @@ const TMUX_WATCHDOG_POLL_INTERVAL: &str = "0.05";
 const E2E_ANCHOR_SESSION: &str = "ezm_e2e_anchor";
 const E2E_READY_TABLE: &str = "ezm-e2e-ready";
 const E2E_READY_OPTION: &str = "@ezm_e2e_client_ready";
+
+#[cfg(test)]
+static E2E_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Serializes harness-heavy tests within one integration-test process.
+/// Socket isolation protects tmux state, but not host PTY and process capacity.
+#[cfg(test)]
+pub fn serial_test_guard() -> MutexGuard<'static, ()> {
+    E2E_TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 pub struct CmdOutput {
     pub exit_code: i32,

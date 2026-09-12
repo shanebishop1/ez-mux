@@ -108,6 +108,7 @@ fn run_scenario(
 
 #[test]
 fn core_session_e2e_suite() {
+    let _test_guard = support::foundation_harness::serial_test_guard();
     let harness = FoundationHarness::new_for_suite("core-session-orchestration")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
 
@@ -189,6 +190,7 @@ fn assert_focused_scenario(
 
 #[test]
 fn affected_e2e08_auxiliary_lifecycle() {
+    let _test_guard = support::foundation_harness::serial_test_guard();
     assert_focused_scenario("core-session-e2e-08-focused", "E2E-08", |harness| {
         scenario_e2e_08::run(harness)
     });
@@ -196,6 +198,7 @@ fn affected_e2e08_auxiliary_lifecycle() {
 
 #[test]
 fn affected_e2e10_remote_command_rendering() {
+    let _test_guard = support::foundation_harness::serial_test_guard();
     assert_focused_scenario("core-session-e2e-10-focused", "E2E-10", |harness| {
         scenario_e2e_10::run(harness)
     });
@@ -203,6 +206,7 @@ fn affected_e2e10_remote_command_rendering() {
 
 #[test]
 fn affected_e2e19_owned_interrupt_cleanup() {
+    let _test_guard = support::foundation_harness::serial_test_guard();
     assert_focused_scenario("core-session-e2e-19-focused", "E2E-19", |harness| {
         scenario_e2e_19::run(harness)
     });
@@ -210,6 +214,7 @@ fn affected_e2e19_owned_interrupt_cleanup() {
 
 #[test]
 fn e2e21_one_pane_slot_one_recovery() {
+    let _test_guard = support::foundation_harness::serial_test_guard();
     let harness = FoundationHarness::new_for_suite("core-session-e2e-21")
         .unwrap_or_else(|error| panic!("E2E-21 focused harness setup failed: {error}"));
     let evidence = run_scenario(&harness, "E2E-21", || scenario_e2e_21::run(&harness));

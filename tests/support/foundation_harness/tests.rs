@@ -5,6 +5,7 @@ use super::{FoundationHarness, MAX_TERMINAL_OUTPUT};
 
 #[test]
 fn terminal_output_buffer_handles_multibyte_read_and_truncation_boundaries() {
+    let _test_guard = super::serial_test_guard();
     let mut output = Vec::new();
     let euro_sign = [0xf0, 0x9f, 0x92, 0xa9];
 
@@ -23,6 +24,7 @@ fn terminal_output_buffer_handles_multibyte_read_and_truncation_boundaries() {
 
 #[test]
 fn concurrent_harnesses_use_distinct_sockets_and_cleanup_only_owned_state() {
+    let _test_guard = super::serial_test_guard();
     let first =
         FoundationHarness::new_for_suite("harness-isolation").expect("first isolated harness");
     let second =
@@ -60,6 +62,7 @@ fn concurrent_harnesses_use_distinct_sockets_and_cleanup_only_owned_state() {
 
 #[test]
 fn panic_cleanup_stops_only_the_panicking_harness_server() {
+    let _test_guard = super::serial_test_guard();
     let survivor =
         FoundationHarness::new_for_suite("harness-isolation").expect("surviving isolated harness");
     let survivor_socket = survivor.tmux_socket_path().to_owned();
@@ -86,6 +89,7 @@ fn panic_cleanup_stops_only_the_panicking_harness_server() {
 
 #[test]
 fn completed_harness_removes_its_exact_server_and_socket() {
+    let _test_guard = super::serial_test_guard();
     let (tmux_bin, socket) = {
         let harness =
             FoundationHarness::new_for_suite("harness-lifecycle").expect("isolated harness");
