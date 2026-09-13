@@ -4,7 +4,9 @@
 
 `ez-mux` (`ezm`) keeps parallel development in one keyboard-driven workspace. Give each worktree a stable slot, switch between its agent, shell, Neovim, and Lazygit without restarting those tools, and bring the task that needs you into focus.
 
-<img width="1000" height="560" alt="Animated terminal demonstration of ezm launching five panes, focusing slot 2, switching it to shell mode, and reducing the workspace to three panes" src="docs/assets/ezm-terminal-demo.gif" />
+<img width="960" height="540" alt="Real iTerm2 demo of ezm: two agents answer project questions, then slot 3 switches between Neovim, a remote shell, Lazygit, and a popup shell" src="docs/assets/ezm-terminal-demo.gif" />
+
+[Watch the MP4](docs/assets/ezm-terminal-demo.mp4) for playback controls. Recorded with ezm `0.2.32`, shown at 1.75x speed. [Demo details](scripts/demo/README.md#published-readme-demo).
 
 ## How it works
 
@@ -22,19 +24,19 @@ Use it when you want to move between several live tasks without rebuilding your 
 
 ### Release archive
 
-The [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest) is `v0.2.31`. Release archives currently cover these platforms:
+The [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest) is `v0.2.32`. Release archives currently cover these platforms:
 
 | Platform | Archive |
 | --- | --- |
-| Linux x86-64 | `ezm-v0.2.31-linux-x64.tar.gz` |
-| Linux arm64 | `ezm-v0.2.31-linux-arm64.tar.gz` |
-| macOS x86-64 | `ezm-v0.2.31-macos-x64.tar.gz` |
-| macOS arm64 | `ezm-v0.2.31-macos-arm64.tar.gz` |
+| Linux x86-64 | `ezm-v0.2.32-linux-x64.tar.gz` |
+| Linux arm64 | `ezm-v0.2.32-linux-arm64.tar.gz` |
+| macOS x86-64 | `ezm-v0.2.32-macos-x64.tar.gz` |
+| macOS arm64 | `ezm-v0.2.32-macos-arm64.tar.gz` |
 
-Download the archive for the host from the [v0.2.31 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.31), then install the binary:
+Download the archive for the host from the [v0.2.32 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.32), then install the binary:
 
 ```bash
-tar -xzf ezm-v0.2.31-<platform>.tar.gz
+tar -xzf ezm-v0.2.32-<platform>.tar.gz
 mkdir -p ~/.local/bin
 install -m 755 ezm ~/.local/bin/ezm
 ```
@@ -115,18 +117,24 @@ ezm --help
 
 ### Reproducible interaction walkthrough
 
-This sequence demonstrates launch, focus, mode switching, and reduced-layout toggling without claiming a particular terminal rendering:
+The demo above shows two submitted agent requests and tool switching in slot 3. With the optional tools installed, follow the same sequence:
 
 ```text
-cd /path/to/project
-ezm --panes 3
-prefix f 2       # enter focus table, then choose slot 2
-prefix S          # switch the focused slot to shell mode
-prefix M-3        # toggle the three-pane preset
-prefix P          # open or close that slot's popup shell
+hostname
+ezm
+prefix f 1        # ask: What is this project?
+prefix f 2        # ask: What does hello.sh do?
+prefix f 3        # focus slot 3
+prefix N          # Neovim; the demo uses a disposable scratch buffer
+prefix S          # shell; run hostname to identify the host
+prefix G          # Lazygit
+prefix P          # open the slot's popup shell
+prefix P          # close the popup
+prefix a          # restore the agent
+prefix d          # detach
 ```
 
-`prefix` means the tmux prefix key, normally `C-b`. `prefix N` and `prefix G` select the optional Neovim and Lazygit modes.
+`prefix` means the tmux prefix key, normally `C-b`; the recording uses a custom `C-a` prefix. Substitute a file from your own project for `hello.sh`. The demo has remote routing configured, so its shells and tools run on the remote host; a default local setup stays local. To try a reduced layout separately, use `prefix M-3`.
 
 ## Keybinds
 

@@ -37,6 +37,7 @@ docs/*
 !docs/assets/
 docs/assets/*
 !docs/assets/ezm-terminal-demo.gif
+!docs/assets/ezm-terminal-demo.mp4
 !docs/plans/
 !docs/plans/portfolio-readiness.md
 .agents

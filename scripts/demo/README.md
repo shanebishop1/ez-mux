@@ -1,8 +1,24 @@
 # Real terminal demo recording
 
+## Published README demo
+
+The [README GIF](../../docs/assets/ezm-terminal-demo.gif) and [MP4](../../docs/assets/ezm-terminal-demo.mp4) show a real iTerm2 session running ezm `0.2.32` at 1.75x speed, approximately 32 seconds long. The recording includes two submitted OpenCode requests and their replies, typing into a non-file-backed Neovim scratch buffer, local and remote `hostname` checks, Lazygit, and a popup shell. It uses a custom `C-a` tmux prefix, with no added zoom or mouse pointer.
+
+The terminal was controlled in the background and captured with Peekaboo's `capture live --mode window --capture-focus background --capture-engine cg` workflow. The playbook waited for the exact tmux client to attach and for each slot/mode transition before sending input. Retiming used the captured frame timestamps. No terminal re-recording is needed to regenerate the GIF from the checked-in MP4:
+
+```sh
+ffmpeg -i docs/assets/ezm-terminal-demo.mp4 \
+  -filter_complex '[0:v]fps=15,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle' \
+  -loop 0 docs/assets/ezm-terminal-demo.gif
+```
+
+Run this from the repository root. The MP4 already contains the 1.75x retiming; do not speed it up again during GIF conversion. The VHS workflow below is a separate isolated demo fixture, not the source of the published README recording.
+
+## Isolated VHS demo
+
 `record.sh` builds the release `ezm` binary and records `demo.tape` with VHS. The demo is intentionally real: `ezm` discovers five temporary Git worktrees, launches five idle OpenCode TUIs, waits for them to be ready, and then VHS records a fast reattach plus actual tmux mode and zoom transitions. The shipped per-slot themes are applied by `ezm`. Typed OpenCode tasks are left unsent, so recording does not make model requests.
 
-## Record
+### Record
 
 ```sh
 scripts/demo/record.sh
@@ -18,7 +34,7 @@ The script also writes:
 - `*-contact-sheet.png`: six explicitly timed key scenes in a readable two-column sheet.
 - `*-evidence/`: tmux metadata/captures, sampled `window_zoomed_flag` transitions, exact generated OpenCode theme files, timed scene frames, worktree inventory, and ffprobe/frame-decode reports.
 
-## Isolation
+### Isolation
 
 - The temporary repository and all five worktrees live below the isolated `HOME`, so OpenCode renders checkout paths as `~/worktrees/ezm-demo-N`.
 - A wrapper forces every tmux call onto one exact private socket with `-S` and a private, sanitized config; the user tmux server is never addressed.
