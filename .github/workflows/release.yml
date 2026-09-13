@@ -168,6 +168,14 @@ jobs:
             test_target: core_session_e2e
             platform: macos
             os: macos-latest
+          - suite: mode-cache
+            test_target: fresh_mode_cache_geometry_e2e
+            platform: linux
+            os: ubuntu-latest
+          - suite: mode-cache
+            test_target: fresh_mode_cache_geometry_e2e
+            platform: macos
+            os: macos-latest
           - suite: smoke
             test_target: smoke_e2e
             platform: linux
@@ -237,11 +245,10 @@ jobs:
             foundation)
               cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture --test-threads 1
               ;;
-            core-session)
-              cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture
+            mode-cache)
               cargo test --locked --test fresh_mode_cache_geometry_e2e --test runtime_auth_cache_regression -- --nocapture --test-threads 1
               ;;
-            reduced-layout|zoomed-mode)
+            core-session|reduced-layout|zoomed-mode)
               cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture
               ;;
             smoke)

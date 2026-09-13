@@ -29,6 +29,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("required-verification:", workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn("fail-fast: false", workflow)
+        self.assertIn("suite: [core-session, mode-cache]", workflow)
+        self.assertIn("if: matrix.suite == 'mode-cache'", workflow)
 
     def test_release_has_independent_e2e_matrix_and_all_required_results(self) -> None:
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
@@ -37,6 +39,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("fail-fast: false", workflow)
         self.assertIn("suite: foundation", workflow)
         self.assertIn("suite: core-session", workflow)
+        self.assertIn("suite: mode-cache", workflow)
         self.assertIn("suite: smoke", workflow)
         self.assertIn("suite: reduced-layout", workflow)
         self.assertIn("suite: zoomed-mode", workflow)

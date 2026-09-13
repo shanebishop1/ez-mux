@@ -128,11 +128,14 @@ jobs:
           retention-days: 14
 
   e2e-core-session:
-    name: Core session E2E (${{ matrix.platform }})
+    name: ${{ matrix.suite }} E2E (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Capacity tests need a fresh runner, not the core suite's PTY budget.
+        suite: [core-session, mode-cache]
+        platform: [linux, macos]
         include:
           - platform: linux
             os: ubuntu-latest
@@ -157,14 +160,16 @@ jobs:
           cargo --version
           tmux -V
       - name: Run complete core session E2E suite
+        if: matrix.suite == 'core-session'
         run: cargo test --locked --test core_session_e2e -- --nocapture
       - name: Run persistent mode cache regressions
+        if: matrix.suite == 'mode-cache'
         run: cargo test --locked --test fresh_mode_cache_geometry_e2e --test runtime_auth_cache_regression -- --nocapture --test-threads 1
       - name: Upload core session evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-core-session-${{ matrix.platform }}-${{ github.run_id }}
+          name: e2e-${{ matrix.suite }}-${{ matrix.platform }}-${{ github.run_id }}
           path: target/e2e-evidence/
           if-no-files-found: warn
           retention-days: 14

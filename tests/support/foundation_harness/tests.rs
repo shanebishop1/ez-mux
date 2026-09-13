@@ -1,7 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Command;
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{fs, thread};
 
 use super::{FoundationHarness, MAX_TERMINAL_OUTPUT};
 
@@ -161,7 +161,9 @@ fn reset_reaps_owned_hup_ignoring_pane_process_and_preserves_other_harness() {
 
     assert!(
         terminated,
-        "reset left the HUP-ignoring tmux descendant alive (pid={leaked_pid})"
+        "reset left the HUP-ignoring tmux descendant alive (pid={leaked_pid}, state={:?}, process={})",
+        process_state(leaked_pid),
+        process_diagnostic(leaked_pid)
     );
     assert!(
         harness
@@ -204,7 +206,9 @@ fn drop_reaps_owned_hup_ignoring_pane_process_and_preserves_other_harness() {
 
     assert!(
         terminated,
-        "harness drop left the HUP-ignoring tmux descendant alive (pid={leaked_pid})"
+        "harness drop left the HUP-ignoring tmux descendant alive (pid={leaked_pid}, state={:?}, process={})",
+        process_state(leaked_pid),
+        process_diagnostic(leaked_pid)
     );
     assert!(!socket.exists(), "owned tmux socket survived harness drop");
     assert!(
@@ -216,6 +220,8 @@ fn drop_reaps_owned_hup_ignoring_pane_process_and_preserves_other_harness() {
 }
 
 fn spawn_hup_ignoring_pane(harness: &FoundationHarness, session_name: &str) -> u32 {
+    let ready_path = harness.work_dir().join(format!("{session_name}.ready"));
+    let ready_path = ready_path.to_str().expect("fixture readiness path");
     harness
         .tmux_capture(&[
             "new-session",
@@ -224,27 +230,35 @@ fn spawn_hup_ignoring_pane(harness: &FoundationHarness, session_name: &str) -> u
             session_name,
             "sh",
             "-c",
-            "trap '' HUP; exec sleep 600",
+            "trap '' HUP; printf ready > \"$1\"; exec sleep 600",
+            "ezm-hup-fixture",
+            ready_path,
         ])
         .expect("HUP-ignoring fixture session");
 
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
+        let ready = fs::read_to_string(ready_path).is_ok_and(|value| value == "ready");
         let panes = harness
             .tmux_capture(&[
                 "list-panes",
                 "-t",
                 session_name,
                 "-F",
-                "#{pane_pid}|#{pane_current_command}",
+                "#{pane_pid}|#{pane_current_command}|#{pane_tty}",
             ])
             .expect("HUP-ignoring fixture pane");
-        if let Some(pid) = panes.lines().find_map(|line| {
-            let (pid, command) = line.split_once('|')?;
-            (command.trim() == "sleep")
-                .then(|| pid.trim().parse::<u32>().expect("fixture pane pid"))
-        }) {
-            return pid;
+        if ready {
+            if let Some(pid) = panes.lines().find_map(|line| {
+                let mut fields = line.split('|');
+                let pid = fields.next()?;
+                let command = fields.next()?;
+                let tty = fields.next()?;
+                (command.trim() == "sleep" && !tty.trim().is_empty())
+                    .then(|| pid.trim().parse::<u32>().expect("fixture pane pid"))
+            }) {
+                return pid;
+            }
         }
         assert!(
             Instant::now() < deadline,
@@ -255,10 +269,34 @@ fn spawn_hup_ignoring_pane(harness: &FoundationHarness, session_name: &str) -> u
 }
 
 fn process_exists(pid: u32) -> bool {
-    Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .status()
-        .is_ok_and(|status| status.success())
+    process_state(pid).is_some_and(|state| !state.starts_with('Z'))
+}
+
+fn process_state(pid: u32) -> Option<String> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "state="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let state = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!state.is_empty()).then_some(state)
+}
+
+fn process_diagnostic(pid: u32) -> String {
+    let output = Command::new("ps")
+        .args([
+            "-p",
+            &pid.to_string(),
+            "-o",
+            "pid=,ppid=,state=,tty=,command=",
+        ])
+        .output();
+    match output {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        Err(error) => format!("ps failed: {error}"),
+    }
 }
 
 fn send_hup(pid: u32) {

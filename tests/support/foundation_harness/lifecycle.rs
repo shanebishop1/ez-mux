@@ -175,7 +175,7 @@ impl Drop for FoundationHarness {
     }
 }
 
-fn process_descendants(root_pid: u32) -> Result<BTreeSet<u32>, String> {
+fn process_descendants(root_pid: u32) -> Result<Vec<u32>, String> {
     let output = Command::new("ps")
         .args(["-axo", "pid=,ppid="])
         .output()
@@ -199,20 +199,31 @@ fn process_descendants(root_pid: u32) -> Result<BTreeSet<u32>, String> {
         children.entry(parent_pid).or_default().push(pid);
     }
 
-    let mut descendants = BTreeSet::new();
-    let mut pending = children.remove(&root_pid).unwrap_or_default();
-    while let Some(pid) = pending.pop() {
-        if !descendants.insert(pid) {
+    let mut descendants = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut pending = children
+        .remove(&root_pid)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|pid| (pid, false))
+        .collect::<Vec<_>>();
+    while let Some((pid, expanded)) = pending.pop() {
+        if expanded {
+            descendants.push(pid);
             continue;
         }
+        if !seen.insert(pid) {
+            continue;
+        }
+        pending.push((pid, true));
         if let Some(grandchildren) = children.remove(&pid) {
-            pending.extend(grandchildren);
+            pending.extend(grandchildren.into_iter().map(|child| (child, false)));
         }
     }
     Ok(descendants)
 }
 
-fn terminate_processes(pids: &BTreeSet<u32>) {
+fn terminate_processes(pids: &[u32]) {
     for pid in pids {
         let _ = Command::new("kill")
             .args(["-TERM", &pid.to_string()])
@@ -220,16 +231,9 @@ fn terminate_processes(pids: &BTreeSet<u32>) {
     }
 
     let deadline = Instant::now() + super::PTY_TEARDOWN_TIMEOUT;
-    let mut remaining = pids.clone();
+    let mut remaining = pids.to_vec();
     while !remaining.is_empty() && Instant::now() < deadline {
-        remaining.retain(|pid| {
-            Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .is_ok_and(|status| status.success())
-        });
+        remaining.retain(|pid| process_is_live(*pid));
         if !remaining.is_empty() {
             thread::sleep(Duration::from_millis(10));
         }
@@ -240,4 +244,18 @@ fn terminate_processes(pids: &BTreeSet<u32>) {
             .args(["-KILL", &pid.to_string()])
             .status();
     }
+}
+
+fn process_is_live(pid: u32) -> bool {
+    let Ok(output) = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "state="])
+        .output()
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let state = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    !state.is_empty() && !state.starts_with('Z')
 }
