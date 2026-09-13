@@ -1,8 +1,31 @@
 use super::{
     REDACTED_SECRET_VALUE, format_output_diagnostics_with_args, legacy_window_zero_session_target,
-    parse_primary_window_target, render_startup_trace, tmux_batch_command_for_diagnostics,
-    tmux_command_for_diagnostics,
+    output_probe_has_legacy_dollar_escaping, parse_primary_window_target, render_startup_trace,
+    tmux_batch_command_for_diagnostics, tmux_command_for_diagnostics, unescape_legacy_tmux_dollars,
 };
+
+#[test]
+fn legacy_tmux_dollar_unescape_preserves_shell_quoting_intent() {
+    assert_eq!(
+        unescape_legacy_tmux_dollars(
+            r"plain=\$VALUE escaped=\\$VALUE braced=\${VALUE} substitution=$(value)"
+        ),
+        r"plain=$VALUE escaped=\$VALUE braced=${VALUE} substitution=$(value)"
+    );
+}
+
+#[test]
+fn legacy_tmux_dollar_unescape_requires_exact_connected_server_probe() {
+    assert!(output_probe_has_legacy_dollar_escaping(
+        "\\$EZM_OUTPUT_PROBE\n"
+    ));
+    assert!(!output_probe_has_legacy_dollar_escaping(
+        "$EZM_OUTPUT_PROBE\n"
+    ));
+    assert!(!output_probe_has_legacy_dollar_escaping(
+        "warning\n\\$EZM_OUTPUT_PROBE\n"
+    ));
+}
 
 #[test]
 fn parse_primary_window_target_prefers_active_window_id() {

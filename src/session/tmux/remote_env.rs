@@ -1,5 +1,5 @@
 use super::SessionError;
-use super::command::{format_output_diagnostics, tmux_output, tmux_run};
+use super::command::{format_output_diagnostics, tmux_output, tmux_run, tmux_stdout};
 use super::options::{set_session_option, show_session_option};
 use crate::config::{
     EZM_REMOTE_PATH_ENV, EZM_REMOTE_SERVER_URL_ENV, EZM_RUNTIME_AGENT_COMMAND_OPTION,
@@ -162,7 +162,7 @@ fn show_session_environment(
     let output = tmux_output(&["show-environment", "-t", session_name, key])?;
     if output.status.success() {
         let prefix = format!("{key}=");
-        return Ok(String::from_utf8_lossy(&output.stdout)
+        return Ok(tmux_stdout(&output)
             .lines()
             .find_map(|line| line.strip_prefix(&prefix))
             .map(str::trim)

@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -26,6 +27,14 @@ impl FoundationHarness {
                     let _ = self.tmux_capture(&["detach-client", "-t", client_tty]);
                 }
             }
+
+            // tmux's asynchronous run-shell jobs and pane descendants are not
+            // guaranteed to be reaped when a session is killed.  They retain
+            // macOS PTY resources and can exhaust the runner before the next
+            // isolated harness starts.  Keep the anchor alive, but terminate
+            // every other process owned by this isolated tmux server before
+            // removing its sessions.
+            self.cleanup_tmux_processes(true)?;
 
             let sessions =
                 self.tmux_capture(&["list-sessions", "-F", "#{session_id}|#{session_name}"])?;
@@ -67,6 +76,36 @@ impl FoundationHarness {
             }
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    fn cleanup_tmux_processes(&self, preserve_anchor: bool) -> Result<(), String> {
+        let server_pid = self.tmux_server_pid()?;
+        let mut process_tree = process_descendants(server_pid)?;
+
+        if preserve_anchor {
+            let anchor_pid = self
+                .tmux_capture(&["list-panes", "-t", E2E_ANCHOR_SESSION, "-F", "#{pane_pid}"])?
+                .lines()
+                .map(str::trim)
+                .find(|pid| !pid.is_empty())
+                .ok_or_else(|| {
+                    format!("isolated tmux server lost anchor pane for {E2E_ANCHOR_SESSION:?}")
+                })?
+                .parse::<u32>()
+                .map_err(|error| format!("invalid anchor pane pid: {error}"))?;
+            let anchor_tree = process_descendants(anchor_pid)?;
+            process_tree.retain(|pid| !anchor_tree.contains(pid) && *pid != anchor_pid);
+        }
+
+        terminate_processes(&process_tree);
+        Ok(())
+    }
+
+    fn tmux_server_pid(&self) -> Result<u32, String> {
+        self.tmux_capture(&["display-message", "-p", "#{pid}"])?
+            .trim()
+            .parse()
+            .map_err(|error| format!("invalid isolated tmux server pid: {error}"))
     }
 
     pub(super) fn start_tmux_server(&self) -> Result<(), String> {
@@ -115,6 +154,9 @@ impl Drop for FoundationHarness {
         if let Some(mut watchdog) = self.tmux_watchdog.take() {
             super::process::terminate_background_child(&mut watchdog, "isolated tmux watchdog");
         }
+        if let Err(error) = self.cleanup_tmux_processes(false) {
+            eprintln!("foundation harness: failed cleaning isolated tmux processes: {error}");
+        }
         let _ = Command::new(&self.tmux_bin)
             .arg("-S")
             .arg(&self.tmux_socket_name)
@@ -130,5 +172,72 @@ impl Drop for FoundationHarness {
             thread::sleep(TMUX_SERVER_TEARDOWN_POLL_INTERVAL);
         }
         let _ = fs::remove_file(&self.tmux_socket_name);
+    }
+}
+
+fn process_descendants(root_pid: u32) -> Result<BTreeSet<u32>, String> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,ppid="])
+        .output()
+        .map_err(|error| format!("failed listing process tree for pid {root_pid}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "ps failed listing process tree for pid {root_pid}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let mut children = BTreeMap::<u32, Vec<u32>>::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut fields = line.split_whitespace();
+        let Some(pid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(parent_pid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        children.entry(parent_pid).or_default().push(pid);
+    }
+
+    let mut descendants = BTreeSet::new();
+    let mut pending = children.remove(&root_pid).unwrap_or_default();
+    while let Some(pid) = pending.pop() {
+        if !descendants.insert(pid) {
+            continue;
+        }
+        if let Some(grandchildren) = children.remove(&pid) {
+            pending.extend(grandchildren);
+        }
+    }
+    Ok(descendants)
+}
+
+fn terminate_processes(pids: &BTreeSet<u32>) {
+    for pid in pids {
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+    }
+
+    let deadline = Instant::now() + super::PTY_TEARDOWN_TIMEOUT;
+    let mut remaining = pids.clone();
+    while !remaining.is_empty() && Instant::now() < deadline {
+        remaining.retain(|pid| {
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        });
+        if !remaining.is_empty() {
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    for pid in remaining {
+        let _ = Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status();
     }
 }

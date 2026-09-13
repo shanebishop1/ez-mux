@@ -1,5 +1,5 @@
 use super::SessionError;
-use super::command::{format_output_diagnostics, tmux_output, tmux_run};
+use super::command::{format_output_diagnostics, tmux_output, tmux_run, tmux_stdout};
 use crate::config::OPENCODE_SERVER_PASSWORD_ENV;
 
 /// Reconciles the credential at the session environment boundary.
@@ -36,7 +36,7 @@ pub(super) fn read_session_runtime_auth(
     ])?;
     if output.status.success() {
         let prefix = format!("{OPENCODE_SERVER_PASSWORD_ENV}=");
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = tmux_stdout(&output);
         return Ok(stdout
             .strip_prefix(&prefix)
             .map(|value| value.strip_suffix('\n').unwrap_or(value).to_owned()));

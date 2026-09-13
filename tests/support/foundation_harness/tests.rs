@@ -1,5 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::Command;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use super::{FoundationHarness, MAX_TERMINAL_OUTPUT};
 
@@ -125,4 +127,160 @@ fn completed_harness_removes_its_exact_server_and_socket() {
             .expect("probe exact owned server")
             .success()
     );
+}
+
+#[test]
+fn reset_reaps_owned_hup_ignoring_pane_process_and_preserves_other_harness() {
+    let _test_guard = super::serial_test_guard();
+    let unrelated =
+        FoundationHarness::new_for_suite("harness-isolation").expect("unrelated harness");
+    unrelated
+        .tmux_capture(&["new-session", "-d", "-s", "unrelated-owned", "sleep", "60"])
+        .expect("unrelated harness session");
+
+    let harness = FoundationHarness::new_for_suite("harness-lifecycle").expect("isolated harness");
+    let leaked_pid = spawn_hup_ignoring_pane(&harness, "owned-leak-reset");
+    assert!(
+        process_exists(leaked_pid),
+        "fixture process was not alive before scenario reset (pid={leaked_pid})"
+    );
+    send_hup(leaked_pid);
+    thread::sleep(Duration::from_millis(50));
+    assert!(
+        process_exists(leaked_pid),
+        "HUP-ignoring fixture did not demonstrate the pre-cleanup leak (pid={leaked_pid})"
+    );
+
+    harness
+        .reset_scenario_state()
+        .expect("reset owned scenario state");
+    let terminated = wait_for_process_exit(leaked_pid);
+    if !terminated {
+        kill_owned_fixture(leaked_pid);
+    }
+
+    assert!(
+        terminated,
+        "reset left the HUP-ignoring tmux descendant alive (pid={leaked_pid})"
+    );
+    assert!(
+        harness
+            .tmux_capture(&["has-session", "-t", super::E2E_ANCHOR_SESSION])
+            .is_ok(),
+        "reset removed the required anchor session"
+    );
+    assert!(
+        unrelated
+            .tmux_capture(&["has-session", "-t", "unrelated-owned"])
+            .is_ok(),
+        "reset affected an unrelated harness"
+    );
+}
+
+#[test]
+fn drop_reaps_owned_hup_ignoring_pane_process_and_preserves_other_harness() {
+    let _test_guard = super::serial_test_guard();
+    let unrelated =
+        FoundationHarness::new_for_suite("harness-isolation").expect("unrelated harness");
+    unrelated
+        .tmux_capture(&["new-session", "-d", "-s", "unrelated-owned", "sleep", "60"])
+        .expect("unrelated harness session");
+
+    let (leaked_pid, socket) = {
+        let harness =
+            FoundationHarness::new_for_suite("harness-lifecycle").expect("isolated harness");
+        let leaked_pid = spawn_hup_ignoring_pane(&harness, "owned-leak-drop");
+        assert!(
+            process_exists(leaked_pid),
+            "fixture process was not alive before harness drop (pid={leaked_pid})"
+        );
+        (leaked_pid, harness.tmux_socket_path().to_owned())
+    };
+
+    let terminated = wait_for_process_exit(leaked_pid);
+    if !terminated {
+        kill_owned_fixture(leaked_pid);
+    }
+
+    assert!(
+        terminated,
+        "harness drop left the HUP-ignoring tmux descendant alive (pid={leaked_pid})"
+    );
+    assert!(!socket.exists(), "owned tmux socket survived harness drop");
+    assert!(
+        unrelated
+            .tmux_capture(&["has-session", "-t", "unrelated-owned"])
+            .is_ok(),
+        "harness drop affected an unrelated harness"
+    );
+}
+
+fn spawn_hup_ignoring_pane(harness: &FoundationHarness, session_name: &str) -> u32 {
+    harness
+        .tmux_capture(&[
+            "new-session",
+            "-d",
+            "-s",
+            session_name,
+            "sh",
+            "-c",
+            "trap '' HUP; exec sleep 600",
+        ])
+        .expect("HUP-ignoring fixture session");
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let panes = harness
+            .tmux_capture(&[
+                "list-panes",
+                "-t",
+                session_name,
+                "-F",
+                "#{pane_pid}|#{pane_current_command}",
+            ])
+            .expect("HUP-ignoring fixture pane");
+        if let Some(pid) = panes.lines().find_map(|line| {
+            let (pid, command) = line.split_once('|')?;
+            (command.trim() == "sleep")
+                .then(|| pid.trim().parse::<u32>().expect("fixture pane pid"))
+        }) {
+            return pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "HUP-ignoring fixture did not reach sleep"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn process_exists(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn send_hup(pid: u32) {
+    assert!(
+        Command::new("kill")
+            .args(["-HUP", &pid.to_string()])
+            .status()
+            .is_ok_and(|status| status.success()),
+        "failed sending HUP to owned fixture (pid={pid})"
+    );
+}
+
+fn wait_for_process_exit(pid: u32) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while process_exists(pid) && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    !process_exists(pid)
+}
+
+fn kill_owned_fixture(pid: u32) {
+    let _ = Command::new("kill")
+        .args(["-KILL", &pid.to_string()])
+        .status();
 }

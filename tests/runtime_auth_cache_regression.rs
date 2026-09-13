@@ -2,6 +2,7 @@
 
 mod support;
 
+use std::fmt::Write as _;
 use std::fs;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -11,8 +12,10 @@ use serde_json::to_string;
 use support::foundation_harness::{FoundationHarness, serial_test_guard};
 
 const PASSWORD_ENV: &str = "OPENCODE_SERVER_PASSWORD";
-const OWNER_PASSWORD_A: &str = "owner password;$(special)'\"";
-const OWNER_PASSWORD_B: &str = "changed owner [special];$HOME";
+// The intentional backslashes prove legacy tmux output normalization removes
+// only the display escape it added and preserves the credential byte-for-byte.
+const OWNER_PASSWORD_A: &str = "owner password;$(special)'\"\\$LITERAL";
+const OWNER_PASSWORD_B: &str = "changed owner [special];\\$HOME";
 const GLOBAL_PASSWORD: &str = "global secret [wrong]";
 
 #[test]
@@ -115,10 +118,12 @@ fn write_runtime_auth_config(
         toml_string(&agent_command)
     );
     if let Some(password) = password {
-        config.push_str(&format!(
-            "opencode_server_password = {}\n",
+        writeln!(
+            config,
+            "opencode_server_password = {}",
             toml_string(password)
-        ));
+        )
+        .expect("writing to a String should not fail");
     }
     FoundationHarness::write_file(&project_dir.join("ez-mux.toml"), &config)
         .expect("write runtime-auth config");

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 use std::time::Instant;
@@ -7,6 +8,8 @@ use crate::config::OPENCODE_SERVER_PASSWORD_ENV;
 
 const REDACTED_SECRET_VALUE: &str = "<redacted>";
 const STARTUP_TRACE_TMUX_ENV: &str = "EZM_STARTUP_TRACE_TMUX";
+const TMUX_OUTPUT_DOLLAR_PROBE: &str = "$EZM_OUTPUT_PROBE";
+const TMUX_OUTPUT_DOLLAR_PROBE_ESCAPED: &str = r"\$EZM_OUTPUT_PROBE";
 
 pub(super) fn tmux_run_batch(commands: &[Vec<String>]) -> Result<(), SessionError> {
     if commands.is_empty() {
@@ -84,7 +87,7 @@ pub(super) fn tmux_run(args: &[&str]) -> Result<(), SessionError> {
 pub(super) fn tmux_output_value(args: &[&str]) -> Result<String, SessionError> {
     let output = tmux_output(args)?;
     if output.status.success() {
-        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        return Ok(tmux_stdout(&output).into_owned());
     }
 
     if let Some(retried_stdout) = retry_legacy_window_zero_list_panes(args, &output)? {
@@ -152,15 +155,69 @@ fn retry_legacy_window_zero_list_panes(
     let retry_args = owned_args.iter().map(String::as_str).collect::<Vec<_>>();
     let retry_output = tmux_output(&retry_args)?;
     if retry_output.status.success() {
-        return Ok(Some(
-            String::from_utf8_lossy(&retry_output.stdout).into_owned(),
-        ));
+        return Ok(Some(tmux_stdout(&retry_output).into_owned()));
     }
 
     Err(SessionError::TmuxCommandFailed {
         command: tmux_command_for_diagnostics(&retry_args),
         stderr: format_output_diagnostics_with_args(&retry_output, &retry_args),
     })
+}
+
+/// Returns tmux command output with the legacy dollar escaping removed.
+///
+/// One tmux 3.4 server output path passed command output through `utf8_strvis`,
+/// which added a backslash before shell-style dollar expansions even when
+/// double-quote escaping was not requested. Values read back from user options
+/// and session environments must undo that display-only escaping before reuse.
+pub(super) fn tmux_stdout(output: &Output) -> Cow<'_, str> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if tmux_escapes_dollars_in_output() {
+        Cow::Owned(unescape_legacy_tmux_dollars(&stdout))
+    } else {
+        stdout
+    }
+}
+
+fn tmux_escapes_dollars_in_output() -> bool {
+    static ESCAPES_DOLLARS: OnceLock<bool> = OnceLock::new();
+
+    // Decode only after the connected server demonstrates the exact legacy
+    // behavior. A failed, malformed, or raw probe leaves output untouched.
+    *ESCAPES_DOLLARS.get_or_init(|| {
+        Command::new("tmux")
+            .args(["display-message", "-p", TMUX_OUTPUT_DOLLAR_PROBE])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .is_some_and(|output| output_probe_has_legacy_dollar_escaping(&output))
+    })
+}
+
+fn output_probe_has_legacy_dollar_escaping(output: &str) -> bool {
+    output.strip_suffix('\n').unwrap_or(output) == TMUX_OUTPUT_DOLLAR_PROBE_ESCAPED
+}
+
+fn unescape_legacy_tmux_dollars(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut unescaped = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\'
+            && bytes.get(index + 1) == Some(&b'$')
+            && bytes
+                .get(index + 2)
+                .is_some_and(|next| next.is_ascii_alphabetic() || matches!(next, b'_' | b'{'))
+        {
+            index += 1;
+        }
+        unescaped.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8(unescaped).expect("removing ASCII escapes preserves valid UTF-8")
 }
 
 fn tmux_command_for_diagnostics(args: &[&str]) -> String {

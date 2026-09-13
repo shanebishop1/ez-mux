@@ -1,7 +1,7 @@
 use std::process::Output;
 
 use super::SessionError;
-use super::command::{tmux_output, tmux_run};
+use super::command::{tmux_output, tmux_run, tmux_stdout};
 
 pub(super) fn required_session_option(
     session_name: &str,
@@ -68,9 +68,7 @@ pub(super) fn show_session_option(
 ) -> Result<Option<String>, SessionError> {
     let output = tmux_output(&["-q", "show-options", "-v", "-t", session_name, key])?;
     if output.status.success() {
-        return Ok(Some(
-            String::from_utf8_lossy(&output.stdout).trim().to_owned(),
-        ));
+        return Ok(Some(tmux_stdout(&output).trim().to_owned()));
     }
 
     if missing_option_diagnostic(&output) {
@@ -86,9 +84,7 @@ pub(super) fn show_session_option(
 pub(super) fn show_pane_option(pane_id: &str, key: &str) -> Result<Option<String>, SessionError> {
     let output = tmux_output(&["-q", "show-options", "-p", "-v", "-t", pane_id, key])?;
     if output.status.success() {
-        return Ok(Some(
-            String::from_utf8_lossy(&output.stdout).trim().to_owned(),
-        ));
+        return Ok(Some(tmux_stdout(&output).trim().to_owned()));
     }
 
     if missing_option_diagnostic(&output) {
