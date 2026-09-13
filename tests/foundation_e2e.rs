@@ -20,9 +20,33 @@ mod scenario_e2e_19_support;
 mod scenario_e2e_20;
 
 use evidence::{
-    FOUNDATION_IDS, RunMetadata, SuiteEvidence, read_commit_sha, write_case_artifacts, write_json,
+    CaseEvidence, FOUNDATION_IDS, RunMetadata, SuiteEvidence, read_commit_sha,
+    write_case_artifacts, write_json,
 };
 use support::foundation_harness::FoundationHarness;
+
+fn run_scenario(
+    harness: &FoundationHarness,
+    id: &str,
+    run: impl FnOnce() -> CaseEvidence,
+) -> CaseEvidence {
+    harness
+        .reset_scenario_state()
+        .unwrap_or_else(|error| panic!("{id} failed restoring declared initial state: {error}"));
+    let mut evidence = run();
+    match harness.reset_scenario_state() {
+        Ok(()) => evidence.assertions.push(String::from(
+            "scenario-owned tmux state cleaned exactly = true",
+        )),
+        Err(error) => {
+            evidence.pass = false;
+            evidence.assertions.push(format!(
+                "scenario-owned tmux state cleaned exactly = false ({error})"
+            ));
+        }
+    }
+    evidence
+}
 
 #[test]
 fn foundation_e2e_suite() {
@@ -30,12 +54,12 @@ fn foundation_e2e_suite() {
         FoundationHarness::new().unwrap_or_else(|error| panic!("harness setup failed: {error}"));
 
     let cases = vec![
-        scenario_e2e_00::run(&harness),
-        scenario_e2e_15::run(&harness),
-        scenario_e2e_17::run(&harness),
-        scenario_e2e_18::run(&harness),
-        scenario_e2e_19::run(&harness),
-        scenario_e2e_20::run(&harness),
+        run_scenario(&harness, "E2E-00", || scenario_e2e_00::run(&harness)),
+        run_scenario(&harness, "E2E-15", || scenario_e2e_15::run(&harness)),
+        run_scenario(&harness, "E2E-17", || scenario_e2e_17::run(&harness)),
+        run_scenario(&harness, "E2E-18", || scenario_e2e_18::run(&harness)),
+        run_scenario(&harness, "E2E-19", || scenario_e2e_19::run(&harness)),
+        run_scenario(&harness, "E2E-20", || scenario_e2e_20::run(&harness)),
     ];
 
     write_case_artifacts(&harness.artifact_dir.join("cases"), &cases)

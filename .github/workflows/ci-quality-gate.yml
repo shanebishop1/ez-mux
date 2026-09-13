@@ -117,7 +117,7 @@ jobs:
           cargo --version
           tmux -V
       - name: Run foundation integration suite
-        run: cargo test --locked --test foundation_e2e -- --nocapture
+        run: cargo test --locked --test foundation_e2e -- --nocapture --test-threads 1
       - name: Upload foundation evidence
         if: always()
         uses: actions/upload-artifact@v4
