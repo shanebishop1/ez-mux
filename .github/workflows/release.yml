@@ -237,7 +237,11 @@ jobs:
             foundation)
               cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture --test-threads 1
               ;;
-            core-session|reduced-layout|zoomed-mode)
+            core-session)
+              cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture
+              cargo test --locked --test fresh_mode_cache_geometry_e2e --test runtime_auth_cache_regression -- --nocapture --test-threads 1
+              ;;
+            reduced-layout|zoomed-mode)
               cargo test --locked --test "$E2E_TEST_TARGET" -- --nocapture
               ;;
             smoke)

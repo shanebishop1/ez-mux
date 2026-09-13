@@ -11,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def test_platform_workflows_run_persistent_cache_regressions(self) -> None:
+        command = (
+            "cargo test --locked --test fresh_mode_cache_geometry_e2e "
+            "--test runtime_auth_cache_regression -- --nocapture --test-threads 1"
+        )
+        for name in ("ci-quality-gate.yml", "release.yml"):
+            with self.subTest(workflow=name):
+                workflow = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+                self.assertIn(command, workflow)
+
     def test_ci_requires_complete_locked_surface_and_runtime_integration(self) -> None:
         workflow = (ROOT / ".github/workflows/ci-quality-gate.yml").read_text(encoding="utf-8")
         self.assertIn("python3 -m unittest discover -s scripts/release -p 'test_*.py'", workflow)

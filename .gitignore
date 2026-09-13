@@ -34,12 +34,13 @@ __pycache__/
 docs
 !docs/
 docs/*
+!docs/worktrees.md
+!docs/configuration.md
+!docs/development.md
 !docs/assets/
 docs/assets/*
 !docs/assets/ezm-terminal-demo.gif
 !docs/assets/ezm-terminal-demo.mp4
-!docs/plans/
-!docs/plans/portfolio-readiness.md
 .agents
 .beads
 .opencode

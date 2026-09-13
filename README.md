@@ -1,5 +1,7 @@
 # ez-mux
 
+[![CI quality gate](https://github.com/shanebishop1/ez-mux/actions/workflows/ci-quality-gate.yml/badge.svg)](https://github.com/shanebishop1/ez-mux/actions/workflows/ci-quality-gate.yml) [![Latest release](https://img.shields.io/github/v/release/shanebishop1/ez-mux?sort=semver)](https://github.com/shanebishop1/ez-mux/releases/latest)
+
 **Multiple agents. Separate worktrees. One tmux workspace.**
 
 `ez-mux` (`ezm`) keeps parallel development in one keyboard-driven workspace. Give each worktree a stable slot, switch between its agent, shell, Neovim, and Lazygit without restarting those tools, and bring the task that needs you into focus.
@@ -8,9 +10,13 @@
 
 [Watch the MP4](docs/assets/ezm-terminal-demo.mp4) for playback controls. Recorded with ezm `0.2.32`, shown at 1.75x speed. [Demo details](scripts/demo/README.md#published-readme-demo).
 
+**Navigate:** [Install](#install) | [Quick start](#quick-start) | [Worktrees](docs/worktrees.md) | [Keybinds](#keybinds) | [Configuration](docs/configuration.md) | [Development](docs/development.md)
+
 ## How it works
 
 Run `ezm` in your project. It discovers your Git worktrees, assigns them to up to five numbered slots, and opens your workspace. Use tmux keybinds to focus a slot, switch tools, pop open a shell, or change layouts. Detach when you're done; run `ezm` again to reattach.
+
+Additional worktree directories must end in `-1` through `-5`; see [setup and assignment rules](docs/worktrees.md), or use `--no-worktrees` to share the current directory across slots.
 
 ## Why ez-mux?
 
@@ -153,181 +159,8 @@ prefix d          # detach
 
 ## Configuration
 
-The file name is `ez-mux.toml`. Config **path** selection is:
-
-1. `EZM_CONFIG`, when non-empty (explicit path override).
-2. `./ez-mux.toml`, when it exists in the current directory.
-3. The OS default path:
-   - Linux: `$XDG_CONFIG_HOME/ez-mux/ez-mux.toml`, otherwise `~/.config/ez-mux/ez-mux.toml`.
-   - macOS: `~/Library/Application Support/ez-mux/ez-mux.toml`.
-
-For settings that have environment variables, value precedence is **environment > config file > built-in default**. Empty values are treated as unset. The startup pane count is the exception: **`--panes` (or the positional `1..5` shortcut) > `panes` in the file > `5`**.
-
-Environment-overridable settings are:
-
-- `EZM_REMOTE_PATH` and `EZM_REMOTE_SERVER_URL`.
-- `EZM_USE_TSSH` and `EZM_USE_MOSH` (`1`, `true`, `yes`, and `on` enable a switch; `0`, `false`, `no`, and `off` disable it; other non-empty values enable it).
-- `PERLES_DIR` / legacy `BEADS_DIR`, and `PERLES_DB` / legacy `BEADS_DB`.
-- `OPENCODE_SERVER_URL` and `OPENCODE_SERVER_PASSWORD`, overriding the file keys `opencode_server_url` and `opencode_server_password`.
-
-`agent_command`, `opencode_slot_themes_enabled`, and `[opencode_slot_themes]` are file settings. `EZM_BIN` is an internal integration-wrapper override, not a general runtime setting.
-
-The exported library convenience APIs `ensure_current_project_session()` and `ensure_project_session()` retain their shipped compatibility contract and read `EZM_REMOTE_PATH`, `EZM_REMOTE_SERVER_URL`, `EZM_USE_TSSH`, and `EZM_USE_MOSH` from the process environment. They do not load the CLI config file; applications that already resolve configuration should pass the resolved runtime context API instead. The CLI itself has one authoritative `environment > config file > default` resolution path.
-
-Example without credentials:
-
-```toml
-panes = 5
-
-# Optional remote routing; both values are required to activate it.
-ezm_remote_path = "/srv/remotes"
-ezm_remote_server_url = "https://remote.example:7443"
-ezm_use_tssh = false
-ezm_use_mosh = false
-
-# Optional work-tracking locations.
-perles_dir = ".perles"
-perles_db = "/path/to/perles.db"
-
-# Optional shared OpenCode server, used by the attach flow when remote routing is active.
-opencode_server_url = "http://127.0.0.1:4096"
-
-# This is executable shell code; see the trust boundary below.
-agent_command = 'exec codex || exec "${SHELL:-/bin/sh}" -l'
-
-opencode_slot_themes_enabled = true
-[opencode_slot_themes]
-"1" = "nightowl"
-"2" = "orng"
-"3" = "osaka-jade"
-"4" = "catppuccin"
-"5" = "monokai"
-```
-
-### Session-scoped runtime behavior
-
-On creation, ezm resolves the runtime context once and stores the non-secret project values in tmux **session options**. Those values include remote mapping and transport selection, perles settings, OpenCode attach URL, agent command, and slot themes. Internal mode, popup, auxiliary, and repair actions read that session context rather than reinterpreting another project's process environment.
-
-- A session with an existing context marker keeps that context when another invocation supplies different config or environment values. This prevents project A and project B from contaminating one another.
-- Popup helper sessions delegate context lookup to their recorded parent session.
-- A pre-existing session with no ez-mux context marker is never initialized from the current invocation's environment or config. If its own session environment contains positively owned legacy ez-mux settings, ezm recovers the non-secret values into the session context and scrubs those legacy variables.
-- Markerless sessions with no recoverable session-owned settings are ambiguous (global environment and another invocation cannot be attributed safely). They fail closed; kill the owning session and relaunch it to create a fresh context: `ezm kill`, then `ezm`.
-- A legacy `OPENCODE_SERVER_URL` containing URL userinfo is not used as a credential. When its host portion can be recovered safely, migration strips the userinfo before persisting the URL; the old URL and any legacy password variable are scrubbed, and credentials must be supplied separately with `OPENCODE_SERVER_PASSWORD`. An unparseable credential-bearing URL is rejected instead and requires the same kill/relaunch reconciliation.
-- A later config change does not silently rewrite a live session. Kill and recreate the project session when you intentionally want a fresh context: `ezm kill`, then `ezm`.
-- The OpenCode password is not stored in the persisted context options. It is targeted to the project session environment and is only reused for a matching persisted server URL; it is never used as a global project setting.
-
-### Remote routing versus OpenCode attach
-
-Remote routing activates only when both `ezm_remote_path` / `EZM_REMOTE_PATH` and `ezm_remote_server_url` / `EZM_REMOTE_SERVER_URL` resolve to non-empty values. The local repository path is remapped under the remote base, preserving the repository basename and relative subdirectory. Shell, Neovim, Lazygit, popup, and auxiliary flows use SSH by default, or the selected `mosh`/`tssh` transport.
-
-OpenCode shared-server attach is a separate agent-mode behavior. When remote routing is active and `opencode_server_url` / `OPENCODE_SERVER_URL` is configured, agent mode launches `opencode attach` with the remapped directory. That URL is not itself an SSH transport. A configured `agent_command` takes precedence over the built-in OpenCode launch and attach paths.
-
-### Executable-code trust boundary
-
-`agent_command` is not a binary name or a declarative adapter. It is a shell command string that ezm places into an agent-mode pane and executes with the configured shell. A repository-local `ez-mux.toml` can therefore cause arbitrary commands to run when you enter that checkout. Review and trust the config before running ezm in an unfamiliar repository; use `EZM_CONFIG` to point at a reviewed file or remove `agent_command` to use the built-in OpenCode behavior. ezm does not provide a trust prompt or sandbox for this setting.
-
-## Environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `EZM_CONFIG` | Explicit config file path. |
-| `EZM_REMOTE_PATH` | Remote path base used for remapping. |
-| `EZM_REMOTE_SERVER_URL` | Remote SSH authority/URL used with the path base. |
-| `EZM_USE_TSSH` | Select `tssh` for remote launches. |
-| `EZM_USE_MOSH` | Select `mosh` for remote launches when `tssh` is not selected. |
-| `PERLES_DIR`, `PERLES_DB` | Perles locations; legacy `BEADS_DIR`, `BEADS_DB` are accepted as fallbacks. |
-| `OPENCODE_SERVER_URL` | Shared-server URL for the OpenCode attach flow. |
-| `OPENCODE_SERVER_PASSWORD` | Password delivered to the targeted session environment, not persisted in session options. |
-| `EZM_BIN` | Binary override used by internal integration wrappers. |
-
-## Logging
-
-ezm creates one log file per launch. Default locations are `$XDG_STATE_HOME/ez-mux/logs` (fallback `~/.local/state/ez-mux/logs`) on Linux and `~/Library/Logs/ez-mux` on macOS.
-
-```bash
-ezm logs open-latest
-```
+See the [configuration reference](docs/configuration.md) for config paths, precedence, a complete example, session persistence, remote routing, executable config trust, environment variables, and logging.
 
 ## Development
 
-### Prerequisites
-
-- Rust 1.85 or newer (`Cargo.toml` declares `rust-version = "1.85"`). `mise install` uses the repository's pinned Rust toolchain and installs lefthook.
-- tmux 3.2 or newer, Git, and a login-capable shell on `PATH`.
-- Python 3 for the runtime-size audit and release helper checks.
-- Node.js 18 or newer only when exercising the generated npm package launcher.
-
-The tmux floor is based on the feature used by the real popup workflow: tmux's [3.2 change log](https://github.com/tmux/tmux/blob/3.2/CHANGES) adds per-client transient popups and `display-popup`. ezm also probes zoom-flag support and can fall back for older command capabilities, but popup support is a required part of the supported interactive surface. Local and CI E2E runs record their actual `tmux -V`; the CI workflow currently uses the versions supplied by its Linux and macOS runners rather than a pinned 3.2 job.
-
-### Verification commands
-
-Run formatting, strict linting, locked tests, and the source-structure audit from the repository root:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --locked --lib
-cargo test --locked
-python3 scripts/audit_runtime_file_sizes.py
-python3 -m unittest discover -s scripts/release -p 'test_*.py'
-```
-
-The CI workflow also runs the real tmux suites. Each suite starts its own private tmux server and never uses the user's default tmux server:
-
-```bash
-cargo test --locked --test foundation_e2e -- --nocapture
-cargo test --locked --test core_session_e2e -- --nocapture
-EZM_SMOKE_PLATFORM=linux EZM_SMOKE_MAX_CARGO_JOBS=2 EZM_SMOKE_TEST_THREADS=1 \
-  cargo test --locked --test smoke_e2e -- --nocapture --test-threads 1
-cargo test --locked --test focus_reduced_layout_anchor -- --nocapture
-cargo test --locked --test zoomed_mode_switch_e2e -- --nocapture
-```
-
-Use `EZM_SMOKE_PLATFORM=macos` for the macOS smoke profile. The E2E harness requires `tmux` and Git; OpenCode, perles, Neovim, Lazygit, SSH, mosh, and tssh are not prerequisites for the local harness.
-
-For a release-style locked build:
-
-```bash
-cargo metadata --no-deps --format-version 1
-cargo build --release --locked --bin ezm
-```
-
-### Evidence paths
-
-Integration tests write machine-readable evidence under:
-
-```text
-target/e2e-evidence/<suite>/<run-id>/
-```
-
-The normal suite names are `foundation`, `core-session-orchestration`, `cross-platform-smoke`, `focus-reduced-layout`, `focus-reduced-layout-socket`, and `zoomed-mode-switch`. Core and smoke runs include `summary.json`; individual case evidence is under `cases/`. CI attempts to upload available E2E evidence after each suite, whether it passes or fails, including release-platform runs. Release verification records and assembled release evidence are produced under `dist/` by the release workflow and are not checked into the repository.
-
-### Architecture map
-
-```text
-src/main.rs
-  └─ lib.rs / cli.rs                 process entrypoint and argument parsing
-       └─ app.rs                     orchestration and command dispatch
-            ├─ config.rs + load.rs   config path and value resolution
-            ├─ logging/              per-launch logs and log opening
-            └─ session/
-                 ├─ runtime.rs       resolved context, session create/attach
-                 ├─ resolver.rs      canonical project/session identity
-                 ├─ repair.rs        damage analysis and selective recovery
-                 └─ tmux/
-                      ├─ command.rs  process boundary and diagnostics
-                      ├─ layout/     pane topology, presets, geometry
-                      ├─ keybinds.rs runtime routing and mode keys
-                      ├─ mode_runtime/ persistent mode backing panes and launch
-                      ├─ popup/      popup helper sessions and cleanup hooks
-                      ├─ auxiliary.rs perles window and remote viewer launch
-                      └─ remote_*    authority parsing, path remap, transports
-```
-
-`app` resolves configuration once. `session::runtime` owns the project-session lifecycle and context reconciliation. The tmux modules translate that context into targeted tmux commands; lower layers should not reread process environment to reinterpret an already-resolved project.
-
-### Why zoomed mode has a separate entrypoint
-
-`tests/zoomed_mode_switch_e2e.rs` intentionally remains separate from `tests/core_session_e2e.rs`. It owns one isolated `zoomed-mode-switch` harness and focuses on the `E2E-20` transition: enable tmux zoom, send the real `prefix+N` route, and verify that the selected slot and zoom state survive the mode switch. Keeping this timing- and geometry-sensitive scenario as its own Cargo test target makes the broad core suite easier to diagnose while ensuring CI still invokes the zoomed workflow explicitly.
-
-The reduced-layout entrypoint is likewise explicit because it checks two- and four-pane geometry, focus promotion, and the short private socket path used by macOS/Linux harnesses.
+See [development and verification](docs/development.md) for prerequisites, commands, E2E evidence paths, and the architecture map.

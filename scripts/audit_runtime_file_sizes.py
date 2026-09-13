@@ -77,7 +77,7 @@ def main() -> int:
 
     audits = audit_files(src_root, runtime_files)
 
-    print("Runtime source file size audit (portfolio-readiness.md §11, F1.5)")
+    print("Runtime source file size audit")
     print(
         "Scope: src/**/*.rs excluding dedicated test modules/files; "
         "inline #[cfg(test)] code is included"

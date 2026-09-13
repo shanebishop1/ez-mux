@@ -11,11 +11,20 @@ use core_support::{
     extract_stdout_field, pane_graph_stable, prepare_fresh_create_path, read_pane_graph,
     settle_snapshot,
 };
-use support::foundation_harness::FoundationHarness;
+use support::foundation_harness::{FoundationHarness, serial_test_guard};
+
+const SLOT_MODES: [&str; 4] = ["agent", "shell", "neovim", "lazygit"];
+
+#[derive(Debug, Eq, PartialEq)]
+struct PaneIdentity {
+    pane_id: String,
+    process_id: String,
+}
 
 #[allow(clippy::too_many_lines)]
 #[test]
 fn fresh_mode_cache_allocations_do_not_consume_visible_geometry() {
+    let _guard = serial_test_guard();
     let harness = FoundationHarness::new_for_suite("fresh-mode-cache-geometry")
         .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
     let project_dir = harness.work_dir().join("fresh-mode-cache-project");
@@ -50,77 +59,51 @@ fn fresh_mode_cache_allocations_do_not_consume_visible_geometry() {
         .unwrap_or_else(|error| panic!("failed reading initial visible geometry: {error}"));
     assert_eq!(visible_before.len(), 5);
 
-    for slot_id in 2_u8..=5 {
-        let switch = switch_mode(&harness, &project_dir, &session, slot_id, "agent");
-        assert_eq!(
-            switch.exit_code, 0,
-            "slot {slot_id} agent switch failed: {}",
-            switch.stderr
-        );
+    let mut identities = Vec::new();
+    for slot_id in 1_u8..=5 {
+        let mut slot_identities = Vec::new();
+        for mode in SLOT_MODES {
+            assert_mode_switch_succeeded(&harness, &project_dir, &session, slot_id, mode);
+            assert_eq!(
+                session_option(&harness, &session, &format!("@ezm_slot_{slot_id}_mode")),
+                mode,
+                "slot {slot_id} did not activate mode {mode}"
+            );
+            let pane_id = session_option(&harness, &session, &format!("@ezm_slot_{slot_id}_pane"));
+            let process_id = pane_pid(&harness, &pane_id);
+            slot_identities.push(PaneIdentity {
+                pane_id,
+                process_id,
+            });
+        }
+        identities.push(slot_identities);
     }
 
     let cache_session = format!("{session}__mode_cache");
-    let cache_after_agents = cache_windows(&harness, &cache_session);
-    assert_eq!(
-        cache_after_agents
-            .iter()
-            .map(|(_, pane_count)| pane_count)
-            .sum::<usize>(),
-        4
-    );
+    assert_cache_shape(&harness, &cache_session, 15);
 
-    let neovim = switch_mode(&harness, &project_dir, &session, 3, "neovim");
-    assert_eq!(
-        neovim.exit_code, 0,
-        "slot 3 neovim switch failed: {}",
-        neovim.stderr
-    );
-    let neovim_pane = session_option(&harness, &session, "@ezm_slot_3_pane");
-    let neovim_backing_key = "@ezm_slot_3_backing_neovim_pane";
-
-    let lazygit = switch_mode(&harness, &project_dir, &session, 3, "lazygit");
-    assert_eq!(
-        lazygit.exit_code, 0,
-        "fresh slot 3 lazygit allocation failed: {}",
-        lazygit.stderr
-    );
-    let lazygit_pane = session_option(&harness, &session, "@ezm_slot_3_pane");
-    assert_ne!(lazygit_pane, neovim_pane);
-    assert_eq!(
-        session_option(&harness, &session, neovim_backing_key),
-        neovim_pane
-    );
-    assert_eq!(
-        session_option(&harness, &session, "@ezm_slot_3_mode"),
-        "lazygit"
-    );
-
-    let neovim_again = switch_mode(&harness, &project_dir, &session, 3, "neovim");
-    assert_eq!(
-        neovim_again.exit_code, 0,
-        "slot 3 neovim restore failed: {}",
-        neovim_again.stderr
-    );
-    assert_eq!(
-        session_option(&harness, &session, "@ezm_slot_3_pane"),
-        neovim_pane
-    );
-    assert_eq!(
-        session_option(&harness, &session, "@ezm_slot_3_mode"),
-        "neovim"
-    );
+    for (slot_index, slot_identities) in identities.iter().enumerate() {
+        let slot_id = u8::try_from(slot_index + 1).expect("canonical slot index fits in u8");
+        for (mode_index, mode) in SLOT_MODES.iter().enumerate() {
+            assert_mode_switch_succeeded(&harness, &project_dir, &session, slot_id, mode);
+            let pane_id = session_option(&harness, &session, &format!("@ezm_slot_{slot_id}_pane"));
+            let process_id = pane_pid(&harness, &pane_id);
+            assert_eq!(
+                PaneIdentity {
+                    pane_id,
+                    process_id
+                },
+                slot_identities[mode_index],
+                "slot {slot_id} mode {mode} did not reuse its pane and process"
+            );
+        }
+    }
 
     let visible_after = read_pane_graph(&harness, &session)
         .unwrap_or_else(|error| panic!("failed reading final visible geometry: {error}"));
     assert!(pane_graph_stable(&visible_before, &visible_after));
 
-    let cache_after_modes = cache_windows(&harness, &cache_session);
-    assert_eq!(cache_after_modes.len(), 6);
-    assert!(
-        cache_after_modes
-            .iter()
-            .all(|(_, pane_count)| *pane_count == 1)
-    );
+    assert_cache_shape(&harness, &cache_session, 15);
 
     let teardown = harness
         .run_ezm(&["__internal", "teardown", "--session", &session], &[], 0)
@@ -136,7 +119,7 @@ fn fresh_mode_cache_allocations_do_not_consume_visible_geometry() {
         teardown.stdout
     );
     assert!(
-        teardown.stdout.contains("helper_processes_removed=6"),
+        teardown.stdout.contains("helper_processes_removed=15"),
         "unexpected teardown output: {}",
         teardown.stdout
     );
@@ -149,6 +132,21 @@ fn fresh_mode_cache_allocations_do_not_consume_visible_geometry() {
     }));
 
     let _ = settle_snapshot(&harness, "fresh mode-cache geometry");
+}
+
+fn assert_mode_switch_succeeded(
+    harness: &FoundationHarness,
+    project_dir: &std::path::Path,
+    session: &str,
+    slot_id: u8,
+    mode: &str,
+) {
+    let switch = switch_mode(harness, project_dir, session, slot_id, mode);
+    assert_eq!(
+        switch.exit_code, 0,
+        "slot {slot_id} {mode} switch failed: {}",
+        switch.stderr
+    );
 }
 
 fn switch_mode(
@@ -180,6 +178,23 @@ fn session_option(harness: &FoundationHarness, session: &str, key: &str) -> Stri
         .unwrap_or_else(|error| panic!("failed reading session option {key}: {error}"))
         .trim()
         .to_owned()
+}
+
+fn pane_pid(harness: &FoundationHarness, pane_id: &str) -> String {
+    harness
+        .tmux_capture(&["display-message", "-p", "-t", pane_id, "#{pane_pid}"])
+        .unwrap_or_else(|error| panic!("failed reading process id for pane {pane_id}: {error}"))
+        .trim()
+        .to_owned()
+}
+
+fn assert_cache_shape(harness: &FoundationHarness, session: &str, expected_windows: usize) {
+    let cache = cache_windows(harness, session);
+    assert_eq!(cache.len(), expected_windows);
+    assert!(
+        cache.iter().all(|(_, pane_count)| *pane_count == 1),
+        "mode cache windows must each own exactly one pane: {cache:?}"
+    );
 }
 
 fn cache_windows(harness: &FoundationHarness, session: &str) -> Vec<(String, usize)> {

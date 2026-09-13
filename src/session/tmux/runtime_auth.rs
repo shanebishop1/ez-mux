@@ -1,5 +1,5 @@
 use super::SessionError;
-use super::command::tmux_run;
+use super::command::{format_output_diagnostics, tmux_output, tmux_run};
 use crate::config::OPENCODE_SERVER_PASSWORD_ENV;
 
 /// Reconciles the credential at the session environment boundary.
@@ -18,6 +18,42 @@ pub(super) fn reconcile_session_runtime_auth(
     let args = session_runtime_auth_args(session_name, password);
     let args_ref = args.iter().map(String::as_str).collect::<Vec<_>>();
     tmux_run(&args_ref)
+}
+
+/// Reads the credential explicitly owned by one tmux session.
+///
+/// `show-environment -t` does not fall back to tmux global state, which is
+/// important here: an unset owner must remain distinguishable from a global
+/// credential so callers can install an explicit empty mask elsewhere.
+pub(super) fn read_session_runtime_auth(
+    session_name: &str,
+) -> Result<Option<String>, SessionError> {
+    let output = tmux_output(&[
+        "show-environment",
+        "-t",
+        session_name,
+        OPENCODE_SERVER_PASSWORD_ENV,
+    ])?;
+    if output.status.success() {
+        let prefix = format!("{OPENCODE_SERVER_PASSWORD_ENV}=");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Ok(stdout
+            .strip_prefix(&prefix)
+            .map(|value| value.strip_suffix('\n').unwrap_or(value).to_owned()));
+    }
+
+    if output.status.code() == Some(1)
+        && String::from_utf8_lossy(&output.stderr)
+            .to_ascii_lowercase()
+            .contains("unknown variable")
+    {
+        return Ok(None);
+    }
+
+    Err(SessionError::TmuxCommandFailed {
+        command: format!("show-environment -t {session_name} {OPENCODE_SERVER_PASSWORD_ENV}"),
+        stderr: format_output_diagnostics(&output),
+    })
 }
 
 fn session_runtime_auth_args(session_name: &str, password: &str) -> Vec<String> {

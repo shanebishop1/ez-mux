@@ -4,9 +4,11 @@ use super::super::options::{
     set_pane_option, set_session_option, show_pane_option, show_session_option, unset_pane_option,
     unset_session_option,
 };
+use super::super::runtime_auth::{read_session_runtime_auth, reconcile_session_runtime_auth};
 use super::super::slot_swap::validate_canonical_slot_registry;
 use super::super::zoom::{run_with_zoom_fallback, zoom_flag_support};
 use super::pane_runtime::respawn_slot_mode;
+use crate::config::OPENCODE_SERVER_PASSWORD_ENV;
 
 const MODE_CACHE_SESSION_SUFFIX: &str = "__mode_cache";
 const LEGACY_MODE_CACHE_WINDOW_NAME: &str = "__ezm_mode_cache";
@@ -323,12 +325,19 @@ fn initialize_new_mode_pane(
 
 fn create_mode_backing_pane(session_name: &str, cwd: &str) -> Result<String, SessionError> {
     let mode_cache_session = mode_cache_session_name(session_name);
+    let owner_password = read_session_runtime_auth(session_name)?;
     if !mode_cache_session_exists(&mode_cache_session)? {
+        let cache_password = format!(
+            "{OPENCODE_SERVER_PASSWORD_ENV}={}",
+            owner_password.as_deref().unwrap_or_default().trim()
+        );
         return tmux_output_value(&[
             "new-session",
             "-d",
             "-s",
             &mode_cache_session,
+            "-e",
+            &cache_password,
             "-c",
             cwd,
             "-P",
@@ -337,6 +346,11 @@ fn create_mode_backing_pane(session_name: &str, cwd: &str) -> Result<String, Ses
         ])
         .map(|value| value.trim().to_owned());
     }
+
+    // Cache sessions outlive individual mode switches. Reconcile their
+    // session environment before allocating another process so changed or
+    // removed owner credentials cannot leave later tools with stale auth.
+    reconcile_session_runtime_auth(&mode_cache_session, owner_password.as_deref())?;
 
     tmux_output_value(&[
         "new-window",
