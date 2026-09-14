@@ -6,7 +6,7 @@
 
 `ez-mux` (`ezm`) keeps parallel development in one keyboard-driven workspace. Give each worktree a stable slot, switch between its agent, shell, Neovim, and Lazygit without restarting those tools, and bring the task that needs you into focus.
 
-<img width="960" height="540" alt="Real iTerm2 demo of ezm: two agents answer project questions, then slot 3 switches between Neovim, a remote shell, Lazygit, and a popup shell" src="docs/assets/ezm-terminal-demo.gif" />
+<img width="960" height="498" alt="Real iTerm2 demo of ezm: two agents answer project questions, then slot 3 switches between Neovim, a remote shell, Lazygit, and a popup shell" src="docs/assets/ezm-terminal-demo.gif" />
 
 [Watch the MP4](docs/assets/ezm-terminal-demo.mp4) for playback controls. Recorded with ezm `0.2.32`, shown at 1.75x speed. [Demo details](scripts/demo/README.md#published-readme-demo).
 
