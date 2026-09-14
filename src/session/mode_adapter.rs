@@ -73,7 +73,7 @@ pub(super) fn launch_tool_command(
     let launch_invocation = sanitize_tool_environment(binary_name, launch_invocation);
 
     format!(
-        "if command -v {binary_name} >/dev/null 2>&1; then {launch_invocation}; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux mode tool {binary_name} exited with status $exit_code\" >&2; {on_failure}; fi; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
+        "if command -v {binary_name} >/dev/null 2>&1; then {launch_invocation}; exit_code=$?; if [ \"$exit_code\" -ne 0 ]; then printf '%s\\n' \"ez-mux mode tool {binary_name} exited with status $exit_code\" >&2; {on_failure}; fi; else printf '%s\\n' \"ez-mux mode tool {binary_name} not found on PATH; opening shell\" >&2; fi; exec \"${{SHELL:-/bin/sh}}\" -l"
     )
 }
 
@@ -122,8 +122,27 @@ mod tests {
 
         assert!(command.contains("exit_code=$?"));
         assert!(command.contains("if [ \"$exit_code\" -ne 0 ]"));
-        assert!(command.contains("; :; fi; fi; exec \"${SHELL:-/bin/sh}\" -l"));
+        assert!(command.contains(
+            "; :; fi; else printf '%s\\n' \"ez-mux mode tool lazygit not found on PATH; opening shell\" >&2; fi; exec \"${SHELL:-/bin/sh}\" -l"
+        ));
         assert!(!command.contains("status=$?"));
         assert!(!command.contains("exit \"$exit_code\""));
+    }
+
+    #[test]
+    fn missing_optional_tools_warn_and_open_a_shell() {
+        for tool in ["opencode", "nvim", "lazygit"] {
+            let command = launch_tool_command(tool, tool, ModeToolFailurePolicy::ContinueToShell);
+            let output = std::process::Command::new("/bin/sh")
+                .args(["-c", &command])
+                .env("PATH", "/definitely-missing-ezm-tools")
+                .env("SHELL", "/bin/false")
+                .output()
+                .expect("shell should execute the missing-tool fixture");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            assert!(stderr.contains(&format!("mode tool {tool} not found on PATH")));
+            assert!(stderr.contains("opening shell"));
+        }
     }
 }

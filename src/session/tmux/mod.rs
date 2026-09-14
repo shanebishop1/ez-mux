@@ -280,9 +280,11 @@ impl TmuxClient for ProcessTmuxClient {
             .arg("-c")
             .arg(cwd)
             .output()
-            .map_err(|source| SessionError::TmuxSpawnFailed {
-                command: format!("new-session -d -s {session_name} -c {}", cwd.display()),
-                source,
+            .map_err(|source| {
+                SessionError::tmux_spawn(
+                    format!("new-session -d -s {session_name} -c {}", cwd.display()),
+                    source,
+                )
             })?;
 
         if output.status.success() {

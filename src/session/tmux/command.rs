@@ -43,10 +43,7 @@ pub(super) fn tmux_run_batch(commands: &[Vec<String>]) -> Result<(), SessionErro
     let output = Command::new("tmux")
         .args(&flat_refs)
         .output()
-        .map_err(|source| SessionError::TmuxSpawnFailed {
-            command: diagnostics.clone(),
-            source,
-        })?;
+        .map_err(|source| SessionError::tmux_spawn(diagnostics.clone(), source))?;
     trace_tmux_command(&diagnostics, &output, started_at.elapsed());
 
     if output.status.success() {
@@ -76,12 +73,10 @@ fn tmux_output_with_diagnostics(
 ) -> Result<Output, SessionError> {
     let diagnostics = tmux_command_for_diagnostics(diagnostic_args);
     let started_at = Instant::now();
-    let output = Command::new("tmux").args(args).output().map_err(|source| {
-        SessionError::TmuxSpawnFailed {
-            command: diagnostics.clone(),
-            source,
-        }
-    })?;
+    let output = Command::new("tmux")
+        .args(args)
+        .output()
+        .map_err(|source| SessionError::tmux_spawn(diagnostics.clone(), source))?;
     trace_tmux_command(&diagnostics, &output, started_at.elapsed());
     Ok(output)
 }

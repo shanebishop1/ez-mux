@@ -44,10 +44,7 @@ fn attach_session_with_program(
         .stdout(Stdio::inherit())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|source| SessionError::TmuxSpawnFailed {
-            command: command.clone(),
-            source,
-        })?;
+        .map_err(|source| SessionError::tmux_spawn(command.clone(), source))?;
     let stderr_reader = child
         .stderr
         .take()

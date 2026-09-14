@@ -67,7 +67,7 @@ pub(super) fn bootstrap_default_layout(
             left_bottom,
             right_bottom,
         ];
-        let discovery = discover_worktrees_for_slots(project_dir, no_worktrees);
+        let discovery = discover_worktrees_for_slots(project_dir, no_worktrees)?;
         if let Some(warning) = &discovery.warning {
             eprintln!("warning: {warning}");
         }

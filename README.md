@@ -47,19 +47,19 @@ npm install --global ez-mux@latest
 
 ### Manual installation (without Node.js)
 
-If you prefer a standalone binary, download an archive from the [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest), `v0.2.33`:
+If you prefer a standalone binary, download an archive from the [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest), `v0.2.34`:
 
 | Platform | Archive |
 | --- | --- |
-| Linux x86-64 | `ezm-v0.2.33-linux-x64.tar.gz` |
-| Linux arm64 | `ezm-v0.2.33-linux-arm64.tar.gz` |
-| macOS x86-64 | `ezm-v0.2.33-macos-x64.tar.gz` |
-| macOS arm64 | `ezm-v0.2.33-macos-arm64.tar.gz` |
+| Linux x86-64 | `ezm-v0.2.34-linux-x64.tar.gz` |
+| Linux arm64 | `ezm-v0.2.34-linux-arm64.tar.gz` |
+| macOS x86-64 | `ezm-v0.2.34-macos-x64.tar.gz` |
+| macOS arm64 | `ezm-v0.2.34-macos-arm64.tar.gz` |
 
-Download the archive for the host from the [v0.2.33 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.33), then install the binary:
+Download the archive for the host from the [v0.2.34 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.34), then install the binary:
 
 ```bash
-tar -xzf ezm-v0.2.33-<platform>.tar.gz
+tar -xzf ezm-v0.2.34-<platform>.tar.gz
 mkdir -p ~/.local/bin
 install -m 755 ezm ~/.local/bin/ezm
 ```
@@ -84,9 +84,9 @@ Supported host operating systems are Linux and macOS. The feature-based minimum 
 
 | Dependency | Why it is required | If unavailable |
 | --- | --- | --- |
-| `tmux` 3.2+ | Creates the project session, panes, keybinds, popups, and mode backing panes. | Startup cannot create or attach the workspace. |
+| `tmux` 3.2+ | Creates the project session, panes, keybinds, popups, and mode backing panes. | Exits with an error explaining that tmux must be installed and on `PATH`. |
 | A login-capable shell | Pane and remote wrappers use `$SHELL -l`, falling back to `/bin/sh -l`. | Pane launches and remote fallback shells fail if the selected shell cannot run. |
-| Git | Default startup calls `git worktree list --porcelain` to discover slot worktrees. | The default multi-worktree workflow warns and falls back to the current directory. Use `--no-worktrees` when Git is intentionally unavailable. |
+| Git | Default startup calls `git worktree list --porcelain` to discover slot worktrees. | Fresh worktree startup exits with an install/`PATH` error. Use `--no-worktrees` to run without Git. A non-Git directory still works, with a warning that slots will share the project directory. |
 
 `ezm` must also be run from a directory it can canonicalize. Git worktrees are the intended project input, but `--no-worktrees` deliberately reuses the current directory for every slot.
 
@@ -94,11 +94,11 @@ Supported host operating systems are Linux and macOS. The feature-based minimum 
 
 | Tool or integration | Used for | Missing-tool behavior |
 | --- | --- | --- |
-| OpenCode | Default `agent` mode and shared-server attach. | Agent startup skips OpenCode and leaves a login shell. A failed attach is reported and also falls back to a shell. |
+| OpenCode | Default `agent` mode and shared-server attach. | Warns that `opencode` is missing from `PATH` and opens a login shell. A failed attach is reported and also falls back to a shell. |
 | `agent_command` integrations (Codex, Claude Code, or another CLI) | Replaces the default agent command. | `ezm` executes the configured command as written; its shell semantics determine failure or fallback. |
 | `perles` | The auxiliary work-tracking window. | A missing local executable skips that window. A missing remote executable prints a warning and leaves the remote shell available. |
-| `neovim` / `nvim` | `neovim` slot mode. | The mode tool is skipped when absent and the slot returns to a login shell; a non-zero tool exit is reported. |
-| `lazygit` | `lazygit` slot mode. | A missing or failed invocation returns to a login shell; a non-zero exit is reported. |
+| `neovim` / `nvim` | `neovim` slot mode. | Warns that `nvim` is missing from `PATH` and opens a login shell; a non-zero tool exit is reported. |
+| `lazygit` | `lazygit` slot mode. | Warns that `lazygit` is missing from `PATH` and opens a login shell; a failed invocation is reported and also returns to a shell. |
 | `ssh` | Default transport when remote routing is active. | Remote launch reports the transport failure and falls back to a local login shell; the remote operation is unavailable. |
 | `mosh` | Remote transport when `ezm_use_mosh` is enabled. | The selected remote launch reports failure and falls back to a local login shell. |
 | `tssh` | Remote transport when `ezm_use_tssh` is enabled. | The selected remote launch reports failure and falls back to a local login shell. |
