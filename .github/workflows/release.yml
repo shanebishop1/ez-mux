@@ -916,11 +916,21 @@ jobs:
           cat > "$package_dir/README.md" <<EOF
           # ez-mux
 
-          Install the ezm CLI via npm.
+          Multiple agents. Separate worktrees. One tmux workspace.
 
-          npm install -g ez-mux
+          Install the ezm CLI on Linux or macOS (x86-64 or arm64):
 
-          Verify with ezm --version.
+              npm install --global ez-mux
+              ezm --version
+
+          Requires Node.js 18+, tmux 3.2+, and Git. Install tmux and Git separately
+          with your system package manager. Prebuilt native binaries are included;
+          no Rust toolchain or manual archive download is needed. Native Windows
+          is not supported.
+
+          Upgrade to the latest release:
+
+              npm install --global ez-mux@latest
 
           Source: https://github.com/$REPOSITORY
           EOF

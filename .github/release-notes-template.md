@@ -5,6 +5,21 @@ Automated release artifacts for `__TAG__`.
 - Commit SHA: `__COMMIT_SHA__`
 - Workflow run: __WORKFLOW_RUN_URL__
 
+## Install
+
+Install this version with npm (recommended):
+
+```bash
+npm install --global ez-mux@__VERSION__
+ezm --version
+```
+
+Supports Linux and macOS on x86-64 and arm64. Requires Node.js 18+, tmux 3.2+,
+and Git. Install tmux and Git separately with your system package manager.
+No Rust toolchain or manual archive download is needed with npm.
+
+Standalone binaries are available below for installation without Node.js.
+
 ## Artifacts
 
 - `ezm-__TAG__-linux-x64.tar.gz`

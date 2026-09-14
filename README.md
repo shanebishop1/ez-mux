@@ -28,36 +28,43 @@ Use it when you want to move between several live tasks without rebuilding your 
 
 ## Install
 
-### Release archive
+### npm (recommended)
 
-The [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest) is `v0.2.32`. Release archives currently cover these platforms:
+Install on **Linux or macOS**, on x86-64 or arm64:
+
+```bash
+npm install --global ez-mux
+ezm --version
+```
+
+Requires **Node.js 18+**, **tmux 3.2+**, and **Git**. Install tmux and Git with your system package manager; npm does not install them. The package includes prebuilt native binaries, so no Rust toolchain or manual archive download is needed. Native Windows is not supported.
+
+To upgrade:
+
+```bash
+npm install --global ez-mux@latest
+```
+
+### Manual installation (without Node.js)
+
+If you prefer a standalone binary, download an archive from the [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest), `v0.2.33`:
 
 | Platform | Archive |
 | --- | --- |
-| Linux x86-64 | `ezm-v0.2.32-linux-x64.tar.gz` |
-| Linux arm64 | `ezm-v0.2.32-linux-arm64.tar.gz` |
-| macOS x86-64 | `ezm-v0.2.32-macos-x64.tar.gz` |
-| macOS arm64 | `ezm-v0.2.32-macos-arm64.tar.gz` |
+| Linux x86-64 | `ezm-v0.2.33-linux-x64.tar.gz` |
+| Linux arm64 | `ezm-v0.2.33-linux-arm64.tar.gz` |
+| macOS x86-64 | `ezm-v0.2.33-macos-x64.tar.gz` |
+| macOS arm64 | `ezm-v0.2.33-macos-arm64.tar.gz` |
 
-Download the archive for the host from the [v0.2.32 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.32), then install the binary:
+Download the archive for the host from the [v0.2.33 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.33), then install the binary:
 
 ```bash
-tar -xzf ezm-v0.2.32-<platform>.tar.gz
+tar -xzf ezm-v0.2.33-<platform>.tar.gz
 mkdir -p ~/.local/bin
 install -m 755 ezm ~/.local/bin/ezm
 ```
 
 Add `~/.local/bin` to `PATH` if necessary. The release also includes a checksum file; verify it with `sha256sum --check` on Linux or `shasum -a 256 --check` on macOS.
-
-### npm
-
-The `ez-mux` package is published. It includes the same Linux and macOS native binaries and requires Node.js 18 or newer for its launcher:
-
-```bash
-npm install --global ez-mux
-```
-
-`tmux` is still required at runtime; npm is only an installation channel.
 
 ### Build from source
 
