@@ -6,9 +6,9 @@
 
 `ez-mux` (`ezm`) keeps parallel development in one keyboard-driven workspace. Give each worktree a stable slot, switch between its agent, shell, Neovim, and Lazygit without restarting those tools, and bring the task that needs you into focus.
 
-<img width="960" height="498" alt="Real iTerm2 demo of ezm: two agents answer project questions, then slot 3 switches between Neovim, a remote shell, Lazygit, and a popup shell" src="docs/assets/ezm-terminal-demo.gif" />
+<img width="960" height="498" alt="ezm agents and worktree tool switching between Neovim, a shell, Lazygit, and a popup shell" src="docs/assets/ezm-terminal-demo.gif" />
 
-[Watch the MP4](docs/assets/ezm-terminal-demo.mp4) for playback controls. Recorded with ezm `0.2.32`, shown at 1.75x speed. [Demo details](scripts/demo/README.md#published-readme-demo).
+[Watch the demo](docs/assets/ezm-terminal-demo.mp4)
 
 **Navigate:** [Install](#install) | [Quick start](#quick-start) | [Worktrees](docs/worktrees.md) | [Keybinds](#keybinds) | [Configuration](docs/configuration.md) | [Development](docs/development.md)
 
@@ -121,28 +121,9 @@ ezm logs open-latest
 ezm --help
 ```
 
-### Reproducible interaction walkthrough
-
-The demo above shows two submitted agent requests and tool switching in slot 3. With the optional tools installed, follow the same sequence:
-
-```text
-hostname
-ezm
-prefix f 1        # ask: What is this project?
-prefix f 2        # ask: What does hello.sh do?
-prefix f 3        # focus slot 3
-prefix N          # Neovim; the demo uses a disposable scratch buffer
-prefix S          # shell; run hostname to identify the host
-prefix G          # Lazygit
-prefix P          # open the slot's popup shell
-prefix P          # close the popup
-prefix a          # restore the agent
-prefix d          # detach
-```
-
-`prefix` means the tmux prefix key, normally `C-b`; the recording uses a custom `C-a` prefix. Substitute a file from your own project for `hello.sh`. The demo has remote routing configured, so its shells and tools run on the remote host; a default local setup stays local. To try a reduced layout separately, use `prefix M-3`.
-
 ## Keybinds
+
+`prefix` means the tmux prefix key, normally `C-b`.
 
 | Key | Action |
 | --- | --- |
