@@ -1,5 +1,8 @@
 use super::super::SessionError;
-use super::super::command::{format_output_diagnostics, tmux_output, tmux_output_value, tmux_run};
+use super::super::command::{
+    format_output_diagnostics, tmux_output, tmux_output_value,
+    tmux_output_value_with_redacted_command, tmux_run,
+};
 use super::super::options::{
     set_pane_option, set_session_option, show_pane_option, show_session_option, unset_pane_option,
     unset_session_option,
@@ -7,7 +10,7 @@ use super::super::options::{
 use super::super::runtime_auth::{read_session_runtime_auth, reconcile_session_runtime_auth};
 use super::super::slot_swap::validate_canonical_slot_registry;
 use super::super::zoom::{run_with_zoom_fallback, zoom_flag_support};
-use super::pane_runtime::respawn_slot_mode;
+use super::pane_runtime::mode_shell_command;
 use crate::config::OPENCODE_SERVER_PASSWORD_ENV;
 
 const MODE_CACHE_SESSION_SUFFIX: &str = "__mode_cache";
@@ -46,14 +49,13 @@ pub(super) fn prepare_mode_pane(
     let pane_cwd = if let Some(pane_id) = target_pane_id.as_ref() {
         pane_runtime_cwd(pane_id)?.unwrap_or_else(|| spec.launch_cwd.to_owned())
     } else {
-        let pane_id = create_mode_backing_pane(session_name, spec.launch_cwd)?;
+        let pane_id = create_mode_backing_pane(session_name, spec.launch_cwd, spec.launch_command)?;
         initialize_new_mode_pane(
             &pane_id,
             slot_id,
             spec.target_mode,
             spec.launch_cwd,
             spec.worktree,
-            spec.launch_command,
         )?;
         set_session_option(session_name, &target_backing_key, &pane_id)?;
         target_pane_id = Some(pane_id);
@@ -314,24 +316,29 @@ fn initialize_new_mode_pane(
     mode: &str,
     cwd: &str,
     worktree: &str,
-    launch_command: &str,
 ) -> Result<(), SessionError> {
     set_pane_option(pane_id, "@ezm_slot_id", &slot_id.to_string())?;
     set_pane_option(pane_id, "@ezm_slot_mode", mode)?;
     set_pane_option(pane_id, "@ezm_slot_cwd", cwd)?;
-    set_pane_option(pane_id, "@ezm_slot_worktree", worktree)?;
-    respawn_slot_mode(pane_id, cwd, launch_command)
+    set_pane_option(pane_id, "@ezm_slot_worktree", worktree)
 }
 
-fn create_mode_backing_pane(session_name: &str, cwd: &str) -> Result<String, SessionError> {
+fn create_mode_backing_pane(
+    session_name: &str,
+    cwd: &str,
+    launch_command: &str,
+) -> Result<String, SessionError> {
     let mode_cache_session = mode_cache_session_name(session_name);
     let owner_password = read_session_runtime_auth(session_name)?;
+    // Start the requested command as part of pane creation instead of creating
+    // a default shell and immediately respawning it.
+    let shell_command = mode_shell_command(launch_command);
     if !mode_cache_session_exists(&mode_cache_session)? {
         let cache_password = format!(
             "{OPENCODE_SERVER_PASSWORD_ENV}={}",
             owner_password.as_deref().unwrap_or_default().trim()
         );
-        return tmux_output_value(&[
+        return tmux_output_value_with_redacted_command(&[
             "new-session",
             "-d",
             "-s",
@@ -343,6 +350,7 @@ fn create_mode_backing_pane(session_name: &str, cwd: &str) -> Result<String, Ses
             "-P",
             "-F",
             "#{pane_id}",
+            &shell_command,
         ])
         .map(|value| value.trim().to_owned());
     }
@@ -352,7 +360,7 @@ fn create_mode_backing_pane(session_name: &str, cwd: &str) -> Result<String, Ses
     // removed owner credentials cannot leave later tools with stale auth.
     reconcile_session_runtime_auth(&mode_cache_session, owner_password.as_deref())?;
 
-    tmux_output_value(&[
+    tmux_output_value_with_redacted_command(&[
         "new-window",
         "-d",
         "-t",
@@ -362,6 +370,7 @@ fn create_mode_backing_pane(session_name: &str, cwd: &str) -> Result<String, Ses
         "-P",
         "-F",
         "#{pane_id}",
+        &shell_command,
     ])
     .map(|value| value.trim().to_owned())
 }

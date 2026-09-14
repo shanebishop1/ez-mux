@@ -60,7 +60,21 @@ pub(super) fn tmux_run_batch(commands: &[Vec<String>]) -> Result<(), SessionErro
 }
 
 pub(super) fn tmux_output(args: &[&str]) -> Result<Output, SessionError> {
-    let diagnostics = tmux_command_for_diagnostics(args);
+    tmux_output_with_diagnostics(args, args)
+}
+
+pub(super) fn tmux_output_value_with_redacted_command(
+    args: &[&str],
+) -> Result<String, SessionError> {
+    let diagnostic_args = redacted_command_args(args);
+    tmux_output_value_with_diagnostics(args, &diagnostic_args)
+}
+
+fn tmux_output_with_diagnostics(
+    args: &[&str],
+    diagnostic_args: &[&str],
+) -> Result<Output, SessionError> {
+    let diagnostics = tmux_command_for_diagnostics(diagnostic_args);
     let started_at = Instant::now();
     let output = Command::new("tmux").args(args).output().map_err(|source| {
         SessionError::TmuxSpawnFailed {
@@ -80,12 +94,19 @@ pub(super) fn tmux_run(args: &[&str]) -> Result<(), SessionError> {
 
     Err(SessionError::TmuxCommandFailed {
         command: tmux_command_for_diagnostics(args),
-        stderr: format_output_diagnostics_with_args(&output, args),
+        stderr: format_output_diagnostics_with_args(&output, args, args),
     })
 }
 
 pub(super) fn tmux_output_value(args: &[&str]) -> Result<String, SessionError> {
-    let output = tmux_output(args)?;
+    tmux_output_value_with_diagnostics(args, args)
+}
+
+fn tmux_output_value_with_diagnostics(
+    args: &[&str],
+    diagnostic_args: &[&str],
+) -> Result<String, SessionError> {
+    let output = tmux_output_with_diagnostics(args, diagnostic_args)?;
     if output.status.success() {
         return Ok(tmux_stdout(&output).into_owned());
     }
@@ -95,8 +116,8 @@ pub(super) fn tmux_output_value(args: &[&str]) -> Result<String, SessionError> {
     }
 
     Err(SessionError::TmuxCommandFailed {
-        command: tmux_command_for_diagnostics(args),
-        stderr: format_output_diagnostics_with_args(&output, args),
+        command: tmux_command_for_diagnostics(diagnostic_args),
+        stderr: format_output_diagnostics_with_args(&output, args, diagnostic_args),
     })
 }
 
@@ -160,7 +181,7 @@ fn retry_legacy_window_zero_list_panes(
 
     Err(SessionError::TmuxCommandFailed {
         command: tmux_command_for_diagnostics(&retry_args),
-        stderr: format_output_diagnostics_with_args(&retry_output, &retry_args),
+        stderr: format_output_diagnostics_with_args(&retry_output, &retry_args, &retry_args),
     })
 }
 
@@ -224,10 +245,23 @@ fn tmux_command_for_diagnostics(args: &[&str]) -> String {
     tmux_command_for_diagnostics_owned(args.iter().map(|arg| (*arg).to_owned()).collect())
 }
 
+fn redacted_command_args<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    args.iter()
+        .enumerate()
+        .map(|(index, arg)| {
+            if index + 1 == args.len() {
+                "<mode-launch-command>"
+            } else {
+                *arg
+            }
+        })
+        .collect()
+}
+
 fn tmux_command_for_diagnostics_owned(mut args: Vec<String>) -> String {
     redact_set_environment_secret_value(&mut args, OPENCODE_SERVER_PASSWORD_ENV);
     redact_new_session_environment_secret_value(&mut args, OPENCODE_SERVER_PASSWORD_ENV);
-    redact_diagnostic_text(&args.join(" "), &[])
+    redact_diagnostic_text(&args.join(" "), &[], None)
 }
 
 fn tmux_batch_command_for_diagnostics(commands: &[Vec<String>]) -> String {
@@ -360,12 +394,29 @@ pub(super) fn format_output_diagnostics(output: &Output) -> String {
     format_output_diagnostics_with_secrets(output, &[])
 }
 
-fn format_output_diagnostics_with_args(output: &Output, args: &[&str]) -> String {
+fn format_output_diagnostics_with_args(
+    output: &Output,
+    args: &[&str],
+    diagnostic_args: &[&str],
+) -> String {
     let secret_values = secret_values_from_args(args);
-    format_output_diagnostics_with_secrets(output, &secret_values)
+    let command_replacement = args
+        .last()
+        .zip(diagnostic_args.last())
+        .filter(|(original, replacement)| !original.is_empty() && original != replacement)
+        .map(|(original, replacement)| (*original, *replacement));
+    format_output_diagnostics_with_secrets_and_command(output, &secret_values, command_replacement)
 }
 
 fn format_output_diagnostics_with_secrets(output: &Output, secret_values: &[String]) -> String {
+    format_output_diagnostics_with_secrets_and_command(output, secret_values, None)
+}
+
+fn format_output_diagnostics_with_secrets_and_command(
+    output: &Output,
+    secret_values: &[String],
+    command_replacement: Option<(&str, &str)>,
+) -> String {
     let status = output
         .status
         .code()
@@ -373,17 +424,26 @@ fn format_output_diagnostics_with_secrets(output: &Output, secret_values: &[Stri
     let stdout = redact_diagnostic_text(
         String::from_utf8_lossy(&output.stdout).trim(),
         secret_values,
+        command_replacement,
     );
     let stderr = redact_diagnostic_text(
         String::from_utf8_lossy(&output.stderr).trim(),
         secret_values,
+        command_replacement,
     );
 
     format!("status={status}; stdout={stdout:?}; stderr={stderr:?}")
 }
 
-fn redact_diagnostic_text(value: &str, secret_values: &[String]) -> String {
+fn redact_diagnostic_text(
+    value: &str,
+    secret_values: &[String],
+    command_replacement: Option<(&str, &str)>,
+) -> String {
     let mut rendered = value.to_owned();
+    if let Some((original, replacement)) = command_replacement {
+        rendered = rendered.replace(original, replacement);
+    }
     for secret in secret_values.iter().filter(|secret| !secret.is_empty()) {
         rendered = rendered.replace(secret, REDACTED_SECRET_VALUE);
     }

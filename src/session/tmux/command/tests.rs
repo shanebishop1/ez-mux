@@ -1,7 +1,8 @@
 use super::{
     REDACTED_SECRET_VALUE, format_output_diagnostics_with_args, legacy_window_zero_session_target,
-    output_probe_has_legacy_dollar_escaping, parse_primary_window_target, render_startup_trace,
-    tmux_batch_command_for_diagnostics, tmux_command_for_diagnostics, unescape_legacy_tmux_dollars,
+    output_probe_has_legacy_dollar_escaping, parse_primary_window_target, redacted_command_args,
+    render_startup_trace, tmux_batch_command_for_diagnostics, tmux_command_for_diagnostics,
+    unescape_legacy_tmux_dollars,
 };
 
 #[test]
@@ -107,11 +108,125 @@ fn new_session_password_diagnostics_redact_special_values_and_output_streams() {
         ])
         .output()
         .expect("shell should echo the redaction fixture");
-    let rendered =
-        format_output_diagnostics_with_args(&output, &["new-session", "-e", &environment]);
+    let rendered = format_output_diagnostics_with_args(
+        &output,
+        &["new-session", "-e", &environment],
+        &["new-session", "-e", &environment],
+    );
     assert!(!rendered.contains(secret));
     assert!(rendered.contains("stdout=<redacted>"));
     assert!(rendered.contains("stderr=<redacted>"));
+}
+
+#[test]
+fn new_session_failure_diagnostics_mask_quoted_mode_command_and_redact_password() {
+    let password = "fake session password ' with spaces";
+    let token = "fake-new-session-agent-token";
+    let environment = format!("OPENCODE_SERVER_PASSWORD={password}");
+    let launch_command = format!("custom-agent --password '{password}' --token '{token}'");
+    let args = [
+        "new-session",
+        "-d",
+        "-s",
+        "fake-cache",
+        "-e",
+        &environment,
+        "-c",
+        "/fake/project",
+        "-P",
+        "-F",
+        "#{pane_id}",
+        &launch_command,
+    ];
+
+    let rendered = tmux_command_for_diagnostics(&redacted_command_args(&args));
+
+    assert!(!rendered.contains(password));
+    assert!(!rendered.contains(token));
+    assert!(rendered.contains("OPENCODE_SERVER_PASSWORD=<redacted>"));
+    assert!(rendered.ends_with("<mode-launch-command>"));
+}
+
+#[test]
+fn new_window_failure_diagnostics_mask_quoted_mode_command() {
+    let password = "fake window password \" with spaces";
+    let token = "fake-new-window-agent-token";
+    let launch_command = format!("custom-agent --password \"{password}\" --token '{token}'");
+    let args = [
+        "new-window",
+        "-d",
+        "-t",
+        "fake-cache",
+        "-c",
+        "/fake/project",
+        "-P",
+        "-F",
+        "#{pane_id}",
+        &launch_command,
+    ];
+
+    let rendered = tmux_command_for_diagnostics(&redacted_command_args(&args));
+
+    assert!(!rendered.contains(password));
+    assert!(!rendered.contains(token));
+    assert!(rendered.ends_with("<mode-launch-command>"));
+}
+
+#[test]
+fn new_session_failure_output_masks_echoed_mode_command() {
+    let password = "fake echoed new-session password ' with spaces";
+    let token = "fake-echoed-new-session-agent-token";
+    let environment = format!("OPENCODE_SERVER_PASSWORD={password}");
+    let launch_command = format!("custom-agent --password '{password}' --token '{token}'");
+    let args = [
+        "new-session",
+        "-d",
+        "-s",
+        "fake-cache",
+        "-e",
+        &environment,
+        &launch_command,
+    ];
+    let diagnostic_args = redacted_command_args(&args);
+    let output = output_echoing(&launch_command);
+
+    let rendered = format_output_diagnostics_with_args(&output, &args, &diagnostic_args);
+
+    assert!(!rendered.contains(&launch_command));
+    assert!(!rendered.contains(password));
+    assert!(!rendered.contains(token));
+    assert!(rendered.contains("stdout=\"<mode-launch-command>\""));
+    assert!(rendered.contains("stderr=\"<mode-launch-command>\""));
+}
+
+#[test]
+fn new_window_failure_output_masks_echoed_mode_command() {
+    let password = "fake echoed new-window password \" with spaces";
+    let token = "fake-echoed-new-window-agent-token";
+    let launch_command = format!("custom-agent --password \"{password}\" --token '{token}'");
+    let args = ["new-window", "-d", "-t", "fake-cache", &launch_command];
+    let diagnostic_args = redacted_command_args(&args);
+    let output = output_echoing(&launch_command);
+
+    let rendered = format_output_diagnostics_with_args(&output, &args, &diagnostic_args);
+
+    assert!(!rendered.contains(&launch_command));
+    assert!(!rendered.contains(password));
+    assert!(!rendered.contains(token));
+    assert!(rendered.contains("stdout=\"<mode-launch-command>\""));
+    assert!(rendered.contains("stderr=\"<mode-launch-command>\""));
+}
+
+fn output_echoing(value: &str) -> std::process::Output {
+    std::process::Command::new("sh")
+        .args([
+            "-c",
+            "printf '%s\\n' \"$1\"; printf '%s\\n' \"$1\" >&2; exit 1",
+            "redaction-fixture",
+            value,
+        ])
+        .output()
+        .expect("shell should echo the mode command fixture")
 }
 
 #[test]
@@ -168,7 +283,7 @@ fn command_diagnostics_redact_url_userinfo_and_password_streams() {
         .expect("shell should emit fixture diagnostics");
     let args = ["set-environment", "-g", "OPENCODE_SERVER_PASSWORD", secret];
 
-    let rendered = format_output_diagnostics_with_args(&output, &args);
+    let rendered = format_output_diagnostics_with_args(&output, &args, &args);
 
     assert!(!rendered.contains(secret));
     assert!(rendered.contains("operator:<redacted>@remote.example:7443/path"));

@@ -23,7 +23,7 @@ pub(super) fn respawn_slot_mode(
     cwd: &str,
     launch_command: &str,
 ) -> Result<(), SessionError> {
-    let shell_command = format!("sh -lc '{}'", escape_single_quotes(launch_command));
+    let shell_command = mode_shell_command(launch_command);
     let args = [
         "respawn-pane",
         "-k",
@@ -42,4 +42,8 @@ pub(super) fn respawn_slot_mode(
         command: format!("respawn-pane -k -t {pane_id} -c {cwd} <mode-launch-command>"),
         stderr: format_output_diagnostics(&output),
     })
+}
+
+pub(super) fn mode_shell_command(launch_command: &str) -> String {
+    format!("sh -lc '{}'", escape_single_quotes(launch_command))
 }

@@ -103,6 +103,119 @@ fn new_cache_without_owner_password_masks_conflicting_global_state() {
     teardown(&harness, &identity.session_name);
 }
 
+#[test]
+fn new_session_mode_cache_failure_masks_custom_agent_command() {
+    let _guard = serial_test_guard();
+    let harness = FoundationHarness::new_for_suite("runtime-auth-cache-new-session-failure")
+        .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
+    let project_dir = harness.work_dir().join("runtime-auth-project");
+    fs::create_dir_all(&project_dir).expect("create runtime-auth project");
+    let password = "fake new-session password ' with spaces";
+    let token = "fake-new-session-agent-token";
+    let agent_command = format!("exec sleep 3600 # --password '{password}' --token '{token}'");
+
+    let identity = resolve_session_identity(&project_dir).expect("project identity");
+    let launch = harness
+        .run_ezm_in_dir(&project_dir, &["--no-worktrees"], &[], 0)
+        .expect("startup should execute");
+    assert_eq!(launch.exit_code, 0, "startup stderr: {}", launch.stderr);
+    thread::sleep(Duration::from_secs(1));
+    harness
+        .settle_tmux_snapshot(Duration::from_millis(25), Duration::from_secs(2))
+        .expect("startup should settle");
+    configure_custom_session_context(&harness, &identity.session_name, &agent_command, password);
+
+    let marker = harness.work_dir().join("fail-new-session-once");
+    let failed = switch_mode_in_dir(
+        &harness,
+        &project_dir,
+        &identity.session_name,
+        2,
+        &[
+            ("E2E_TMUX_FAIL_MATCH", "new-session -d"),
+            (
+                "E2E_TMUX_FAIL_ONCE",
+                marker.to_str().expect("failure marker path"),
+            ),
+            ("EZM_STARTUP_TRACE_TMUX", "1"),
+        ],
+    );
+
+    assert_ne!(failed.exit_code, 0, "new-session failure should surface");
+    assert!(!failed.stderr.contains(password));
+    assert!(!failed.stderr.contains(token));
+    assert!(
+        failed
+            .stderr
+            .contains("OPENCODE_SERVER_PASSWORD=<redacted>"),
+        "failure stderr: {}",
+        failed.stderr
+    );
+    assert!(
+        failed.stderr.contains("<mode-launch-command>"),
+        "failure stderr: {}",
+        failed.stderr
+    );
+
+    teardown(&harness, &identity.session_name);
+}
+
+#[test]
+fn new_window_mode_cache_failure_masks_custom_agent_command() {
+    let _guard = serial_test_guard();
+    let harness = FoundationHarness::new_for_suite("runtime-auth-cache-new-window-failure")
+        .unwrap_or_else(|error| panic!("harness setup failed: {error}"));
+    let project_dir = harness.work_dir().join("runtime-auth-project");
+    fs::create_dir_all(&project_dir).expect("create runtime-auth project");
+    let password = "fake new-window password \" with spaces";
+    let token = "fake-new-window-agent-token";
+    let agent_command = format!("exec sleep 3600 # --password \"{password}\" --token '{token}'");
+
+    let identity = resolve_session_identity(&project_dir).expect("project identity");
+    let launch = harness
+        .run_ezm_in_dir(&project_dir, &["--no-worktrees"], &[], 0)
+        .expect("startup should execute");
+    assert_eq!(launch.exit_code, 0, "startup stderr: {}", launch.stderr);
+    harness
+        .settle_tmux_snapshot(Duration::from_millis(25), Duration::from_secs(2))
+        .expect("startup should settle");
+    configure_custom_session_context(&harness, &identity.session_name, &agent_command, password);
+
+    let first_switch = switch_mode_in_dir(&harness, &project_dir, &identity.session_name, 2, &[]);
+    assert_eq!(
+        first_switch.exit_code, 0,
+        "cache setup failed: {}",
+        first_switch.stderr
+    );
+
+    let marker = harness.work_dir().join("fail-new-window-once");
+    let failed = switch_mode_in_dir(
+        &harness,
+        &project_dir,
+        &identity.session_name,
+        3,
+        &[
+            ("E2E_TMUX_FAIL_MATCH", "new-window -d"),
+            (
+                "E2E_TMUX_FAIL_ONCE",
+                marker.to_str().expect("failure marker path"),
+            ),
+            ("EZM_STARTUP_TRACE_TMUX", "1"),
+        ],
+    );
+
+    assert_ne!(failed.exit_code, 0, "new-window failure should surface");
+    assert!(!failed.stderr.contains(password));
+    assert!(!failed.stderr.contains(token));
+    assert!(
+        failed.stderr.contains("<mode-launch-command>"),
+        "failure stderr: {}",
+        failed.stderr
+    );
+
+    teardown(&harness, &identity.session_name);
+}
+
 fn write_runtime_auth_config(
     project_dir: &std::path::Path,
     sentinel: &std::path::Path,
@@ -129,6 +242,26 @@ fn write_runtime_auth_config(
         .expect("write runtime-auth config");
 }
 
+fn configure_custom_session_context(
+    harness: &FoundationHarness,
+    session: &str,
+    agent_command: &str,
+    password: &str,
+) {
+    harness
+        .tmux_capture(&["set-environment", "-t", session, PASSWORD_ENV, password])
+        .expect("set fake session password");
+    harness
+        .tmux_capture(&[
+            "set-option",
+            "-t",
+            session,
+            "@ezm_runtime_agent_command",
+            agent_command,
+        ])
+        .expect("set fake session agent command");
+}
+
 fn toml_string(value: &str) -> String {
     to_string(value).expect("runtime-auth fixture value should serialize")
 }
@@ -141,9 +274,21 @@ fn teardown(harness: &FoundationHarness, session: &str) {
 }
 
 fn switch_mode(harness: &FoundationHarness, session: &str, slot: u8) {
+    let result = switch_mode_in_dir(harness, harness.project_root(), session, slot, &[]);
+    assert_eq!(result.exit_code, 0, "mode switch stderr: {}", result.stderr);
+}
+
+fn switch_mode_in_dir(
+    harness: &FoundationHarness,
+    project_dir: &std::path::Path,
+    session: &str,
+    slot: u8,
+    env: &[(&str, &str)],
+) -> support::foundation_harness::CmdOutput {
     let slot = slot.to_string();
-    let result = harness
-        .run_ezm(
+    harness
+        .run_ezm_in_dir(
+            project_dir,
             &[
                 "__internal",
                 "mode",
@@ -154,11 +299,10 @@ fn switch_mode(harness: &FoundationHarness, session: &str, slot: u8) {
                 "--mode",
                 "agent",
             ],
-            &[],
+            env,
             0,
         )
-        .expect("mode switch should execute");
-    assert_eq!(result.exit_code, 0, "mode switch stderr: {}", result.stderr);
+        .expect("mode switch should execute")
 }
 
 fn wait_for_sentinel(path: &std::path::Path, expected: &[&str]) {
