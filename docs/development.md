@@ -39,12 +39,24 @@ cargo test --locked --test runtime_auth_cache_regression -- --nocapture --test-t
 
 Use `EZM_SMOKE_PLATFORM=macos` for the macOS smoke profile. The E2E harness requires `tmux` and Git; OpenCode, perles, Neovim, Lazygit, SSH, mosh, and tssh are not prerequisites for the local harness.
 
-For a release-style locked build:
+## Build from source
+
+For a release-style locked build from the repository root:
 
 ```bash
 cargo metadata --no-deps --format-version 1
 cargo build --release --locked --bin ezm
+./target/release/ezm --version
 ```
+
+To install the locally built binary:
+
+```bash
+mkdir -p ~/.local/bin
+install -m 755 target/release/ezm ~/.local/bin/ezm
+```
+
+Ensure `~/.local/bin` is on `PATH`.
 
 ## Evidence paths
 

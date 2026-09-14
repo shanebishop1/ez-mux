@@ -28,8 +28,6 @@ Use it when you want to move between several live tasks without rebuilding your 
 
 ## Install
 
-### npm (recommended)
-
 Install on **Linux or macOS**, on x86-64 or arm64:
 
 ```bash
@@ -37,43 +35,12 @@ npm install --global ez-mux
 ezm --version
 ```
 
-Requires **Node.js 18+**, **tmux 3.2+**, and **Git**. Install tmux and Git with your system package manager; npm does not install them. The package includes prebuilt native binaries, so no Rust toolchain or manual archive download is needed. Native Windows is not supported.
+Requires **Node.js 18+**, **tmux 3.2+**, and **Git**. Install tmux and Git with your system package manager; npm does not install them. The package includes prebuilt native binaries. Native Windows is not supported.
 
 To upgrade:
 
 ```bash
 npm install --global ez-mux@latest
-```
-
-### Manual installation (without Node.js)
-
-If you prefer a standalone binary, download an archive from the [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest), `v0.2.35`:
-
-| Platform | Archive |
-| --- | --- |
-| Linux x86-64 | `ezm-v0.2.35-linux-x64.tar.gz` |
-| Linux arm64 | `ezm-v0.2.35-linux-arm64.tar.gz` |
-| macOS x86-64 | `ezm-v0.2.35-macos-x64.tar.gz` |
-| macOS arm64 | `ezm-v0.2.35-macos-arm64.tar.gz` |
-
-Download the archive for the host from the [v0.2.35 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.35), then install the binary:
-
-```bash
-tar -xzf ezm-v0.2.35-<platform>.tar.gz
-mkdir -p ~/.local/bin
-install -m 755 ezm ~/.local/bin/ezm
-```
-
-Add `~/.local/bin` to `PATH` if necessary. The release also includes a checksum file; verify it with `sha256sum --check` on Linux or `shasum -a 256 --check` on macOS.
-
-### Build from source
-
-With Rust 1.85 or newer:
-
-```bash
-cargo build --release --locked --bin ezm
-mkdir -p ~/.local/bin
-install -m 755 target/release/ezm ~/.local/bin/ezm
 ```
 
 ## Requirements and optional integrations
