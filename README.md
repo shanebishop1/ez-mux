@@ -47,19 +47,19 @@ npm install --global ez-mux@latest
 
 ### Manual installation (without Node.js)
 
-If you prefer a standalone binary, download an archive from the [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest), `v0.2.34`:
+If you prefer a standalone binary, download an archive from the [latest GitHub release](https://github.com/shanebishop1/ez-mux/releases/latest), `v0.2.35`:
 
 | Platform | Archive |
 | --- | --- |
-| Linux x86-64 | `ezm-v0.2.34-linux-x64.tar.gz` |
-| Linux arm64 | `ezm-v0.2.34-linux-arm64.tar.gz` |
-| macOS x86-64 | `ezm-v0.2.34-macos-x64.tar.gz` |
-| macOS arm64 | `ezm-v0.2.34-macos-arm64.tar.gz` |
+| Linux x86-64 | `ezm-v0.2.35-linux-x64.tar.gz` |
+| Linux arm64 | `ezm-v0.2.35-linux-arm64.tar.gz` |
+| macOS x86-64 | `ezm-v0.2.35-macos-x64.tar.gz` |
+| macOS arm64 | `ezm-v0.2.35-macos-arm64.tar.gz` |
 
-Download the archive for the host from the [v0.2.34 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.34), then install the binary:
+Download the archive for the host from the [v0.2.35 release](https://github.com/shanebishop1/ez-mux/releases/tag/v0.2.35), then install the binary:
 
 ```bash
-tar -xzf ezm-v0.2.34-<platform>.tar.gz
+tar -xzf ezm-v0.2.35-<platform>.tar.gz
 mkdir -p ~/.local/bin
 install -m 755 ezm ~/.local/bin/ezm
 ```

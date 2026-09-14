@@ -325,7 +325,9 @@ pub(super) fn run(harness: &FoundationHarness) -> CaseEvidence {
         && lazygit_pane_start_command.contains("lazygit");
     let lazygit_command_continues_to_shell = lazygit_pane_start_command
         .contains("lazygit; exit_code=$?;")
-        && lazygit_pane_start_command.contains("; :; fi; fi;")
+        && lazygit_pane_start_command.contains("; :; fi; else printf ")
+        && lazygit_pane_start_command.contains("lazygit not found on PATH; opening shell")
+        && lazygit_pane_start_command.contains(">&2; fi; exec ")
         && !lazygit_pane_start_command.contains("exit \\\"\\\\$exit_code\\\"");
     let neovim_uses_ssh_remote = neovim_pane_start_command.contains("ssh -tt")
         && neovim_pane_start_command.contains("shell.remote.example")
