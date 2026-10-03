@@ -130,7 +130,7 @@ fn selective_reconcile_is_idempotent_when_all_slots_are_healthy() {
     )
     .expect("healthy reconcile should be a no-op");
 
-    assert!(outcome.recreated_slots.is_empty());
+    assert_eq!(outcome.recreated_slots, [] as [u8; 0]);
     assert_eq!(*recreate_calls.borrow(), 0);
     assert!(persisted_slots.borrow().is_empty());
     assert_eq!(*validation_calls.borrow(), 1);
@@ -192,7 +192,7 @@ fn ordinary_reconcile_preserves_suspended_slots_as_layout_state() {
     )
     .expect("ordinary reconcile should preserve suspension");
 
-    assert!(outcome.recreated_slots.is_empty());
+    assert_eq!(outcome.recreated_slots, [] as [u8; 0]);
     assert_eq!(*recreate_calls.borrow(), 0);
 }
 

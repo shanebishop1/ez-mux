@@ -38,7 +38,7 @@ fn apply_recovered_slot_pane_bindings_preserves_live_session_pointer() {
     let recovered =
         apply_recovered_slot_pane_bindings(&mut slot_metadata, &live_panes, &live_bindings);
 
-    assert!(recovered.is_empty());
+    assert_eq!(recovered, [] as [u8; 0]);
     assert_eq!(slot_metadata.get(&5).expect("slot 5").pane_id, "%5");
 }
 
