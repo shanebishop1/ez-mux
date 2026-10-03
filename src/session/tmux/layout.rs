@@ -67,7 +67,21 @@ pub(super) fn bootstrap_default_layout(
             left_bottom,
             right_bottom,
         ];
-        let discovery = discover_worktrees_for_slots(project_dir, no_worktrees)?;
+        let explicit =
+            super::options::show_session_option(session_name, "@ezm_explicit_worktrees")?;
+        let discovery = if let Some(explicit) = explicit {
+            super::worktree::WorktreeDiscovery {
+                worktrees: serde_json::from_str(&explicit).map_err(|_| {
+                    SessionError::TmuxCommandFailed {
+                        command: "explicit worktrees".into(),
+                        stderr: "Invalid explicit slot mapping".into(),
+                    }
+                })?,
+                warning: None,
+            }
+        } else {
+            discover_worktrees_for_slots(project_dir, no_worktrees)?
+        };
         if let Some(warning) = &discovery.warning {
             eprintln!("warning: {warning}");
         }

@@ -254,7 +254,7 @@ fn spawn_hup_ignoring_pane(harness: &FoundationHarness, session_name: &str) -> u
                 let pid = fields.next()?;
                 let command = fields.next()?;
                 let tty = fields.next()?;
-                (command.trim() == "sleep" && !tty.trim().is_empty())
+                (matches!(command.trim(), "sleep" | "gsleep") && !tty.trim().is_empty())
                     .then(|| pid.trim().parse::<u32>().expect("fixture pane pid"))
             }) {
                 return pid;

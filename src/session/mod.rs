@@ -86,3 +86,7 @@ pub use topology::THREE_PANE_TARGET_TOLERANCE_PCT;
 pub use topology::canonical_five_pane_column_widths;
 pub use topology::three_pane_target_widths;
 pub use topology::three_pane_widths_within_tolerance;
+
+pub(crate) fn install_workspace_keybinds() -> Result<(), SessionError> {
+    tmux::install_workspace_keybinds()
+}

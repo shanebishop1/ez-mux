@@ -52,6 +52,7 @@ pub(crate) fn execute_with_opener(
     } = cli;
 
     let message = match command {
+        Some(Command::Workspace(command)) => crate::workspace::execute(command)?,
         None => {
             let (pane_count, runtime_context) =
                 resolve_launch_settings(env, os, panes.or(pane_shortcut))?;
@@ -248,6 +249,32 @@ fn execute_internal(
     runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     match command {
+        InternalCommand::WorkspaceAgent {
+            project,
+            group,
+            slot,
+        } => crate::workspace::agent(&project, &group, slot),
+        InternalCommand::Opencode {
+            server,
+            directory,
+            key,
+            new,
+            prepare_only,
+            adopt,
+            require_existing,
+        } => {
+            if let Some(id) = adopt {
+                return crate::opencode::adopt(&server, &directory, &key, &id);
+            }
+            if require_existing && !new {
+                crate::opencode::require_saved(&server, &key)?;
+            }
+            if prepare_only {
+                crate::opencode::session(&server, &directory, &key, new)
+            } else {
+                crate::opencode::connect(&server, &directory, &key, new)
+            }
+        }
         InternalCommand::Swap { session, slot } => {
             let tmux = session::ProcessTmuxClient;
             session::TmuxClient::swap_slot_with_center(&tmux, &session, slot)?;

@@ -453,3 +453,7 @@ pub(crate) fn resolve_owned_session_runtime_context(
 ) -> Result<SessionRuntimeContext, SessionError> {
     remote_env::resolve_owned_session_runtime_context(session_name)
 }
+
+pub(super) fn install_workspace_keybinds() -> Result<(), SessionError> {
+    keybinds::install_runtime_keybinds()
+}

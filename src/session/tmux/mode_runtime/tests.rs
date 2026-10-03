@@ -314,8 +314,8 @@ fn agent_mode_uses_shared_server_attach_url_and_mapped_dir() {
     )
     .expect("agent command should resolve");
 
-    assert!(command.contains("opencode attach 'http://127.0.0.1:4096'"));
-    assert!(command.contains("--dir '/srv/remotes/alpha/worktrees/feature-x'"));
+    assert!(command.contains("__internal opencode --server 'http://127.0.0.1:4096'"));
+    assert!(command.contains("--directory '/srv/remotes/alpha/worktrees/feature-x'"));
 }
 
 #[test]
@@ -331,7 +331,7 @@ fn agent_mode_uses_inherited_password_without_password_argv() {
     )
     .expect("agent command should resolve");
 
-    assert!(command.contains("opencode attach"));
+    assert!(command.contains("__internal opencode"));
     assert!(command.contains("unset OPENCODE_SERVER_URL;"));
     assert!(!command.contains("unset OPENCODE_SERVER_PASSWORD"));
     assert!(!command.contains("secret-token"));
@@ -413,7 +413,7 @@ fn agent_mode_uses_remote_path_mapping_without_operator() {
     )
     .expect("agent mode should resolve");
 
-    assert!(command.contains("opencode attach 'http://127.0.0.1:4096'"));
+    assert!(command.contains("__internal opencode --server 'http://127.0.0.1:4096'"));
 }
 
 #[test]
@@ -429,18 +429,10 @@ fn agent_mode_theme_sets_custom_tui_config_for_attach_launches() {
     )
     .expect("agent command should resolve");
 
-    assert!(command.contains("OPENCODE_CONFIG_DIR"));
-    assert!(command.contains("OPENCODE_TUI_CONFIG"));
-    assert!(command.contains("OPENCODE_TEST_MANAGED_CONFIG_DIR"));
-    assert!(command.contains("slot-2"));
-
-    let path = command
-        .split_once("OPENCODE_TUI_CONFIG='")
-        .and_then(|(_, rest)| rest.split_once('\''))
-        .map(|(path, _)| path)
-        .expect("theme command should include exported tui config path");
-    let rendered = std::fs::read_to_string(path).expect("theme config should be written");
-    assert!(rendered.contains("\"theme\": \"orng\""));
+    assert!(command.contains("OPENCODE_CLI_CONFIG_CONTENT"));
+    assert!(command.contains("orng"));
+    assert!(!command.contains("OPENCODE_CONFIG_DIR"));
+    assert!(!command.contains("OPENCODE_TUI_CONFIG"));
 }
 
 #[test]
@@ -454,10 +446,9 @@ fn agent_mode_theme_sets_custom_tui_config_for_local_launches() {
     )
     .expect("agent local launch should resolve");
 
-    assert!(command.contains("OPENCODE_CONFIG_DIR"));
-    assert!(command.contains("OPENCODE_TUI_CONFIG"));
-    assert!(command.contains("OPENCODE_TEST_MANAGED_CONFIG_DIR"));
-    assert!(command.contains("slot-4"));
+    assert!(command.contains("OPENCODE_CLI_CONFIG_CONTENT"));
+    assert!(command.contains("catppuccin"));
+    assert!(!command.contains("OPENCODE_CONFIG_DIR"));
 }
 
 #[test]
