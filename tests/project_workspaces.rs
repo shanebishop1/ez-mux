@@ -292,3 +292,101 @@ command = 'echo ready >> {ready}; exec sleep 600'
     assert!(remaining.lines().any(|l| l == "review"));
     assert!(!remaining.lines().any(|l| l == "build"));
 }
+
+#[test]
+fn named_group_inherits_project_agent_and_theme_settings() {
+    let _guard = serial_test_guard();
+    let h = FoundationHarness::new_for_suite("workspace-config").unwrap();
+    let root = h.work_dir().join("project");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("ez-mux.toml"),
+        "agent_command = 'exec sleep 600'\nopencode_slot_themes_enabled = false\n",
+    )
+    .unwrap();
+    let registry = h.work_dir().join("projects.toml");
+    fs::write(&registry, format!("[projects.demo]\nroot = {root:?}\n[[projects.demo.groups.main.slots]]\ndirectory = {root:?}\n", root=root.to_str().unwrap())).unwrap();
+    let r = h
+        .run_ezm_in_dir(
+            &root,
+            &["open", "demo", "--no-attach"],
+            &[("EZM_PROJECTS_CONFIG", registry.to_str().unwrap())],
+            0,
+        )
+        .unwrap();
+    assert_eq!(r.exit_code, 0, "{}", r.stderr);
+    let sessions = h
+        .tmux_capture(&["list-sessions", "-F", "#{session_name}"])
+        .unwrap();
+    let owner = sessions
+        .lines()
+        .find(|s| s.starts_with("ezm-group-"))
+        .unwrap();
+    let themes = h
+        .tmux_capture(&[
+            "show-option",
+            "-qv",
+            "-t",
+            owner,
+            "@ezm_runtime_opencode_themes_enabled",
+        ])
+        .unwrap();
+    assert_eq!(themes.trim(), "0");
+    let command = h
+        .tmux_capture(&[
+            "show-option",
+            "-qv",
+            "-t",
+            owner,
+            "@ezm_runtime_agent_command",
+        ])
+        .unwrap();
+    assert_eq!(command.trim(), "exec sleep 600");
+}
+
+#[test]
+fn named_project_without_slots_uses_normal_five_pane_discovery() {
+    let _guard = serial_test_guard();
+    let h = FoundationHarness::new_for_suite("workspace-discovery").unwrap();
+    let root = h.work_dir().join("project");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("ez-mux.toml"),
+        "agent_command = 'exec sleep 600'\n",
+    )
+    .unwrap();
+    let registry = h.work_dir().join("projects.toml");
+    fs::write(
+        &registry,
+        format!(
+            "[projects.demo]\nroot = {root:?}\n",
+            root = root.to_str().unwrap()
+        ),
+    )
+    .unwrap();
+    let env = [("EZM_PROJECTS_CONFIG", registry.to_str().unwrap())];
+    let r = h
+        .run_ezm_in_dir(&root, &["open", "demo", "--no-attach"], &env, 0)
+        .unwrap();
+    assert_eq!(r.exit_code, 0, "{}", r.stderr);
+    let sessions = h
+        .tmux_capture(&["list-sessions", "-F", "#{session_name}"])
+        .unwrap();
+    let owner = sessions
+        .lines()
+        .find(|s| s.starts_with("ezm-group-"))
+        .unwrap();
+    let panes = h
+        .tmux_capture(&["list-panes", "-t", owner, "-F", "#{pane_id}|#{pane_pid}"])
+        .unwrap();
+    assert_eq!(panes.lines().count(), 5);
+    let r = h
+        .run_ezm_in_dir(&root, &["open", "demo", "--no-attach"], &env, 0)
+        .unwrap();
+    assert_eq!(r.exit_code, 0, "{}", r.stderr);
+    assert_eq!(
+        panes,
+        h.tmux_capture(&["list-panes", "-t", owner, "-F", "#{pane_id}|#{pane_pid}"])
+            .unwrap()
+    );
+}

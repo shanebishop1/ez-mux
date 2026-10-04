@@ -91,3 +91,7 @@ pub use topology::three_pane_widths_within_tolerance;
 pub(crate) fn install_workspace_keybinds() -> Result<(), SessionError> {
     tmux::install_workspace_keybinds()
 }
+
+pub(crate) use tmux::discover_workspace_worktrees;
+
+pub(crate) use tmux::workspace_remote_command;

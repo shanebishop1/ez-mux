@@ -113,7 +113,7 @@ pub enum InternalCommand {
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
         panes: u8,
         #[arg(long)]
-        agent_command: String,
+        agent_command: Option<String>,
     },
     WorkspaceBindings,
     /// Open or resume a persisted v2 conversation.

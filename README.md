@@ -130,5 +130,6 @@ See [development and verification](docs/development.md) for prerequisites, comma
 
 `ezm open PROJECT` manages named workspaces locally or over SSH. The project
 orchestrator, layout engine and agent adapters are separate internal components
-of one executable. systemd supervises persistent backends independently of tmux.
+of one executable. Backend deployment and supervision remain outside ezm. Named workspaces inherit
+the normal tool settings and discover worktrees unless explicit slots override them.
 See [project workspaces](docs/workspaces.md).

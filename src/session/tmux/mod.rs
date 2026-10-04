@@ -461,3 +461,15 @@ pub(crate) fn resolve_owned_session_runtime_context(
 pub(super) fn install_workspace_keybinds() -> Result<(), SessionError> {
     keybinds::install_runtime_keybinds()
 }
+
+pub(crate) fn discover_workspace_worktrees(
+    directory: &std::path::Path,
+) -> Result<Vec<std::path::PathBuf>, SessionError> {
+    let discovered = worktree::discover_worktrees_for_slots(directory, false)?;
+    if let Some(warning) = discovered.warning {
+        eprintln!("warning: {warning}");
+    }
+    Ok(discovered.worktrees)
+}
+
+pub(crate) use remote_transport::workspace_remote_command;

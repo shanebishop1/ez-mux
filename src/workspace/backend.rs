@@ -64,34 +64,7 @@ pub(super) fn health(project: &Project) -> Result<String, AppError> {
     }
     Ok(version.into())
 }
-pub(super) fn service(project: &Project, action: &str) -> Result<(), AppError> {
-    if let Some(service) = &project.service {
-        if !service.ends_with(".service") || service.starts_with('-') || service.contains('/') {
-            return Err(error("Invalid user service name"));
-        }
-        if !Command::new("systemctl")
-            .args(["--user", action, service])
-            .status()
-            .map_err(|e| error(e.to_string()))?
-            .success()
-        {
-            return Err(error("Backend service operation failed"));
-        }
-    }
-    Ok(())
-}
-pub(super) fn start(project: &Project) -> Result<(), AppError> {
-    service(project, "start")?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    loop {
-        match health(project) {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                if std::time::Instant::now() >= deadline {
-                    return Err(e);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(250));
-            }
-        }
-    }
+// Servers are externally supervised; workspace operations never start or stop them.
+pub(super) fn check(project: &Project) -> Result<(), AppError> {
+    health(project).map(|_| ())
 }

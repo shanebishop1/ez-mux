@@ -20,12 +20,6 @@ pub enum WorkspaceCommand {
         #[arg(long, hide = true)]
         local: bool,
     },
-    /// Start/check only the configured backend; do not create terminal views.
-    Start {
-        project: String,
-        #[arg(long, hide = true)]
-        local: bool,
-    },
     /// Attach directly to a slot conversation on its execution host.
     Attach {
         project: String,
@@ -58,7 +52,7 @@ pub enum WorkspaceCommand {
         #[arg(long, hide = true)]
         local: bool,
     },
-    /// Show project, service, group and slot state.
+    /// Show project, group and slot state.
     Status {
         project: Option<String>,
         #[arg(long)]
@@ -66,7 +60,7 @@ pub enum WorkspaceCommand {
         #[arg(long, hide = true)]
         local: bool,
     },
-    /// Check configuration, service and authenticated API readiness.
+    /// Check configuration and authenticated API readiness.
     Doctor {
         project: String,
         #[arg(long, hide = true)]
@@ -77,12 +71,6 @@ pub enum WorkspaceCommand {
         project: String,
         #[arg(long)]
         group: Option<String>,
-        #[arg(long, hide = true)]
-        local: bool,
-    },
-    /// Close project views and stop its configured backend service.
-    Stop {
-        project: String,
         #[arg(long, hide = true)]
         local: bool,
     },
