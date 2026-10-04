@@ -50,3 +50,5 @@ AGENTS.md
 !docs/plans/
 docs/plans/*
 !docs/plans/unified-workspaces.md
+
+!docs/plans/native-opencode-workflow.md
