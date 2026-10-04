@@ -472,4 +472,4 @@ pub(crate) fn discover_workspace_worktrees(
     Ok(discovered.worktrees)
 }
 
-pub(crate) use remote_transport::workspace_remote_command;
+pub(crate) use mode_runtime::launch_command_for_mode;

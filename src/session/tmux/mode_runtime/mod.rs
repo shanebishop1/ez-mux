@@ -19,7 +19,8 @@ mod startup;
 mod tests;
 
 #[cfg(test)]
-use launch::{launch_agent_attach_command, launch_command_for_mode};
+use launch::launch_agent_attach_command;
+pub(crate) use launch::launch_command_for_mode;
 use metadata::{
     ModeMetadataState, apply_mode_metadata, compensate_mode_metadata, load_previous_mode_metadata,
     verify_mode_metadata,

@@ -5,7 +5,7 @@ use super::opencode_theme::with_opencode_tui_config_env;
 use super::remote_launch::{escape_single_quotes, launch_command_with_remote_dir_from_mapping};
 use crate::session::{SharedServerAttachConfig, SlotModeLaunchContext, resolve_remote_path};
 
-pub(super) fn launch_command_for_mode(
+pub(crate) fn launch_command_for_mode(
     slot_id: u8,
     mode: SlotMode,
     launch_command: &str,
@@ -22,7 +22,10 @@ pub(super) fn launch_command_for_mode(
     match mode {
         SlotMode::Agent => {
             if let Some(command) = normalize_agent_command_override(agent_command) {
-                return Ok(command.replace("{slot}", &slot_id.to_string()));
+                return Ok(format!(
+                    "export EZM_SLOT={slot_id}; {}",
+                    command.replace("{slot}", &slot_id.to_string())
+                ));
             }
 
             match shared_server {
@@ -70,16 +73,9 @@ pub(super) fn launch_agent_attach_command(
     let attach_dir = attach_dir.display().to_string();
 
     let attach_invocation = format!(
-        "'{}' __internal opencode --server '{}' --directory '{}' --key '{}'",
-        escape_single_quotes(
-            &std::env::current_exe()
-                .map_err(|_| SessionError::InvalidSharedServerAttachUrl)?
-                .display()
-                .to_string()
-        ),
+        "opencode --server '{}' '{}'",
         escape_single_quotes(attach_url),
         escape_single_quotes(&attach_dir),
-        escape_single_quotes(&format!("legacy:{cwd}:{slot_id}"))
     );
 
     let attach_invocation =

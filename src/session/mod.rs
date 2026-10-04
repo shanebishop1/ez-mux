@@ -94,4 +94,4 @@ pub(crate) fn install_workspace_keybinds() -> Result<(), SessionError> {
 
 pub(crate) use tmux::discover_workspace_worktrees;
 
-pub(crate) use tmux::workspace_remote_command;
+pub(crate) use tmux::launch_command_for_mode;

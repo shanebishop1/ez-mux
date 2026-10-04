@@ -1,83 +1,36 @@
-//! Named project/group lifecycle. Legacy cwd-based entrypoints remain available.
-mod backend;
+//! Generic local workspace composition. Hosts and agent state belong to callers.
 mod commands;
 mod config;
 mod runtime;
+mod state;
 use crate::app::AppError;
 use clap::Subcommand;
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum WorkspaceCommand {
-    /// Ensure a project/group exists and reconnect without creating a conversation.
+    /// Open or reconnect to a group without replacing running panes.
     Open {
-        project: String,
         #[arg(long)]
         group: Option<String>,
         #[arg(long)]
         slot: Option<u8>,
         #[arg(long)]
         no_attach: bool,
-        #[arg(long, hide = true)]
-        local: bool,
     },
-    /// Attach directly to a slot conversation on its execution host.
-    Attach {
-        project: String,
-        #[arg(long)]
-        group: Option<String>,
-        #[arg(long, default_value = "1")]
-        slot: u8,
-        #[arg(long, hide = true)]
-        local: bool,
-    },
-    /// Start a new conversation explicitly, retaining prior history.
-    New {
-        project: String,
-        #[arg(long)]
-        group: Option<String>,
-        #[arg(long, default_value = "1")]
-        slot: u8,
-        #[arg(long, hide = true)]
-        local: bool,
-    },
-    /// Map an existing conversation without changing a running terminal.
-    Adopt {
-        project: String,
-        #[arg(long)]
-        group: Option<String>,
-        #[arg(long, default_value = "1")]
-        slot: u8,
-        #[arg(long)]
-        session: String,
-        #[arg(long, hide = true)]
-        local: bool,
-    },
-    /// Show project, group and slot state.
-    Status {
-        project: Option<String>,
-        #[arg(long)]
-        all: bool,
-        #[arg(long, hide = true)]
-        local: bool,
-    },
-    /// Check configuration and authenticated API readiness.
-    Doctor {
-        project: String,
-        #[arg(long, hide = true)]
-        local: bool,
-    },
-    /// Close terminal views; retain backend and saved conversations.
+    /// Show local group and slot state.
+    Status,
+    /// Close terminal views in the selected group or entire workspace.
     Close {
-        project: String,
         #[arg(long)]
         group: Option<String>,
-        #[arg(long, hide = true)]
-        local: bool,
     },
 }
-pub(crate) fn execute(command: WorkspaceCommand) -> Result<String, AppError> {
-    commands::execute(command)
+pub(crate) fn execute(
+    file: &std::path::Path,
+    command: WorkspaceCommand,
+) -> Result<String, AppError> {
+    commands::execute(file, command)
 }
-pub(crate) fn agent(project: &str, group: &str, slot: u8) -> Result<String, AppError> {
-    commands::agent(project, group, slot)
+pub(crate) fn agent(file: &std::path::Path, group: &str, slot: u8) -> Result<String, AppError> {
+    commands::agent(file, group, slot)
 }

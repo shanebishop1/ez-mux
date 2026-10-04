@@ -1,6 +1,6 @@
 # Workspace responsibility boundaries
 
-Status: Approved
+Status: Superseded by [external adapters](external-adapters.md)
 Last updated: 2026-10-03
 Owner: Codex /root, user conversation
 
