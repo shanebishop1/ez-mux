@@ -43,7 +43,11 @@ mod teardown;
 mod worktree;
 mod zoom;
 
-pub(crate) fn validate_remote_ssh_authority(value: &str) -> Result<(), SessionError> {
+/// Validate a host or user@host SSH destination.
+///
+/// # Errors
+/// Returns an error for unsafe or malformed destinations.
+pub fn validate_remote_ssh_authority(value: &str) -> Result<(), SessionError> {
     remote_authority::parse_remote_ssh_authority(value).map(|_| ())
 }
 
@@ -452,4 +456,8 @@ pub(crate) fn resolve_owned_session_runtime_context(
     session_name: &str,
 ) -> Result<SessionRuntimeContext, SessionError> {
     remote_env::resolve_owned_session_runtime_context(session_name)
+}
+
+pub(super) fn install_workspace_keybinds() -> Result<(), SessionError> {
+    keybinds::install_runtime_keybinds()
 }

@@ -62,6 +62,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
+    #[command(flatten)]
+    Workspace(crate::workspace::WorkspaceCommand),
     /// Kill the current project session and helper processes.
     Kill,
 
@@ -94,6 +96,43 @@ pub enum LogsCommand {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum InternalCommand {
+    WorkspaceAgent {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        group: String,
+        #[arg(long)]
+        slot: u8,
+    },
+    /// Bootstrap a validated group using explicit layout inputs.
+    GroupLayout {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        directory: std::path::PathBuf,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
+        panes: u8,
+        #[arg(long)]
+        agent_command: String,
+    },
+    WorkspaceBindings,
+    /// Open or resume a persisted v2 conversation.
+    Opencode {
+        #[arg(long)]
+        server: String,
+        #[arg(long)]
+        directory: String,
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        new: bool,
+        #[arg(long)]
+        prepare_only: bool,
+        #[arg(long)]
+        adopt: Option<String>,
+        #[arg(long)]
+        require_existing: bool,
+    },
     #[command(name = "swap")]
     Swap {
         #[arg(long)]

@@ -76,8 +76,9 @@ pub use swap::zoom_flag_support_for_command;
 pub use teardown::TeardownOutcome;
 pub use teardown::TeardownOwnership;
 pub use teardown::teardown_session;
+pub(crate) use tmux::redact_remote_authority_for_diagnostics;
+pub use tmux::validate_remote_ssh_authority;
 pub use tmux::{ProcessTmuxClient, TmuxClient};
-pub(crate) use tmux::{redact_remote_authority_for_diagnostics, validate_remote_ssh_authority};
 pub use topology::CENTER_WIDTH_TOLERANCE_PCT;
 pub use topology::DEFAULT_CENTER_WIDTH_PCT;
 pub use topology::THREE_PANE_CENTER_TARGET_PCT;
@@ -86,3 +87,7 @@ pub use topology::THREE_PANE_TARGET_TOLERANCE_PCT;
 pub use topology::canonical_five_pane_column_widths;
 pub use topology::three_pane_target_widths;
 pub use topology::three_pane_widths_within_tolerance;
+
+pub(crate) fn install_workspace_keybinds() -> Result<(), SessionError> {
+    tmux::install_workspace_keybinds()
+}

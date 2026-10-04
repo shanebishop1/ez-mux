@@ -72,6 +72,12 @@ Supported host operating systems are Linux and macOS. The feature-based minimum 
 
 `mosh` and `tssh` are not needed for local sessions. If both switches are enabled, `tssh` takes precedence. SSH credentials, keys, and host configuration remain the responsibility of the transport tool.
 
+## Named projects and groups
+
+Use `ezm open PROJECT`, `ezm status --all`, and explicit `ezm new PROJECT` for
+uniform local/remote workspaces with independent subgroup windows and persistent
+OpenCode v2 conversations. See [workspace configuration and runbook](docs/workspaces.md).
+
 ## Quick start
 
 From the project directory:
@@ -119,3 +125,10 @@ See the [configuration reference](docs/configuration.md) for config paths, prece
 ## Development
 
 See [development and verification](docs/development.md) for prerequisites, commands, E2E evidence paths, and the architecture map.
+
+## Project workspaces
+
+`ezm open PROJECT` manages named workspaces locally or over SSH. The project
+orchestrator, layout engine and agent adapters are separate internal components
+of one executable. systemd supervises persistent backends independently of tmux.
+See [project workspaces](docs/workspaces.md).

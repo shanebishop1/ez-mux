@@ -338,7 +338,7 @@ fn interrupted_existing_attach_never_tears_down_the_session() {
     .expect_err("interrupt should map to app error");
 
     assert!(matches!(error, AppError::Interrupted));
-    assert!(tmux.teardown_calls().is_empty());
+    assert_eq!(tmux.teardown_calls(), [] as [String; 0]);
 }
 
 #[test]
@@ -451,7 +451,7 @@ fn contract_summary_is_suppressed_when_not_verbose() {
         &remote_runtime_resolution(None),
     );
 
-    assert!(summary.is_empty());
+    assert_eq!(summary, "");
 }
 
 #[test]

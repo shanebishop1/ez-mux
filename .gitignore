@@ -46,3 +46,7 @@ docs/assets/*
 .opencode
 opencode.jsonc
 AGENTS.md
+!docs/workspaces.md
+!docs/plans/
+docs/plans/*
+!docs/plans/unified-workspaces.md

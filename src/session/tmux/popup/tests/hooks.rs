@@ -72,7 +72,7 @@ fn popup_cleanup_hook_names_ignore_non_popup_cleanup_hooks() {
         "pane-died[0] run-shell -b \"echo other\"\n"
     );
 
-    assert!(popup_cleanup_hook_names(hooks).is_empty());
+    assert_eq!(popup_cleanup_hook_names(hooks), [] as [String; 0]);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn popup_cleanup_reconciliation_chooses_free_index_without_claiming_999() {
         "session-closed[999] display-message unrelated\n"
     );
 
-    assert!(popup_cleanup_hook_names(hooks).is_empty());
+    assert_eq!(popup_cleanup_hook_names(hooks), [] as [String; 0]);
     let selected = super::super::hooks::popup_parent_cleanup_hook_name_for_reconciliation(hooks);
     assert_eq!(selected, "session-closed[1]");
 }

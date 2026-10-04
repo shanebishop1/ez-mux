@@ -17,7 +17,7 @@ fn swap_command_targets_internal_runtime_entrypoint() {
     let rendered = swap_command("'ezm'", 4);
     assert!(rendered.contains("__internal swap"));
     assert!(rendered.contains("--slot 4"));
-    assert!(rendered.contains("#{q:session_name}"));
+    assert!(rendered.contains("#{q:#{?#{@ezm_group_owner},#{@ezm_group_owner},#{session_name}}}"));
     assert!(rendered.contains(">/dev/null 2>&1"));
     assert!(!rendered.contains("${EZM_BIN:-ezm}"));
 }
@@ -27,7 +27,7 @@ fn focus_command_targets_internal_runtime_entrypoint() {
     let rendered = focus_command("'ezm'", 2);
     assert!(rendered.contains("__internal focus"));
     assert!(rendered.contains("--slot 2"));
-    assert!(rendered.contains("#{q:session_name}"));
+    assert!(rendered.contains("#{q:#{?#{@ezm_group_owner},#{@ezm_group_owner},#{session_name}}}"));
     assert!(rendered.contains(">/dev/null 2>&1"));
     assert!(rendered.starts_with("'ezm' __internal focus"));
     assert!(!rendered.contains("'#{session_name}'"));
@@ -81,7 +81,7 @@ fn popup_command_targets_focused_slot_metadata() {
     assert!(rendered.contains("</dev/null >/dev/null 2>&1"));
     assert!(rendered.starts_with("'ezm' __internal popup"));
     assert!(rendered.contains(
-        "#{q:#{?#{@ezm_popup_origin_session},#{@ezm_popup_origin_session},#{session_name}}}"
+        "#{q:#{?#{@ezm_popup_origin_session},#{@ezm_popup_origin_session},#{?#{@ezm_group_owner},#{@ezm_group_owner},#{session_name}}}}"
     ));
     assert!(!rendered.contains("${EZM_BIN:-ezm}"));
 }

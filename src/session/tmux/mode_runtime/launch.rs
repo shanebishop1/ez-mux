@@ -22,7 +22,7 @@ pub(super) fn launch_command_for_mode(
     match mode {
         SlotMode::Agent => {
             if let Some(command) = normalize_agent_command_override(agent_command) {
-                return Ok(command.to_owned());
+                return Ok(command.replace("{slot}", &slot_id.to_string()));
             }
 
             match shared_server {
@@ -70,9 +70,16 @@ pub(super) fn launch_agent_attach_command(
     let attach_dir = attach_dir.display().to_string();
 
     let attach_invocation = format!(
-        "opencode attach '{}' --dir '{}'",
+        "'{}' __internal opencode --server '{}' --directory '{}' --key '{}'",
+        escape_single_quotes(
+            &std::env::current_exe()
+                .map_err(|_| SessionError::InvalidSharedServerAttachUrl)?
+                .display()
+                .to_string()
+        ),
         escape_single_quotes(attach_url),
-        escape_single_quotes(&attach_dir)
+        escape_single_quotes(&attach_dir),
+        escape_single_quotes(&format!("legacy:{cwd}:{slot_id}"))
     );
 
     let attach_invocation =

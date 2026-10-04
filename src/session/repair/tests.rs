@@ -275,8 +275,8 @@ fn ordinary_damage_analysis_preserves_each_declared_reduced_layout() {
             analysis.healthy_slots,
             (1_u8..=pane_count).collect::<Vec<_>>()
         );
-        assert!(analysis.missing_visible_slots.is_empty());
-        assert!(analysis.recreate_order.is_empty());
+        assert_eq!(analysis.missing_visible_slots, [] as [u8; 0]);
+        assert_eq!(analysis.recreate_order, [] as [u8; 0]);
     }
 }
 
@@ -295,7 +295,7 @@ fn ordinary_repair_does_not_revive_an_intentionally_suspended_slot() {
     .expect("suspended slots are intentional layout state");
 
     assert_eq!(analysis.healthy_slots, vec![1, 2, 3]);
-    assert!(analysis.missing_visible_slots.is_empty());
+    assert_eq!(analysis.missing_visible_slots, [] as [u8; 0]);
 }
 
 #[test]
@@ -333,8 +333,8 @@ fn explicit_three_pane_restore_does_not_repair_unrequired_five_pane_slots() {
     )
     .expect("three-pane preset should ignore unrequired slots");
 
-    assert!(analysis.missing_visible_slots.is_empty());
-    assert!(analysis.recreate_order.is_empty());
+    assert_eq!(analysis.missing_visible_slots, [] as [u8; 0]);
+    assert_eq!(analysis.recreate_order, [] as [u8; 0]);
 }
 
 #[test]
@@ -362,7 +362,7 @@ fn repair_project_session_validates_reconcile_when_no_damage() {
     let execution = repair_project_session(&project_dir, &tmux).expect("repair execution");
 
     assert_eq!(execution.action_label(), "noop");
-    assert!(execution.recreated_slots.is_empty());
+    assert_eq!(execution.recreated_slots, [] as [u8; 0]);
     assert_eq!(tmux.reconcile_calls.get(), 1);
 }
 

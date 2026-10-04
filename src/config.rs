@@ -486,7 +486,11 @@ fn source_scope(
     }
 }
 
-pub(crate) fn validate_server_url(url: &str, source: &'static str) -> Result<(), ConfigError> {
+/// Validate an HTTP server address without embedded credentials.
+///
+/// # Errors
+/// Returns a configuration error for unsupported or malformed addresses.
+pub fn validate_server_url(url: &str, source: &'static str) -> Result<(), ConfigError> {
     let Some((scheme, remainder)) = url.split_once("://") else {
         return Err(ConfigError::InvalidOpenCodeServerUrl { origin: source });
     };

@@ -357,37 +357,37 @@ fn missing_binding_diagnostic(output: &std::process::Output) -> bool {
 
 fn preset_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal preset --session #{{q:session_name}} --preset three-pane </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal preset --session #{{q:#{{?#{{@ezm_group_owner}},#{{@ezm_group_owner}},#{{session_name}}}}}} --preset three-pane </dev/null >/dev/null 2>&1"
     )
 }
 
 fn swap_command(ezm_bin: &str, slot_id: u8) -> String {
     format!(
-        "{ezm_bin} __internal swap --session #{{q:session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal swap --session #{{q:#{{?#{{@ezm_group_owner}},#{{@ezm_group_owner}},#{{session_name}}}}}} --slot {slot_id} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn focus_command(ezm_bin: &str, slot_id: u8) -> String {
     format!(
-        "{ezm_bin} __internal focus --session #{{q:session_name}} --slot {slot_id} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal focus --session #{{q:#{{?#{{@ezm_group_owner}},#{{@ezm_group_owner}},#{{session_name}}}}}} --slot {slot_id} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn mode_command(ezm_bin: &str, mode: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session #{{q:session_name}} --slot #{{q:@ezm_slot_id}} --mode {mode} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal mode --session #{{q:#{{?#{{@ezm_group_owner}},#{{@ezm_group_owner}},#{{session_name}}}}}} --slot #{{q:@ezm_slot_id}} --mode {mode} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn toggle_mode_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal mode --session #{{q:session_name}} --slot #{{q:@ezm_slot_id}} --mode #{{q:#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}}} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal mode --session #{{q:#{{?#{{@ezm_group_owner}},#{{@ezm_group_owner}},#{{session_name}}}}}} --slot #{{q:@ezm_slot_id}} --mode #{{q:#{{?#{{==:#{{@ezm_slot_mode}},agent}},shell,agent}}}} </dev/null >/dev/null 2>&1"
     )
 }
 
 fn popup_command(ezm_bin: &str) -> String {
     format!(
-        "{ezm_bin} __internal popup --session #{{q:#{{?#{{@ezm_popup_origin_session}},#{{@ezm_popup_origin_session}},#{{session_name}}}}}} --slot #{{q:#{{?#{{@ezm_popup_origin_slot}},#{{@ezm_popup_origin_slot}},#{{@ezm_slot_id}}}}}} --client #{{q:client_tty}} </dev/null >/dev/null 2>&1"
+        "{ezm_bin} __internal popup --session #{{q:#{{?#{{@ezm_popup_origin_session}},#{{@ezm_popup_origin_session}},#{{?#{{@ezm_group_owner}},#{{@ezm_group_owner}},#{{session_name}}}}}}}} --slot #{{q:#{{?#{{@ezm_popup_origin_slot}},#{{@ezm_popup_origin_slot}},#{{@ezm_slot_id}}}}}} --client #{{q:client_tty}} </dev/null >/dev/null 2>&1"
     )
 }
 

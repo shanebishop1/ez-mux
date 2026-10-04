@@ -45,7 +45,7 @@ fn window_is_managed(session_name: &str, window_id: &str) -> Result<bool, Sessio
         "display-message",
         "-p",
         "-t",
-        window_id,
+        &format!("{session_name}:{window_id}"),
         "#{session_name}|#{window_id}",
     ])?;
     if !output.status.success() {
