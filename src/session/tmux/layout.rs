@@ -69,6 +69,7 @@ pub(super) fn bootstrap_default_layout(
         ];
         let explicit =
             super::options::show_session_option(session_name, "@ezm_explicit_worktrees")?;
+        let has_explicit_worktrees = explicit.is_some();
         let discovery = if let Some(explicit) = explicit {
             super::worktree::WorktreeDiscovery {
                 worktrees: serde_json::from_str(&explicit).map_err(|_| {
@@ -86,8 +87,24 @@ pub(super) fn bootstrap_default_layout(
             eprintln!("warning: {warning}");
         }
         let populated_slots = discovery.worktrees.len().min(5);
+        // Explicit workspace assignments are logical slots. The four-pane layout
+        // reorders physical panes; discovery retains its original behavior.
+        let physical_worktrees = if has_explicit_worktrees && pane_count == 4 {
+            let spec = pane_mode_spec(pane_count);
+            (1..=5)
+                .filter_map(|physical| {
+                    discovery
+                        .worktrees
+                        .get(usize::from(spec.logical_slot_for_physical(physical) - 1))
+                        .or_else(|| discovery.worktrees.last())
+                        .cloned()
+                })
+                .collect()
+        } else {
+            discovery.worktrees.clone()
+        };
         let registry =
-            build_registry_for_canonical_panes(&canonical_pane_ids, &discovery.worktrees)?;
+            build_registry_for_canonical_panes(&canonical_pane_ids, &physical_worktrees)?;
         remember_canonical_window(session_name, &target)?;
         persist_registry(session_name, &registry, populated_slots, pane_count)?;
         apply_startup_pane_mode(&canonical_pane_ids, window_width, window_height, pane_count)?;

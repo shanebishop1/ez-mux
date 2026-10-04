@@ -73,7 +73,7 @@ On creation, ezm resolves the runtime context once and stores the non-secret pro
 
 Remote routing activates only when both `ezm_remote_path` / `EZM_REMOTE_PATH` and `ezm_remote_server_url` / `EZM_REMOTE_SERVER_URL` resolve to non-empty values. The local repository path is remapped under the remote base, preserving the repository basename and relative subdirectory. Shell, Neovim, Lazygit, popup, and auxiliary flows use SSH by default, or the selected `mosh`/`tssh` transport.
 
-OpenCode shared-server attach is a separate agent-mode behavior. When remote routing is active and `opencode_server_url` / `OPENCODE_SERVER_URL` is configured, agent mode creates or resumes a persisted OpenCode v2 session for the remapped directory, then launches `opencode --server URL --session ID`. That URL is not itself an SSH transport. A configured `agent_command` takes precedence over the built-in OpenCode launch and attach paths.
+OpenCode shared-server attach is a separate agent-mode behavior. When remote routing is active and `opencode_server_url` / `OPENCODE_SERVER_URL` is configured, agent mode launches the native OpenCode v2 client with `opencode --server URL DIRECTORY` for the remapped directory. Native OpenCode owns conversation selection and resumption; ezm does not persist conversation IDs. That URL is not itself an SSH transport. A configured `agent_command` takes precedence over the built-in OpenCode launch and attach paths.
 
 ## Executable-code trust boundary
 

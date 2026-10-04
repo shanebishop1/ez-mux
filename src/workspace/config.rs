@@ -27,8 +27,6 @@ pub struct Group {
     #[serde(default)]
     pub command: Option<String>,
     #[serde(default)]
-    pub owner: Option<String>,
-    #[serde(default)]
     pub slots: Vec<Slot>,
     #[serde(default)]
     pub panes: Option<u8>,
@@ -53,36 +51,17 @@ pub fn load(file: &std::path::Path) -> Result<Project, AppError> {
         return Err(error("Workspace root must be absolute"));
     }
     project.manifest = file.canonicalize().map_err(|e| error(e.to_string()))?;
-    let mut owners = std::collections::BTreeSet::new();
     for (name, group) in &project.groups {
         identifier(name)?;
-        if let Some(owner) = &group.owner {
-            identifier(owner)?;
-            if !owners.insert(owner) {
-                return Err(error("An owner cannot belong to multiple groups"));
-            }
-        }
         if name == "perles"
             || group.slots.len() > 5
             || group.panes.is_some_and(|n| !(1..=5).contains(&n))
         {
             return Err(error("Groups need 1..5 slots; perles is reserved"));
         }
-        if !group.slots.is_empty()
-            && group
-                .panes
-                .is_some_and(|n| usize::from(n) > group.slots.len())
-        {
-            return Err(error(
-                "Explicit groups cannot request more panes than configured slots",
-            ));
-        }
-        let mut paths = std::collections::BTreeSet::new();
         for slot in &group.slots {
-            if !slot.directory.is_absolute() || !paths.insert(&slot.directory) {
-                return Err(error(
-                    "Each group slot needs a distinct absolute worktree path",
-                ));
+            if !slot.directory.is_absolute() {
+                return Err(error("Each group slot needs an absolute worktree path"));
             }
         }
     }
@@ -140,7 +119,7 @@ pub(super) fn resolve(name: &str, definition: &Project) -> Result<Project, AppEr
         if group.slots.is_empty() {
             group.discovered = true;
             group.panes = Some(group.panes.unwrap_or(default_panes));
-            let (_, owner) = super::runtime::identities(name, &snapshot, group_name);
+            let (_, owner) = super::runtime::identities(name, &snapshot, group_name)?;
             let saved = if super::runtime::exists(&owner) {
                 super::runtime::option(&owner, "@ezm_explicit_worktrees")?
             } else {

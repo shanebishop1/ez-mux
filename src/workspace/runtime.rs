@@ -26,16 +26,38 @@ pub(super) fn exists(name: &str) -> bool {
         .output()
         .is_ok_and(|o| o.status.success())
 }
-pub(super) fn identities(name: &str, project: &Project, group: &str) -> (String, String) {
+pub(super) fn identities(
+    name: &str,
+    project: &Project,
+    group: &str,
+) -> Result<(String, String), AppError> {
     let key = stable_key(&format!("{name}\0{}", project.root.display()));
-    (
-        format!("ezm-project-{name}-{key}"),
-        project
-            .groups
-            .get(group)
-            .and_then(|g| g.owner.clone())
-            .unwrap_or_else(|| format!("ezm-group-{key}-{group}")),
-    )
+    let parent = format!("ezm-project-{name}-{key}");
+    let default_owner = format!("ezm-group-{key}-{group}");
+    if group.is_empty() || !exists(&parent) {
+        return Ok((parent, default_owner));
+    }
+    // Runtime window metadata owns live identities, rather than private config.
+    let windows = tmux(&[
+        "list-windows",
+        "-t",
+        &parent,
+        "-F",
+        "#{window_name}|#{@ezm_group_owner}",
+    ])?;
+    let matches: Vec<_> = windows
+        .lines()
+        .filter_map(|line| line.split_once('|'))
+        .filter(|(window, _)| *window == group)
+        .collect();
+    if matches.len() > 1 {
+        return Err(error("Multiple windows claim this workspace group"));
+    }
+    if let Some((_, owner)) = matches.first() {
+        super::config::identifier(owner)?;
+        return Ok((parent, (*owner).to_owned()));
+    }
+    Ok((parent, default_owner))
 }
 pub(super) fn option(target: &str, key: &str) -> Result<String, AppError> {
     tmux(&["show-options", "-qv", "-t", target, key])
@@ -45,7 +67,7 @@ pub(super) fn set(target: &str, key: &str, value: &str) -> Result<(), AppError> 
 }
 
 pub(super) fn workspace_lock(name: &str, project: &Project) -> Result<std::fs::File, AppError> {
-    let (parent, _) = identities(name, project, "");
+    let (parent, _) = identities(name, project, "")?;
     let state = super::state::state_root()?.join("workspaces");
     super::state::private_directory(&state)?;
     super::state::locked_file(&state.join(format!("{parent}.lock")))
@@ -59,7 +81,7 @@ pub(super) fn open(
     slot: Option<u8>,
     attach: bool,
 ) -> Result<(), AppError> {
-    let (parent, owner) = identities(name, project, group_name);
+    let (parent, owner) = identities(name, project, group_name)?;
     let lock = workspace_lock(name, project)?;
     if exists(&parent) && option(&parent, "@ezm_workspace_project")? != name {
         return Err(error("Project session identity conflict"));
@@ -194,7 +216,7 @@ pub(super) fn close(
     project: &Project,
     group: Option<&str>,
 ) -> Result<std::fs::File, AppError> {
-    let (parent, _) = identities(name, project, "");
+    let (parent, _) = identities(name, project, "")?;
     let lock = workspace_lock(name, project)?;
     if exists(&parent) && option(&parent, "@ezm_workspace_project")? != name {
         return Err(error("Project session identity conflict"));
@@ -205,7 +227,7 @@ pub(super) fn close(
         .iter()
         .filter(|(g, _)| group.is_none_or(|wanted| g.as_str() == wanted))
     {
-        let (_, owner) = identities(name, project, group_name);
+        let (_, owner) = identities(name, project, group_name)?;
         if exists(&owner) {
             validate_owner(name, group_name, definition, &owner)?;
         }
@@ -215,7 +237,7 @@ pub(super) fn close(
         .keys()
         .filter(|g| group.is_none_or(|wanted| g.as_str() == wanted))
     {
-        let (_, owner) = identities(name, project, group_name);
+        let (_, owner) = identities(name, project, group_name)?;
         if exists(&owner) {
             let window = option(&owner, "@ezm_canonical_window_id")?;
             // Unlink only our presentation window before destroying its owner.
@@ -246,22 +268,7 @@ fn ensure_owner(
         let expected =
             serde_json::to_string(&group.slots.iter().map(|s| &s.directory).collect::<Vec<_>>())
                 .map_err(|e| error(e.to_string()))?;
-        if saved.is_empty() && group.owner.as_deref() == Some(owner) {
-            for (index, slot) in group.slots.iter().enumerate() {
-                if option(owner, &format!("@ezm_slot_{}_worktree", index + 1))?
-                    != slot.directory.display().to_string()
-                {
-                    return Err(error(
-                        "Legacy group worktree does not match configured slot; refusing adoption",
-                    ));
-                }
-            }
-            set(owner, "@ezm_explicit_worktrees", &expected)?;
-            set(owner, "@ezm_workspace_project", name)?;
-            set(owner, "@ezm_workspace_group", group_name)?;
-            let launch = agent_launch(registry, &executable, name, group_name);
-            set(owner, "@ezm_runtime_agent_command", &launch)?;
-        } else if saved != expected {
+        if saved != expected {
             return Err(error(
                 "Live group worktrees differ from config; close that group explicitly before changing its slots",
             ));
@@ -326,12 +333,8 @@ fn validate_owner(
 ) -> Result<(), AppError> {
     let project_marker = option(owner, "@ezm_workspace_project")?;
     let group_marker = option(owner, "@ezm_workspace_group")?;
-    if !project_marker.is_empty() || !group_marker.is_empty() {
-        if project_marker != name || group_marker != group_name {
-            return Err(error("Group owner belongs to a different project/group"));
-        }
-    } else if group.owner.as_deref() != Some(owner) {
-        return Err(error("Unowned group session; refusing mutation"));
+    if project_marker != name || group_marker != group_name {
+        return Err(error("Group owner belongs to a different project/group"));
     }
     for (index, slot) in group.slots.iter().enumerate() {
         if option(owner, &format!("@ezm_slot_{}_worktree", index + 1))?
@@ -348,7 +351,7 @@ fn validate_owner(
     }
     // Extra visible slots would be work outside this group's claimed scope.
     let live_panes = tmux(&["list-panes", "-a", "-F", "#{pane_id}"])?;
-    for index in group.slots.len() + 1..=5 {
+    for index in group.pane_count() + 1..=5 {
         if option(owner, &format!("@ezm_slot_{index}_suspended"))? != "1" {
             return Err(error(
                 "Owner has additional live slots; refusing partial adoption or teardown",
@@ -387,7 +390,7 @@ fn agent_launch(
     group: &str,
 ) -> String {
     format!(
-        "{} __internal workspace-agent --file {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
+        "{} __internal workspace-agent --file {} --group {} --slot \"$EZM_SLOT\"; exec \"${{SHELL:-/bin/sh}}\" -l",
         shell_quote(&executable.display().to_string()),
         shell_quote(&registry.display().to_string()),
         shell_quote(group)

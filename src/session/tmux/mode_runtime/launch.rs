@@ -22,10 +22,7 @@ pub(crate) fn launch_command_for_mode(
     match mode {
         SlotMode::Agent => {
             if let Some(command) = normalize_agent_command_override(agent_command) {
-                return Ok(format!(
-                    "export EZM_SLOT={slot_id}; {}",
-                    command.replace("{slot}", &slot_id.to_string())
-                ));
+                return Ok(format!("export EZM_SLOT={slot_id}; {command}"));
             }
 
             match shared_server {

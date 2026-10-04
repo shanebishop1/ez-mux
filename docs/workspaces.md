@@ -35,23 +35,25 @@ no group is selected. Detach instead to leave work running.
 
 An omitted group list means one `main` group. Omitted slots use the normal Git
 worktree discovery and pane settings in `ez-mux.toml`. Explicit slots override
-worktree selection. Each group can have a `command` default; each slot can override
+worktree selection; repeated directories are allowed. `panes` may request more
+visible slots than the explicit assignments, leaving the additional slots empty. Each group can have a `command` default; each slot can override
 it. Otherwise normal `agent_command` or default agent behavior applies. Tools,
 themes and transport settings continue to use normal ezm configuration.
 
 Agent shell commands receive `EZM_SLOT` containing a validated number from 1 to 5.
-The existing literal `{slot}` placeholder also expands to that number; do not use
-it when literal braces are intended. Commands are trusted user configuration.
-Paths, names and credentials are not interpolated into that placeholder.
+Command text is passed unchanged: use `"$EZM_SLOT"` when the slot number is needed.
+Literal `{slot}` text remains literal. Commands are trusted user configuration.
 
 Optional `perles` contains `directory` and a trusted `command` for an auxiliary
-window without slots. `owner` on a group may explicitly identify a preexisting ezm
-session for adoption; ownership and all worktree assignments are checked before
-mutation. Unknown manifest fields, including `host`, `server` and `credentials`,
-are rejected. Manifests use absolute root and slot paths.
+window without slots. Reconnection finds the group owner through metadata on its
+existing project window, preserving live panes. Ownership and worktree assignments
+are checked before mutation; unmarked sessions are not adopted. Unknown manifest
+fields, including `owner`, `host`, `server` and `credentials`, are rejected.
+Manifests use absolute root and slot paths.
 
 Bare `ezm` remains a useful registry-free entrypoint for the current directory.
 Its existing generic SSH/mosh/tssh and OpenCode integrations remain available.
 The OpenCode shared-server integration launches the native v2 client with the
-server and directory; stable slot-to-conversation mapping can be supplied by an
-external `agent_command`. Ezm does not call conversation APIs or save session IDs.
+server and directory. OpenCode owns conversation selection and resumption. An
+external `agent_command` may supply explicit native client options. Ezm does not
+call conversation APIs or save session IDs.
