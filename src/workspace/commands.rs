@@ -72,7 +72,7 @@ pub(super) fn agent(file: &Path, group_name: &str, slot_id: u8) -> Result<String
 fn status(name: &str, project: &Project) -> Result<String, AppError> {
     let mut text = name.to_owned();
     for (group_name, group) in &project.groups {
-        let (_, owner) = runtime::identities(name, project, group_name);
+        let (_, owner) = runtime::identities(name, project, group_name)?;
         let running = runtime::exists(&owner);
         let _ = write!(
             text,

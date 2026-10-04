@@ -79,3 +79,57 @@ fn unoverridden_slot_uses_normal_agent_fallback() {
     );
     assert!(String::from_utf8_lossy(&result.stdout).contains("normal-agent"));
 }
+
+#[test]
+fn custom_agent_command_preserves_literal_text_and_exports_slot() {
+    let root = TempDir::new().unwrap();
+    let manifest = root.path().join("workspace.json");
+    fs::write(
+        &manifest,
+        serde_json::json!({"name":"demo", "root":root.path(),
+        "groups":{"main":{"slots":[{"directory":root.path(),
+        "command":"printf '%s|%s' \"$EZM_SLOT\" '{slot}'"}]}}})
+        .to_string(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_ezm"))
+        .env("HOME", root.path())
+        .env_remove("EZM_CONFIG")
+        .args([
+            "__internal",
+            "workspace-agent",
+            "--file",
+            manifest.to_str().unwrap(),
+            "--group",
+            "main",
+            "--slot",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&result.stdout), "1|{slot}");
+}
+
+#[test]
+fn explicit_layout_allows_shared_directories_and_extra_empty_panes() {
+    let root = TempDir::new().unwrap();
+    let manifest = root.path().join("workspace.json");
+    fs::write(&manifest, serde_json::json!({"name":"demo", "root":root.path(),
+        "groups":{"main":{"panes":3,"slots":[{"directory":root.path()},{"directory":root.path()}]}}}).to_string()).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_ezm"))
+        .env("HOME", root.path())
+        .env_remove("EZM_CONFIG")
+        .args(["workspace", "--file", manifest.to_str().unwrap(), "status"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
