@@ -261,10 +261,10 @@ fn execute_internal(
             agent_command,
         } => {
             use session::TmuxClient;
-            let context = config::RuntimeContext {
-                agent_command: Some(agent_command),
-                ..config::RuntimeContext::default()
-            };
+            let mut context = runtime_context.clone();
+            if let Some(command) = agent_command {
+                context.agent_command = Some(command);
+            }
             let tmux = session::ProcessTmuxClient;
             tmux.reconcile_session_runtime_context(&session, &context.session_context())?;
             tmux.bootstrap_default_layout(&session, &directory, panes, false)?;

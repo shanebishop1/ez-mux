@@ -141,6 +141,37 @@ fn escape_single_quotes(value: &str) -> String {
     value.replace('\'', "'\"'\"'")
 }
 
+/// Reuse authority parsing and transport precedence for whole-workspace routing.
+pub(crate) fn workspace_remote_command(
+    host: &str,
+    script: &str,
+    use_tssh: bool,
+    use_mosh: bool,
+    interactive: bool,
+) -> Result<std::process::Command, super::SessionError> {
+    let authority = super::remote_authority::parse_remote_ssh_authority(host)?;
+    // Mosh requires a terminal; read-only/control operations use SSH instead.
+    let transport = remote_transport_label(use_tssh, use_mosh && interactive);
+    let mut command = std::process::Command::new(transport);
+    if transport == "mosh" {
+        command.arg("--no-init");
+        if let Some(port) = authority.port {
+            command.arg(format!("--ssh=ssh -p {port} --"));
+        }
+        command.args(["--", &authority.target, "--", "sh", "-lc", script]);
+    } else {
+        command.args(["-o", "ConnectTimeout=10"]);
+        if interactive {
+            command.arg("-t");
+        }
+        if let Some(port) = authority.port {
+            command.args(["-p", &port.to_string()]);
+        }
+        command.args(["--", &authority.target, script]);
+    }
+    Ok(command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::remote_authority::parse_remote_ssh_authority;

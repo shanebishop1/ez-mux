@@ -1,4 +1,4 @@
-use super::backend::{credentials, health, service, start};
+use super::backend::{check, credentials, health};
 use super::{
     WorkspaceCommand,
     config::{self, Group, Project, shell_quote},
@@ -26,13 +26,11 @@ pub(super) fn execute(command: WorkspaceCommand) -> Result<String, AppError> {
     let registry = config::load()?;
     let (name, local) = match &command {
         WorkspaceCommand::Open { project, local, .. }
-        | WorkspaceCommand::Start { project, local }
         | WorkspaceCommand::Attach { project, local, .. }
         | WorkspaceCommand::New { project, local, .. }
         | WorkspaceCommand::Adopt { project, local, .. }
         | WorkspaceCommand::Doctor { project, local }
-        | WorkspaceCommand::Close { project, local, .. }
-        | WorkspaceCommand::Stop { project, local } => (Some(project.as_str()), *local),
+        | WorkspaceCommand::Close { project, local, .. } => (Some(project.as_str()), *local),
         WorkspaceCommand::Status { project, local, .. } => (project.as_deref(), *local),
     };
     let Some(name) = name else {
@@ -61,19 +59,15 @@ pub(super) fn execute(command: WorkspaceCommand) -> Result<String, AppError> {
     if let Some(host) = project.host.as_deref().filter(|_| !local) {
         return remote(host, project, &command);
     }
-    dispatch(name, project, command)
+    let project = config::resolve(name, project)?;
+    dispatch(name, &project, command)
 }
 
 fn dispatch(name: &str, project: &Project, command: WorkspaceCommand) -> Result<String, AppError> {
     match command {
-        WorkspaceCommand::Start { .. } => {
-            let _lock = runtime::workspace_lock(name, project)?;
-            start(project)?;
-            Ok(format!("{name}: backend ready"))
-        }
         WorkspaceCommand::Attach { group, slot, .. } => {
             let (group_name, _) = selected_group(project, group.as_deref())?;
-            start(project)?;
+            check(project)?;
             agent(name, group_name, slot)
         }
         WorkspaceCommand::Open {
@@ -111,13 +105,6 @@ fn dispatch(name: &str, project: &Project, command: WorkspaceCommand) -> Result<
                 "{name}: views closed; backend and conversations retained"
             ))
         }
-        WorkspaceCommand::Stop { .. } => {
-            let _lock = runtime::close(name, project, None)?;
-            service(project, "stop")?;
-            Ok(format!(
-                "{name}: views closed and configured backend stopped; history retained"
-            ))
-        }
     }
 }
 
@@ -131,7 +118,6 @@ fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<S
             no_attach,
             ..
         } => ("open", project, group.as_deref(), *slot, *no_attach),
-        WorkspaceCommand::Start { project, .. } => ("start", project, None, None, true),
         WorkspaceCommand::Attach {
             project,
             group,
@@ -158,7 +144,6 @@ fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<S
         WorkspaceCommand::Close { project, group, .. } => {
             ("close", project, group.as_deref(), None, true)
         }
-        WorkspaceCommand::Stop { project, .. } => ("stop", project, None, None, true),
         WorkspaceCommand::Status { .. } => {
             return Err(error("Missing remote project"));
         }
@@ -181,21 +166,27 @@ fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<S
     if no_attach && verb == "open" {
         args.push("--no-attach".into());
     }
-    let mut cmd = Command::new("ssh");
-    cmd.args(["-o", "ConnectTimeout=10"]);
-    if (verb == "open" && !no_attach) || verb == "attach" {
-        cmd.arg("-t");
-    }
-    let status = cmd
-        .arg(host)
-        .arg(
-            args.iter()
-                .map(|s| shell_quote(s))
-                .collect::<Vec<_>>()
-                .join(" "),
-        )
-        .status()
-        .map_err(|e| error(e.to_string()))?;
+    let loaded = crate::config::load_config(
+        &crate::config::ProcessEnv,
+        crate::config::OperatingSystem::current(),
+    )?;
+    let settings =
+        crate::config::resolve_runtime_context(&crate::config::ProcessEnv, &loaded.values)?;
+    let script = args
+        .iter()
+        .map(|s| shell_quote(s))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let interactive = (verb == "open" && !no_attach) || verb == "attach";
+    let status = crate::session::workspace_remote_command(
+        host,
+        &script,
+        settings.remote.use_tssh.value,
+        settings.remote.use_mosh.value,
+        interactive,
+    )?
+    .status()
+    .map_err(|e| error(e.to_string()))?;
     if !status.success() {
         return Err(error("Remote project operation failed"));
     }
@@ -208,17 +199,6 @@ fn status(name: &str, project: &Project, doctor: bool) -> Result<String, AppErro
         "{name}: API {}",
         api.as_ref().map_or_else(ToString::to_string, Clone::clone)
     );
-    if let Some(service) = &project.service {
-        let out = Command::new("systemctl")
-            .args(["--user", "is-active", service])
-            .output()
-            .map_err(|e| error(e.to_string()))?;
-        let _ = write!(
-            text,
-            "; service {}",
-            String::from_utf8_lossy(&out.stdout).trim()
-        );
-    }
     for (group_name, group) in &project.groups {
         let (_, owner) = runtime::identities(name, project, group_name);
         let running = runtime::exists(&owner);
@@ -302,6 +282,8 @@ pub(super) fn agent(name: &str, group_name: &str, slot_id: u8) -> Result<String,
         .projects
         .get(name)
         .ok_or_else(|| error("Unknown project"))?;
+    let resolved = config::resolve(name, project)?;
+    let project = &resolved;
     let (_, group) = selected_group(project, Some(group_name))?;
     let slot = group
         .slots
@@ -314,9 +296,15 @@ pub(super) fn agent(name: &str, group_name: &str, slot_id: u8) -> Result<String,
         slot_id,
         &slot.directory.display().to_string(),
     );
-    let status = if let Some(command) = &slot.command {
+    let settings = config::settings(project)?;
+    let inherited = if project.server.is_none() {
+        settings.agent_command.as_ref()
+    } else {
+        None
+    };
+    let status = if let Some(command) = slot.command.as_ref().or(inherited) {
         Command::new("sh")
-            .args(["-c", command])
+            .args(["-c", &command.replace("{slot}", &slot_id.to_string())])
             .current_dir(&slot.directory)
             .status()
     } else {
@@ -351,7 +339,7 @@ fn new_conversation(
         return Err(error("New conversation requires an OpenCode slot"));
     }
     let _lock = runtime::workspace_lock(name, project)?;
-    start(project)?;
+    check(project)?;
     let mut cmd = agent_command(
         project,
         name,

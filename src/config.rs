@@ -8,6 +8,7 @@ use thiserror::Error;
 mod load;
 mod runtime;
 
+pub(crate) use load::load_config_with_current_dir;
 pub use load::{load_config, resolve_config_path};
 pub use runtime::{
     AuxiliaryRuntimeResolution, OpencodeThemeRuntimeResolution, RemoteRuntimeResolution,

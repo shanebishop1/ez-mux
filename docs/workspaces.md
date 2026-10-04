@@ -1,8 +1,8 @@
 # Named project workspaces
 
 `ezm open PROJECT` is the uniform entrypoint for a project on this host or over
-SSH. A project has subgroup windows; each group has one to five explicit worktree
-slots. Perles is an optional project-wide window without agent slots.
+SSH. A project has subgroup windows; groups use normal Git worktree discovery unless explicit slots are configured.
+The ordinary five-pane default and ez-mux.toml settings apply. Perles is an optional project-wide window without agent slots.
 
 ## Quick runbook
 
@@ -12,7 +12,6 @@ ezm open shmovie --group main --slot 2
 ezm open shmovie --group review  # group must be defined in the registry
 ezm status --all
 ezm doctor shmovie
-ezm start shmovie                # backend only
 ezm attach shmovie --slot 2      # direct TUI on execution host (no tmux takeover)
 ezm new shmovie --group main --slot 2
 ```
@@ -30,8 +29,8 @@ there is no existing conversation to preserve.
 
 Detach with tmux `prefix d` to leave work running. `ezm close PROJECT --group NAME`
 closes only that group's terminal processes. `ezm close PROJECT` closes project
-views while preserving backend and conversations. `ezm stop PROJECT` also stops
-its configured service and can interrupt active backend work. Worktrees and saved
+views while preserving backend and conversations. Backend administration belongs
+to OpenCode or the machine supervisor; ezm has no service start/stop commands. Worktrees and saved
 conversation history are never deleted by these commands.
 
 `ezm open ... --no-attach` ensures the view without taking over the terminal.
@@ -42,14 +41,14 @@ loaded on the execution host. `--local` is the internal routing escape hatch.
 
 The orchestration registry is `$XDG_CONFIG_HOME/ez-mux/projects.toml`, falling back to
 `~/.config/ez-mux/projects.toml` on both Linux and macOS. `EZM_PROJECTS_CONFIG`
-selects a different reviewed file. This is separate from legacy `ez-mux.toml`.
+selects a different reviewed file. It names workspaces; normal tool/layout settings still come from `ez-mux.toml`
+on the execution host, using the usual environment/file precedence.
 Project and group names use letters, digits, hyphens and underscores.
 
 ```toml
 [projects.example]
 root = "/srv/example"
 server = "http://127.0.0.1:4097"
-service = "opencode-example.service"
 credentials = "/home/me/.config/example/credentials.env"
 opencode_binary = "/home/me/.local/bin/opencode"
 
@@ -68,14 +67,15 @@ command = "perles --beads-dir /srv/example/.beads"
 ```
 
 A slot's optional `command` runs another CLI instead of OpenCode. A project without
-OpenCode slots can omit `server`, `credentials`, and `service`. Worktrees must
+OpenCode slots can omit `server` and `credentials`. Worktrees must
 already exist. Slots within a group require distinct absolute directories;
 assign separate worktrees to concurrent writers in different groups as well.
 
 On a laptop, the matching project definition can set `host = "my-devbox"` and
 `remote_binary = ".local/bin/ezm"`. Its remote host must have its own definition
-with the same project/group names and valid remote paths. SSH transport uses the
-user's existing SSH configuration. No passwords travel in arguments.
+with the project name and valid execution-host paths. The laptop needs only
+`[projects.example]` and `host = "my-devbox"`; do not duplicate groups or paths. Transport selection honors the normal tssh/mosh settings. Mosh is used for
+interactive open/attach; noninteractive operations use SSH (or tssh). No passwords travel in arguments.
 
 Internal group launchers substitute the stable `{slot}` number; conversation
 identity never follows a shell's changed working directory.
@@ -110,16 +110,18 @@ session IDs when rolling out to live clients; never infer the most recent chat.
 
 Changing worktrees for an already-open group is rejected. Close only that group
 when its work is finished, edit its configuration, and reopen. Opening one group
-never rebuilds another group or restarts the backend. Service `start` is
-idempotent; readiness checks use authenticated OpenCode v2 `/api/info`.
+never rebuilds another group or restarts the backend. Configured endpoints are
+checked with authenticated OpenCode v2 `/api/info`; unavailable servers fail
+without modifying services. Start them with their external supervisor.
 
 ## Internal boundaries
 
 One installed executable contains separate workspace orchestration, layout,
-backend and agent-adapter modules. The workspace layer chooses project/group/slot
+routing and agent-adapter modules. The workspace layer chooses project/group/slot
 identity and execution host. The layout layer accepts explicit worktrees and a
 generic agent command; it does not manage backend services. The OpenCode adapter
-owns stable conversation mapping. systemd owns persistent backend processes.
+owns stable conversation mapping. OpenCode or the machine supervisor owns backend processes. Ezm never installs,
+starts or stops system services and does not require one server per project.
 
 Bare ezm, repair, preset and kill retain their cwd-based layout semantics. Use
 named workspace commands for managed projects. Layout subprocesses and callbacks
@@ -131,3 +133,17 @@ The CLI boundary test checks that workspace and layout operations share one
 entrypoint. OpenCode tests cover stable reuse, explicit replacement, API failure
 and concurrent opens. Real tmux tests cover group isolation, mode switching,
 scoped close, ownership conflicts and pane preservation during reopen.
+
+## Minimal local project
+
+```toml
+[projects.example]
+root = "/srv/example"
+```
+
+With no groups, `main` is implicit. With no slots, ezm discovers worktrees using
+its normal rules and honors `panes` in ez-mux.toml (five by default). Existing
+owners retain their saved assignments on reopen; discovery does not add or
+replace live agents. Explicit slots override discovery for selected groups.
+Backend endpoints and credentials are optional adapter inputs, not ownership
+claims over those servers. Ordinary configured agent commands remain supported.

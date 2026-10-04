@@ -84,11 +84,11 @@ pub(super) fn open(
         ));
     }
     if let Some(slot) = slot {
-        if slot == 0 || usize::from(slot) > group.slots.len() {
+        if slot == 0 || usize::from(slot) > group.pane_count() {
             return Err(error("Slot is not configured in this group"));
         }
     }
-    super::backend::start(project)?;
+    super::backend::check(project)?;
     ensure_owner(name, project, group_name, group, &owner)?;
     let window = option(&owner, "@ezm_canonical_window_id")?;
     if window.is_empty() {
@@ -302,17 +302,24 @@ fn ensure_owner(
             // Each helper resolves its own trusted registry and credentials, never
             // the tmux server's global environment or a different project's PATH.
             let launch = agent_launch(&registry, &executable, name, group_name);
-            layout(&[
-                "group-layout",
-                "--session",
-                owner,
-                "--directory",
-                &project.root.display().to_string(),
-                "--panes",
-                &group.slots.len().to_string(),
-                "--agent-command",
-                &launch,
-            ])?;
+            let managed =
+                project.server.is_some() || group.slots.iter().any(|s| s.command.is_some());
+            let mut args = vec![
+                "group-layout".to_owned(),
+                "--session".into(),
+                owner.into(),
+                "--directory".into(),
+                project.root.display().to_string(),
+                "--panes".into(),
+                group.pane_count().to_string(),
+            ];
+            if managed {
+                args.extend(["--agent-command".into(), launch]);
+            }
+            layout_in(
+                &args.iter().map(String::as_str).collect::<Vec<_>>(),
+                Some(&project.root),
+            )?;
             Ok::<(), AppError>(())
         })();
         if let Err(e) = result {
@@ -321,11 +328,13 @@ fn ensure_owner(
         }
     }
 
-    set(
-        owner,
-        "@ezm_runtime_agent_command",
-        &agent_launch(&registry, &executable, name, group_name),
-    )?;
+    if project.server.is_some() || group.slots.iter().any(|s| s.command.is_some()) {
+        set(
+            owner,
+            "@ezm_runtime_agent_command",
+            &agent_launch(&registry, &executable, name, group_name),
+        )?;
+    }
     Ok(())
 }
 
@@ -352,6 +361,10 @@ fn validate_owner(
                 "Owner worktrees differ from group definition; refusing mutation",
             ));
         }
+    }
+    // Discovery preserves ezm's ordinary empty visible slots, owned by this group.
+    if group.discovered && project_marker == name && group_marker == group_name {
+        return Ok(());
     }
     // Extra visible slots would be work outside this group's claimed scope.
     let live_panes = tmux(&["list-panes", "-a", "-F", "#{pane_id}"])?;
@@ -403,8 +416,15 @@ fn agent_launch(
 }
 
 fn layout(args: &[&str]) -> Result<(), AppError> {
+    layout_in(args, None)
+}
+fn layout_in(args: &[&str], directory: Option<&std::path::Path>) -> Result<(), AppError> {
     let binary = std::env::current_exe().map_err(|e| error(e.to_string()))?;
-    let output = Command::new(&binary)
+    let mut command = Command::new(&binary);
+    if let Some(directory) = directory {
+        command.current_dir(directory);
+    }
+    let output = command
         .env("EZM_BIN", &binary)
         .arg("__internal")
         .args(args)

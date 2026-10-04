@@ -117,7 +117,7 @@ pub fn load_config(
     load_config_with_current_dir(env, os, current_dir.as_deref())
 }
 
-pub(super) fn load_config_with_current_dir(
+pub(crate) fn load_config_with_current_dir(
     env: &impl EnvProvider,
     os: OperatingSystem,
     current_dir: Option<&Path>,
