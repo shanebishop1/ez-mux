@@ -25,7 +25,6 @@ source merges. Preserve active pane/backend PIDs, focus and conversation history
 retain old executable builds for running clients. Dotfiles owns the native client
 probe, machine configuration, credential loading and consumer rollout.
 
-
 ## Completion evidence
 
 2026-10-04: reviewed implementation merged (ez-mux #6, dotfiles #32) and
