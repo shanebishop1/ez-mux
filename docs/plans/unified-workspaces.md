@@ -75,24 +75,11 @@ Operational choice: new/adopt update the saved next conversation without killing
 a live client. Imported OpenCode slots require explicit known-ID adoption or new.
 Deployment/publication and live process-preservation verification remain pending.
 
-## Final removal scope (2026-10-03)
+## Final approved interface (2026-10-03)
 
-User requests ezm exclusively. Remove the temporary profile importer and all
-external harness dependencies; private configuration belongs under ez-mux.
-/root resumes ownership of this checkout. Preserve live panes and backends.
-
-## Approved command separation (2026-10-03)
-
-remote-agents is the native orchestration command; ezm remains the layout engine.
-Separate parsers and compilation roots prevent the ezm executable depending on
-project orchestration. Explicit companion calls provide generic group layout,
-keybindings, focus and teardown. Both binaries are installed at the same revision.
-Registry ownership moves to remote-agents; conversation IDs/state stay intact.
-
-Separation verification: full locked Cargo suite passes, including 401 library
-and all real-tmux/integration tests; boundary tests pass for distinct commands
-and missing companions. Strict all-target Clippy, formatting, runtime-size audit
-and 23 release-helper tests pass. Independent review routing finding resolved;
-parent/owner conflict validation precedes backend or tmux mutation. This delivery
-uses the paired development source installer, not the existing single-binary npm
-release packaging. No package release is part of this rollout.
+The user selects one public tool, ezm. Keep workspace orchestration, generic
+layout operations, agent adapters and backend lifecycle as separate internal
+components. Remove the temporary alternate binary and profile importer, with no
+compatibility alias. One registry lives at ~/.config/ez-mux/projects.toml;
+conversation IDs and their existing state paths remain unchanged. /root owns
+final verification, publication and non-disruptive deployment on both hosts.

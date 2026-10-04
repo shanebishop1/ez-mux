@@ -62,6 +62,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
+    #[command(flatten)]
+    Workspace(crate::workspace::WorkspaceCommand),
     /// Kill the current project session and helper processes.
     Kill,
 
@@ -94,6 +96,14 @@ pub enum LogsCommand {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum InternalCommand {
+    WorkspaceAgent {
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        group: String,
+        #[arg(long)]
+        slot: u8,
+    },
     /// Bootstrap a validated group using explicit layout inputs.
     GroupLayout {
         #[arg(long)]

@@ -14,10 +14,6 @@ default-run = "ezm"
 name = "ezm"
 path = "src/main.rs"
 
-[[bin]]
-name = "remote-agents"
-path = "src/remote_agents.rs"
-
 [lints.rust]
 unsafe_code = "warn"
 

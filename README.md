@@ -126,9 +126,9 @@ See the [configuration reference](docs/configuration.md) for config paths, prece
 
 See [development and verification](docs/development.md) for prerequisites, commands, E2E evidence paths, and the architecture map.
 
-## Project orchestration
+## Project workspaces
 
-For named projects, remote hosts, persistent agent conversations and subgroup
-windows, use the companion `remote-agents` binary. `ezm` remains the terminal
-layout engine. Build the pair with `cargo build --release --locked --bins` and
-install both binaries together. See [project workspaces](docs/workspaces.md).
+`ezm open PROJECT` manages named workspaces locally or over SSH. The project
+orchestrator, layout engine and agent adapters are separate internal components
+of one executable. systemd supervises persistent backends independently of tmux.
+See [project workspaces](docs/workspaces.md).

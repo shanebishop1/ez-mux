@@ -34,10 +34,10 @@ command = 'echo ready >> {ready}; exec sleep 600'
         ),
     )
     .unwrap();
-    let env = [("REMOTE_AGENTS_CONFIG", registry.to_str().unwrap())];
+    let env = [("EZM_PROJECTS_CONFIG", registry.to_str().unwrap())];
     for group in ["build", "review"] {
         let r = h
-            .run_remote_agents_in_dir(
+            .run_ezm_in_dir(
                 &root,
                 &["open", "demo", "--group", group, "--no-attach"],
                 &env,
@@ -60,7 +60,7 @@ command = 'echo ready >> {ready}; exec sleep 600'
         .tmux_capture(&["list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}"])
         .unwrap();
     let r = h
-        .run_remote_agents_in_dir(
+        .run_ezm_in_dir(
             &root,
             &["open", "demo", "--group", "build", "--no-attach"],
             &env,
@@ -114,7 +114,7 @@ command = 'echo ready >> {ready}; exec sleep 600'
     ])
     .unwrap();
     let conflict = h
-        .run_remote_agents_in_dir(
+        .run_ezm_in_dir(
             &root,
             &["open", "demo", "--group", "build", "--no-attach"],
             &env,
@@ -221,7 +221,7 @@ command = 'echo ready >> {ready}; exec sleep 600'
         "mode switching respawned an agent"
     );
     let status = h
-        .run_remote_agents_in_dir(&root, &["status", "demo"], &env, 0)
+        .run_ezm_in_dir(&root, &["status", "demo"], &env, 0)
         .unwrap();
     assert_eq!(status.exit_code, 0, "{}", status.stderr);
     assert!(status.stdout.contains("build") && status.stdout.contains("review"));
@@ -247,7 +247,7 @@ command = 'echo ready >> {ready}; exec sleep 600'
     ])
     .unwrap();
     let refused = h
-        .run_remote_agents_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
+        .run_ezm_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
         .unwrap();
     assert_ne!(refused.exit_code, 0);
     assert!(refused.stderr.contains("retains a live pane"));
@@ -269,7 +269,7 @@ command = 'echo ready >> {ready}; exec sleep 600'
     ])
     .unwrap();
     let refused = h
-        .run_remote_agents_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
+        .run_ezm_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
         .unwrap();
     assert_ne!(refused.exit_code, 0);
     assert!(refused.stderr.contains("different project/group"));
@@ -283,7 +283,7 @@ command = 'echo ready >> {ready}; exec sleep 600'
     ])
     .unwrap();
     let close = h
-        .run_remote_agents_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
+        .run_ezm_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
         .unwrap();
     assert_eq!(close.exit_code, 0, "{}", close.stderr);
     let remaining = h

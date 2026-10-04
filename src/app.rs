@@ -52,6 +52,7 @@ pub(crate) fn execute_with_opener(
     } = cli;
 
     let message = match command {
+        Some(Command::Workspace(command)) => crate::workspace::execute(command)?,
         None => {
             let (pane_count, runtime_context) =
                 resolve_launch_settings(env, os, panes.or(pane_shortcut))?;
@@ -248,6 +249,11 @@ fn execute_internal(
     runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     match command {
+        InternalCommand::WorkspaceAgent {
+            project,
+            group,
+            slot,
+        } => crate::workspace::agent(&project, &group, slot),
         InternalCommand::GroupLayout {
             session,
             directory,

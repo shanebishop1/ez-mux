@@ -23,7 +23,6 @@ fn selected_group<'a>(
 }
 
 pub(super) fn execute(command: WorkspaceCommand) -> Result<String, AppError> {
-    super::runtime::layout_binary()?;
     let registry = config::load()?;
     let (name, local) = match &command {
         WorkspaceCommand::Open { project, local, .. }
@@ -123,10 +122,7 @@ fn dispatch(name: &str, project: &Project, command: WorkspaceCommand) -> Result<
 }
 
 fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<String, AppError> {
-    let binary = project
-        .remote_binary
-        .as_deref()
-        .unwrap_or(".local/bin/remote-agents");
+    let binary = project.remote_binary.as_deref().unwrap_or(".local/bin/ezm");
     let (verb, name, group, slot, no_attach) = match command {
         WorkspaceCommand::Open {
             project,

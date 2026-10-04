@@ -4,7 +4,7 @@ use crate::{
     opencode::{error, stable_key},
     session::{ProcessTmuxClient, TmuxClient},
 };
-use std::{os::unix::fs::PermissionsExt, process::Command};
+use std::process::Command;
 
 pub(super) fn tmux(args: &[&str]) -> Result<String, AppError> {
     let out = Command::new("tmux")
@@ -274,7 +274,7 @@ fn ensure_owner(
             set(owner, "@ezm_workspace_project", name)?;
             set(owner, "@ezm_workspace_group", group_name)?;
             let launch = format!(
-                "REMOTE_AGENTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
+                "EZM_PROJECTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
                 shell_quote(&registry.display().to_string()),
                 shell_quote(&executable.display().to_string()),
                 shell_quote(name),
@@ -394,7 +394,7 @@ fn agent_launch(
     group: &str,
 ) -> String {
     format!(
-        "REMOTE_AGENTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
+        "EZM_PROJECTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
         shell_quote(&registry.display().to_string()),
         shell_quote(&executable.display().to_string()),
         shell_quote(name),
@@ -402,23 +402,8 @@ fn agent_launch(
     )
 }
 
-pub(super) fn layout_binary() -> Result<std::path::PathBuf, AppError> {
-    let binary = std::env::current_exe()
-        .map_err(|e| error(e.to_string()))?
-        .with_file_name("ezm");
-    if !binary.is_file()
-        || binary
-            .metadata()
-            .map_or(true, |m| m.permissions().mode() & 0o111 == 0)
-    {
-        return Err(error(
-            "Missing companion ezm layout binary; reinstall the pinned pair",
-        ));
-    }
-    Ok(binary)
-}
 fn layout(args: &[&str]) -> Result<(), AppError> {
-    let binary = layout_binary()?;
+    let binary = std::env::current_exe().map_err(|e| error(e.to_string()))?;
     let output = Command::new(&binary)
         .env("EZM_BIN", &binary)
         .arg("__internal")
