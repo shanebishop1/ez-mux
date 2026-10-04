@@ -405,7 +405,10 @@ fn named_project_without_slots_uses_normal_five_pane_discovery() {
     fs::create_dir_all(&root).unwrap();
     fs::write(
         root.join("ez-mux.toml"),
-        "agent_command = 'exec sleep 600'\n",
+        format!(
+            "agent_command = 'echo ready >> {}; exec sleep 600'\n",
+            h.work_dir().join("ready").display()
+        ),
     )
     .unwrap();
     let registry = h.work_dir().join("projects.toml");
@@ -437,6 +440,28 @@ fn named_project_without_slots_uses_normal_five_pane_discovery() {
         .lines()
         .find(|s| s.starts_with("ezm-group-"))
         .unwrap();
+    // Startup launches slots asynchronously: one agent and four empty shells.
+    // Each scheduled launch replaces an initially empty pane_start_command.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        let launches = h
+            .tmux_capture(&["list-panes", "-t", owner, "-F", "#{pane_start_command}"])
+            .unwrap();
+        if launches
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count()
+            == 5
+            && h.work_dir().join("ready").is_file()
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "slot processes did not become ready: {launches}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
     let panes = h
         .tmux_capture(&["list-panes", "-t", owner, "-F", "#{pane_id}|#{pane_pid}"])
         .unwrap();
