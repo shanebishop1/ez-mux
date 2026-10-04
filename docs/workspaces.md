@@ -1,49 +1,47 @@
 # Named project workspaces
 
-`ezm open PROJECT` is the uniform entrypoint for a project on this host or over
+`remote-agents open PROJECT` is the uniform entrypoint for a project on this host or over
 SSH. A project has subgroup windows; each group has one to five explicit worktree
 slots. Perles is an optional project-wide window without agent slots.
 
 ## Quick runbook
 
 ```sh
-ezm import-remote-agents          # import trusted client profiles on your laptop
-ezm import-remote-agents --server # import trusted server profiles on the devbox
-ezm open shmovie                 # reconnect; do not create a new conversation
-ezm open shmovie --group main --slot 2
-ezm open shmovie --group review  # group must be defined in the registry
-ezm status --all
-ezm doctor shmovie
-ezm start shmovie                # backend only
-ezm attach shmovie --slot 2      # direct TUI on execution host (no tmux takeover)
-ezm new shmovie --group main --slot 2
+remote-agents open shmovie                 # reconnect; do not create a new conversation
+remote-agents open shmovie --group main --slot 2
+remote-agents open shmovie --group review  # group must be defined in the registry
+remote-agents status --all
+remote-agents doctor shmovie
+remote-agents start shmovie                # backend only
+remote-agents attach shmovie --slot 2      # direct TUI on execution host (no tmux takeover)
+remote-agents new shmovie --group main --slot 2
 ```
 
 `new` creates and saves the next OpenCode conversation. Running terminals are
 unchanged; close/reopen the group when you are ready to use that conversation.
 Previous history and backend work are retained. Use `new` deliberately, not to reconnect.
 
-For an imported slot, map its known existing conversation before opening:
-`ezm adopt shmovie --group main --slot 2 --session ses_EXACT_ID`.
+For an existing slot, map its known existing conversation before opening:
+`remote-agents adopt shmovie --group main --slot 2 --session ses_EXACT_ID`.
 Adoption verifies the session's directory and never replaces a running client.
-Imported OpenCode slots set `require_existing = true`: ezm refuses to invent
+Existing OpenCode slots should set `require_existing = true`: ezm refuses to invent
 a conversation when their mapping is missing. Choose `new` explicitly only when
 there is no existing conversation to preserve.
 
-Detach with tmux `prefix d` to leave work running. `ezm close PROJECT --group NAME`
-closes only that group's terminal processes. `ezm close PROJECT` closes project
-views while preserving backend and conversations. `ezm stop PROJECT` also stops
+Detach with tmux `prefix d` to leave work running. `remote-agents close PROJECT --group NAME`
+closes only that group's terminal processes. `remote-agents close PROJECT` closes project
+views while preserving backend and conversations. `remote-agents stop PROJECT` also stops
 its configured service and can interrupt active backend work. Worktrees and saved
 conversation history are never deleted by these commands.
 
-`ezm open ... --no-attach` ensures the view without taking over the terminal.
+`remote-agents open ... --no-attach` ensures the view without taking over the terminal.
 All project operations route over SSH when a host is configured. Credentials are
 loaded on the execution host. `--local` is the internal routing escape hatch.
 
 ## Registry and trust
 
-The registry is `$XDG_CONFIG_HOME/ez-mux/projects.toml`, falling back to
-`~/.config/ez-mux/projects.toml` on both Linux and macOS. `EZM_PROJECTS_CONFIG`
+The orchestration registry is `$XDG_CONFIG_HOME/remote-agents/projects.toml`, falling back to
+`~/.config/remote-agents/projects.toml` on both Linux and macOS. `REMOTE_AGENTS_CONFIG`
 selects a different reviewed file. This is separate from legacy `ez-mux.toml`.
 Project and group names use letters, digits, hyphens and underscores.
 
@@ -75,7 +73,7 @@ already exist. Slots within a group require distinct absolute directories;
 assign separate worktrees to concurrent writers in different groups as well.
 
 On a laptop, the matching project definition can set `host = "my-devbox"` and
-`remote_binary = ".local/bin/ezm"`. Its remote host must have its own definition
+`remote_binary = ".local/bin/remote-agents"`. Its remote host must have its own definition
 with the same project/group names and valid remote paths. SSH transport uses the
 user's existing SSH configuration. No passwords travel in arguments.
 
@@ -83,11 +81,9 @@ Internal group launchers substitute the stable `{slot}` number; conversation
 identity never follows a shell's changed working directory.
 
 Slot commands, Perles commands, and credential environment files are trusted
-local executable configuration. Inspect imports and unfamiliar registries before
-using them. The importer sources existing shell profiles but emits only an
-allowlist of non-secret settings. It never overwrites existing registry entries
-or removes the source profiles. Credentials remain referenced, not copied into
-TOML or conversation records.
+local executable configuration. Inspect unfamiliar registries before using them.
+Credentials remain referenced in private files, never copied into TOML or
+conversation records. Create the registry directly using the example above.
 
 ## Identity and persistence
 
@@ -95,7 +91,7 @@ Each group has an independent owner session with ezm's existing slot registry,
 mode cache and popup processes. Its canonical window is linked into the visible
 project session. The linked window's owner metadata routes ezm bindings to the
 correct group. These are shared tmux windows, not nested terminal multiplexers.
-Helper/owner sessions may appear in raw `tmux list-sessions`; `ezm status` reports
+Helper/owner sessions may appear in raw `tmux list-sessions`; `remote-agents status` reports
 the project hierarchy instead.
 
 Conversation records live under `$XDG_STATE_HOME/ez-mux/conversations`, falling
@@ -106,7 +102,7 @@ failure. A stale/deleted conversation, changed directory, or failed API request
 fails visibly rather than silently creating another conversation. Use `new` to
 explicitly choose a replacement.
 
-The importer can reference an existing legacy owner session. On first open, ezm
+A group can reference an existing owner session using its `owner` field. On first open, ezm
 checks its slot worktrees before adopting its window. Adoption does not respawn
 live panes. Existing agent processes retain their current conversation; future
 launches use the unified adapter. Conversation records must be adopted from known
@@ -117,10 +113,12 @@ when its work is finished, edit its configuration, and reopen. Opening one group
 never rebuilds another group or restarts the backend. Service `start` is
 idempotent; readiness checks use authenticated OpenCode v2 `/api/info`.
 
-## Legacy compatibility
+## Layout engine boundary
 
 Bare `ezm`, `ezm repair`, `ezm preset`, and `ezm kill` retain their original cwd-
-based semantics. Use named lifecycle commands for grouped workspaces. Native
+based semantics. Use remote-agents for named project lifecycle. The ezm parser does not accept
+project lifecycle commands. The orchestrator calls a pinned sibling ezm for
+layout operations; callbacks always target that layout binary. Native
 shared-server agent launches now use the v2 API and `--server`/`--session`, with
 stable legacy directory/slot conversation keys. Slot appearance uses
 `OPENCODE_CLI_CONFIG_CONTENT`; it no longer overrides server config directories.
@@ -129,5 +127,14 @@ stable legacy directory/slot conversation keys. Slot appearance uses
 
 `tests/opencode_v2.rs` covers conversation reuse, explicit replacement, API failure
 and concurrent open. `tests/project_workspaces.rs` uses a private real tmux server
-to cover independent groups, stable reopen and scoped close. Profile import tests
-prove re-import does not overwrite configuration or serialize credentials.
+to cover independent groups, stable reopen and scoped close.
+
+## Installation boundary
+
+Install both native binaries from the same source revision. remote-agents owns
+SSH, project definitions, service requests and saved conversations. ezm owns
+layout/slots/modes and accepts a generic agent command; it does not depend on the
+workspace module. Missing companion ezm fails before service or tmux mutations.
+The project registry belongs to remote-agents; conversation state stays at the
+existing ez-mux state path to preserve already-running sessions. Backend services
+remain independently supervised by systemd.

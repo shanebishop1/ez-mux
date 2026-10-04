@@ -165,6 +165,31 @@ impl FoundationHarness {
         })
     }
 
+    pub fn run_remote_agents_in_dir(
+        &self,
+        project_dir: &Path,
+        args: &[&str],
+        env_overrides: &[(&str, &str)],
+        opener_exit_code: i32,
+    ) -> Result<CmdOutput, String> {
+        let template = self.ezm_command(project_dir, &[], env_overrides, opener_exit_code)?;
+        let mut command = Command::new(self.ezm_bin.with_file_name("remote-agents"));
+        command.args(args).current_dir(project_dir);
+        for (key, value) in template.get_envs() {
+            if let Some(value) = value {
+                command.env(key, value);
+            } else {
+                command.env_remove(key);
+            }
+        }
+        let output = command.output().map_err(|e| e.to_string())?;
+        Ok(CmdOutput {
+            exit_code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
+
     pub fn spawn_ezm(
         &self,
         args: &[&str],

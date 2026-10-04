@@ -51,14 +51,14 @@ pub struct Slot {
 }
 
 pub fn config_path() -> Result<PathBuf, AppError> {
-    if let Some(path) = std::env::var_os("EZM_PROJECTS_CONFIG") {
+    if let Some(path) = std::env::var_os("REMOTE_AGENTS_CONFIG") {
         return Ok(path.into());
     }
     let root = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
         .ok_or_else(|| error("HOME or XDG_CONFIG_HOME is required"))?;
-    Ok(root.join("ez-mux/projects.toml"))
+    Ok(root.join("remote-agents/projects.toml"))
 }
 
 pub fn load() -> Result<Registry, AppError> {

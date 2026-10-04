@@ -2,18 +2,12 @@
 mod backend;
 mod commands;
 mod config;
-mod import;
 mod runtime;
 use crate::app::AppError;
 use clap::Subcommand;
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum WorkspaceCommand {
-    /// Import trusted existing profiles without overwriting registry entries.
-    ImportRemoteAgents {
-        #[arg(long)]
-        server: bool,
-    },
     /// Ensure a project/group exists and reconnect without creating a conversation.
     Open {
         project: String,

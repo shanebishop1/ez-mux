@@ -1,11 +1,10 @@
 use super::config::{Group, Project, shell_quote};
 use crate::{
     app::AppError,
-    config::RuntimeContext,
     opencode::{error, stable_key},
     session::{ProcessTmuxClient, TmuxClient},
 };
-use std::process::Command;
+use std::{os::unix::fs::PermissionsExt, process::Command};
 
 pub(super) fn tmux(args: &[&str]) -> Result<String, AppError> {
     let out = Command::new("tmux")
@@ -62,6 +61,12 @@ pub(super) fn open(
 ) -> Result<(), AppError> {
     let (parent, owner) = identities(name, project, group_name);
     let lock = workspace_lock(name, project)?;
+    if exists(&parent) && option(&parent, "@ezm_workspace_project")? != name {
+        return Err(error("Project session identity conflict"));
+    }
+    if exists(&owner) {
+        validate_owner(name, group_name, group, &owner)?;
+    }
     for (index, slot) in group.slots.iter().enumerate() {
         if slot.require_existing && slot.command.is_none() {
             crate::opencode::require_saved(
@@ -115,9 +120,6 @@ pub(super) fn open(
     tmux(&["set-window-option", "-t", &window, "allow-rename", "off"])?;
     tmux(&["rename-window", "-t", &window, group_name])?;
     let created_parent = !exists(&parent);
-    if !created_parent && option(&parent, "@ezm_workspace_project")? != name {
-        return Err(error("Project session identity conflict"));
-    }
     if created_parent {
         tmux(&[
             "new-session",
@@ -146,10 +148,10 @@ pub(super) fn open(
         tmux(&["kill-window", "-t", &format!("{parent}:starting")])?;
     }
     ensure_perles(project, &parent, &owner)?;
-    crate::session::install_workspace_keybinds()?;
+    layout(&["workspace-bindings"])?;
     tmux(&["select-window", "-t", &format!("{parent}:{window}")])?;
     if let Some(slot) = slot {
-        crate::session::focus_slot(&owner, slot, &ProcessTmuxClient)?;
+        layout(&["focus", "--session", &owner, "--slot", &slot.to_string()])?;
     }
     drop(lock);
     if attach {
@@ -232,7 +234,7 @@ pub(super) fn close(
             if exists(&parent) {
                 let _ = tmux(&["unlink-window", "-k", "-t", &format!("{parent}:{window}")]);
             }
-            crate::session::teardown_session(&owner, &ProcessTmuxClient)?;
+            layout(&["teardown", "--session", &owner])?;
         }
     }
     if group.is_none() && exists(&parent) {
@@ -272,7 +274,7 @@ fn ensure_owner(
             set(owner, "@ezm_workspace_project", name)?;
             set(owner, "@ezm_workspace_group", group_name)?;
             let launch = format!(
-                "EZM_PROJECTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
+                "REMOTE_AGENTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
                 shell_quote(&registry.display().to_string()),
                 shell_quote(&executable.display().to_string()),
                 shell_quote(name),
@@ -299,32 +301,31 @@ fn ensure_owner(
             )?;
             // Each helper resolves its own trusted registry and credentials, never
             // the tmux server's global environment or a different project's PATH.
-            let context = RuntimeContext {
-                agent_command: Some(format!(
-                    "EZM_PROJECTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
-                    shell_quote(&registry.display().to_string()),
-                    shell_quote(&executable.display().to_string()),
-                    shell_quote(name),
-                    shell_quote(group_name)
-                )),
-                ..RuntimeContext::default()
-            };
-            ProcessTmuxClient
-                .reconcile_session_runtime_context(owner, &context.session_context())?;
-            ProcessTmuxClient.bootstrap_default_layout(
+            let launch = agent_launch(&registry, &executable, name, group_name);
+            layout(&[
+                "group-layout",
+                "--session",
                 owner,
-                &project.root,
-                u8::try_from(group.slots.len()).map_err(|e| error(e.to_string()))?,
-                false,
-            )?;
+                "--directory",
+                &project.root.display().to_string(),
+                "--panes",
+                &group.slots.len().to_string(),
+                "--agent-command",
+                &launch,
+            ])?;
             Ok::<(), AppError>(())
         })();
         if let Err(e) = result {
-            let _ = crate::session::teardown_session(owner, &ProcessTmuxClient);
+            let _ = layout(&["teardown", "--session", owner]);
             return Err(e);
         }
     }
 
+    set(
+        owner,
+        "@ezm_runtime_agent_command",
+        &agent_launch(&registry, &executable, name, group_name),
+    )?;
     Ok(())
 }
 
@@ -382,6 +383,53 @@ fn validate_owner(
                 ));
             }
         }
+    }
+    Ok(())
+}
+
+fn agent_launch(
+    registry: &std::path::Path,
+    executable: &std::path::Path,
+    name: &str,
+    group: &str,
+) -> String {
+    format!(
+        "REMOTE_AGENTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
+        shell_quote(&registry.display().to_string()),
+        shell_quote(&executable.display().to_string()),
+        shell_quote(name),
+        shell_quote(group)
+    )
+}
+
+pub(super) fn layout_binary() -> Result<std::path::PathBuf, AppError> {
+    let binary = std::env::current_exe()
+        .map_err(|e| error(e.to_string()))?
+        .with_file_name("ezm");
+    if !binary.is_file()
+        || binary
+            .metadata()
+            .map_or(true, |m| m.permissions().mode() & 0o111 == 0)
+    {
+        return Err(error(
+            "Missing companion ezm layout binary; reinstall the pinned pair",
+        ));
+    }
+    Ok(binary)
+}
+fn layout(args: &[&str]) -> Result<(), AppError> {
+    let binary = layout_binary()?;
+    let output = Command::new(&binary)
+        .env("EZM_BIN", &binary)
+        .arg("__internal")
+        .args(args)
+        .output()
+        .map_err(|e| error(e.to_string()))?;
+    if !output.status.success() {
+        return Err(error(format!(
+            "ezm layout operation failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
     }
     Ok(())
 }

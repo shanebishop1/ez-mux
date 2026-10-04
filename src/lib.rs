@@ -8,7 +8,6 @@ pub mod logging;
 mod opencode;
 mod process;
 pub mod session;
-mod workspace;
 
 use std::io::Write;
 

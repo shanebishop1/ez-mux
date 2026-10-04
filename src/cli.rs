@@ -62,8 +62,6 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
-    #[command(flatten)]
-    Workspace(crate::workspace::WorkspaceCommand),
     /// Kill the current project session and helper processes.
     Kill,
 
@@ -96,14 +94,18 @@ pub enum LogsCommand {
 
 #[derive(Debug, Subcommand, PartialEq, Eq)]
 pub enum InternalCommand {
-    WorkspaceAgent {
+    /// Bootstrap a validated group using explicit layout inputs.
+    GroupLayout {
         #[arg(long)]
-        project: String,
+        session: String,
         #[arg(long)]
-        group: String,
+        directory: std::path::PathBuf,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=5))]
+        panes: u8,
         #[arg(long)]
-        slot: u8,
+        agent_command: String,
     },
+    WorkspaceBindings,
     /// Open or resume a persisted v2 conversation.
     Opencode {
         #[arg(long)]

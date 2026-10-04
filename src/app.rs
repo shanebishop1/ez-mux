@@ -52,7 +52,6 @@ pub(crate) fn execute_with_opener(
     } = cli;
 
     let message = match command {
-        Some(Command::Workspace(command)) => crate::workspace::execute(command)?,
         None => {
             let (pane_count, runtime_context) =
                 resolve_launch_settings(env, os, panes.or(pane_shortcut))?;
@@ -249,11 +248,26 @@ fn execute_internal(
     runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     match command {
-        InternalCommand::WorkspaceAgent {
-            project,
-            group,
-            slot,
-        } => crate::workspace::agent(&project, &group, slot),
+        InternalCommand::GroupLayout {
+            session,
+            directory,
+            panes,
+            agent_command,
+        } => {
+            use session::TmuxClient;
+            let context = config::RuntimeContext {
+                agent_command: Some(agent_command),
+                ..config::RuntimeContext::default()
+            };
+            let tmux = session::ProcessTmuxClient;
+            tmux.reconcile_session_runtime_context(&session, &context.session_context())?;
+            tmux.bootstrap_default_layout(&session, &directory, panes, false)?;
+            Ok(String::new())
+        }
+        InternalCommand::WorkspaceBindings => {
+            session::install_workspace_keybinds()?;
+            Ok(String::new())
+        }
         InternalCommand::Opencode {
             server,
             directory,

@@ -3,7 +3,7 @@ use std::{fs, os::unix::fs::PermissionsExt, process::Command};
 use tempfile::TempDir;
 
 fn invoke(root: &TempDir, extra: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_ezm"))
+    Command::new(env!("CARGO_BIN_EXE_remote-agents"))
         .env("HOME", root.path())
         .env("XDG_STATE_HOME", root.path().join("state"))
         .env("EZM_OPENCODE_BIN", root.path().join("opencode"))

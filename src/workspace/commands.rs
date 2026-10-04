@@ -23,9 +23,7 @@ fn selected_group<'a>(
 }
 
 pub(super) fn execute(command: WorkspaceCommand) -> Result<String, AppError> {
-    if let WorkspaceCommand::ImportRemoteAgents { server } = command {
-        return super::import::run(server);
-    }
+    super::runtime::layout_binary()?;
     let registry = config::load()?;
     let (name, local) = match &command {
         WorkspaceCommand::Open { project, local, .. }
@@ -36,7 +34,6 @@ pub(super) fn execute(command: WorkspaceCommand) -> Result<String, AppError> {
         | WorkspaceCommand::Doctor { project, local }
         | WorkspaceCommand::Close { project, local, .. }
         | WorkspaceCommand::Stop { project, local } => (Some(project.as_str()), *local),
-        WorkspaceCommand::ImportRemoteAgents { .. } => unreachable!(),
         WorkspaceCommand::Status { project, local, .. } => (project.as_deref(), *local),
     };
     let Some(name) = name else {
@@ -80,7 +77,6 @@ fn dispatch(name: &str, project: &Project, command: WorkspaceCommand) -> Result<
             start(project)?;
             agent(name, group_name, slot)
         }
-        WorkspaceCommand::ImportRemoteAgents { .. } => unreachable!(),
         WorkspaceCommand::Open {
             project: name,
             group,
@@ -127,7 +123,10 @@ fn dispatch(name: &str, project: &Project, command: WorkspaceCommand) -> Result<
 }
 
 fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<String, AppError> {
-    let binary = project.remote_binary.as_deref().unwrap_or(".local/bin/ezm");
+    let binary = project
+        .remote_binary
+        .as_deref()
+        .unwrap_or(".local/bin/remote-agents");
     let (verb, name, group, slot, no_attach) = match command {
         WorkspaceCommand::Open {
             project,
@@ -164,7 +163,7 @@ fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<S
             ("close", project, group.as_deref(), None, true)
         }
         WorkspaceCommand::Stop { project, .. } => ("stop", project, None, None, true),
-        WorkspaceCommand::Status { .. } | WorkspaceCommand::ImportRemoteAgents { .. } => {
+        WorkspaceCommand::Status { .. } => {
             return Err(error("Missing remote project"));
         }
     };
@@ -202,7 +201,7 @@ fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<S
         .status()
         .map_err(|e| error(e.to_string()))?;
     if !status.success() {
-        return Err(error("Remote ezm operation failed"));
+        return Err(error("Remote project operation failed"));
     }
     Ok(String::new())
 }

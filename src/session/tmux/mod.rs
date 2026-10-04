@@ -43,7 +43,11 @@ mod teardown;
 mod worktree;
 mod zoom;
 
-pub(crate) fn validate_remote_ssh_authority(value: &str) -> Result<(), SessionError> {
+/// Validate a host or user@host SSH destination.
+///
+/// # Errors
+/// Returns an error for unsafe or malformed destinations.
+pub fn validate_remote_ssh_authority(value: &str) -> Result<(), SessionError> {
     remote_authority::parse_remote_ssh_authority(value).map(|_| ())
 }
 

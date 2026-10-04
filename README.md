@@ -125,3 +125,10 @@ See the [configuration reference](docs/configuration.md) for config paths, prece
 ## Development
 
 See [development and verification](docs/development.md) for prerequisites, commands, E2E evidence paths, and the architecture map.
+
+## Project orchestration
+
+For named projects, remote hosts, persistent agent conversations and subgroup
+windows, use the companion `remote-agents` binary. `ezm` remains the terminal
+layout engine. Build the pair with `cargo build --release --locked --bins` and
+install both binaries together. See [project workspaces](docs/workspaces.md).
