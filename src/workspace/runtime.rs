@@ -1,8 +1,8 @@
 use super::config::{Group, Project, shell_quote};
 use crate::{
     app::AppError,
-    opencode::{error, stable_key},
     session::{ProcessTmuxClient, TmuxClient},
+    workspace::state::{error, stable_key},
 };
 use std::process::Command;
 
@@ -46,9 +46,9 @@ pub(super) fn set(target: &str, key: &str, value: &str) -> Result<(), AppError> 
 
 pub(super) fn workspace_lock(name: &str, project: &Project) -> Result<std::fs::File, AppError> {
     let (parent, _) = identities(name, project, "");
-    let state = crate::opencode::state_root()?.join("workspaces");
-    crate::opencode::private_directory(&state)?;
-    crate::opencode::locked_file(&state.join(format!("{parent}.lock")))
+    let state = super::state::state_root()?.join("workspaces");
+    super::state::private_directory(&state)?;
+    super::state::locked_file(&state.join(format!("{parent}.lock")))
 }
 
 pub(super) fn open(
@@ -67,17 +67,6 @@ pub(super) fn open(
     if exists(&owner) {
         validate_owner(name, group_name, group, &owner)?;
     }
-    for (index, slot) in group.slots.iter().enumerate() {
-        if slot.require_existing && slot.command.is_none() {
-            crate::opencode::require_saved(
-                project
-                    .server
-                    .as_deref()
-                    .ok_or_else(|| error("Missing server"))?,
-                &format!("{name}/{group_name}/{}", index + 1),
-            )?;
-        }
-    }
     if !project.root.is_dir() || group.slots.iter().any(|s| !s.directory.is_dir()) {
         return Err(error(
             "Project or slot directory is missing on execution host",
@@ -88,7 +77,6 @@ pub(super) fn open(
             return Err(error("Slot is not configured in this group"));
         }
     }
-    super::backend::check(project)?;
     ensure_owner(name, project, group_name, group, &owner)?;
     let window = option(&owner, "@ezm_canonical_window_id")?;
     if window.is_empty() {
@@ -251,9 +239,7 @@ fn ensure_owner(
     owner: &str,
 ) -> Result<(), AppError> {
     let executable = std::env::current_exe().map_err(|e| error(e.to_string()))?;
-    let registry = super::config::config_path()?
-        .canonicalize()
-        .map_err(|e| error(e.to_string()))?;
+    let registry = &project.manifest;
     if exists(owner) {
         validate_owner(name, group_name, group, owner)?;
         let saved = option(owner, "@ezm_explicit_worktrees")?;
@@ -273,13 +259,7 @@ fn ensure_owner(
             set(owner, "@ezm_explicit_worktrees", &expected)?;
             set(owner, "@ezm_workspace_project", name)?;
             set(owner, "@ezm_workspace_group", group_name)?;
-            let launch = format!(
-                "EZM_PROJECTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
-                shell_quote(&registry.display().to_string()),
-                shell_quote(&executable.display().to_string()),
-                shell_quote(name),
-                shell_quote(group_name)
-            );
+            let launch = agent_launch(registry, &executable, name, group_name);
             set(owner, "@ezm_runtime_agent_command", &launch)?;
         } else if saved != expected {
             return Err(error(
@@ -301,9 +281,9 @@ fn ensure_owner(
             )?;
             // Each helper resolves its own trusted registry and credentials, never
             // the tmux server's global environment or a different project's PATH.
-            let launch = agent_launch(&registry, &executable, name, group_name);
+            let launch = agent_launch(registry, &executable, name, group_name);
             let managed =
-                project.server.is_some() || group.slots.iter().any(|s| s.command.is_some());
+                group.command.is_some() || group.slots.iter().any(|s| s.command.is_some());
             let mut args = vec![
                 "group-layout".to_owned(),
                 "--session".into(),
@@ -328,11 +308,11 @@ fn ensure_owner(
         }
     }
 
-    if project.server.is_some() || group.slots.iter().any(|s| s.command.is_some()) {
+    if group.command.is_some() || group.slots.iter().any(|s| s.command.is_some()) {
         set(
             owner,
             "@ezm_runtime_agent_command",
-            &agent_launch(&registry, &executable, name, group_name),
+            &agent_launch(registry, &executable, name, group_name),
         )?;
     }
     Ok(())
@@ -403,14 +383,13 @@ fn validate_owner(
 fn agent_launch(
     registry: &std::path::Path,
     executable: &std::path::Path,
-    name: &str,
+    _name: &str,
     group: &str,
 ) -> String {
     format!(
-        "EZM_PROJECTS_CONFIG={} {} __internal workspace-agent --project {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
-        shell_quote(&registry.display().to_string()),
+        "{} __internal workspace-agent --file {} --group {} --slot {{slot}}; exec \"${{SHELL:-/bin/sh}}\" -l",
         shell_quote(&executable.display().to_string()),
-        shell_quote(name),
+        shell_quote(&registry.display().to_string()),
         shell_quote(group)
     )
 }

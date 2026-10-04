@@ -314,8 +314,8 @@ fn agent_mode_uses_shared_server_attach_url_and_mapped_dir() {
     )
     .expect("agent command should resolve");
 
-    assert!(command.contains("__internal opencode --server 'http://127.0.0.1:4096'"));
-    assert!(command.contains("--directory '/srv/remotes/alpha/worktrees/feature-x'"));
+    assert!(command.contains("opencode --server 'http://127.0.0.1:4096'"));
+    assert!(command.contains("'/srv/remotes/alpha/worktrees/feature-x'"));
 }
 
 #[test]
@@ -331,7 +331,7 @@ fn agent_mode_uses_inherited_password_without_password_argv() {
     )
     .expect("agent command should resolve");
 
-    assert!(command.contains("__internal opencode"));
+    assert!(command.contains("opencode --server"));
     assert!(command.contains("unset OPENCODE_SERVER_URL;"));
     assert!(!command.contains("unset OPENCODE_SERVER_PASSWORD"));
     assert!(!command.contains("secret-token"));
@@ -413,7 +413,7 @@ fn agent_mode_uses_remote_path_mapping_without_operator() {
     )
     .expect("agent mode should resolve");
 
-    assert!(command.contains("__internal opencode --server 'http://127.0.0.1:4096'"));
+    assert!(command.contains("opencode --server 'http://127.0.0.1:4096'"));
 }
 
 #[test]
@@ -469,7 +469,10 @@ fn agent_mode_uses_configured_override_command_when_present() {
     )
     .expect("agent override launch should resolve");
 
-    assert_eq!(command, "exec claude || exec \"${SHELL:-/bin/sh}\" -l");
+    assert_eq!(
+        command,
+        "export EZM_SLOT=1; exec claude || exec \"${SHELL:-/bin/sh}\" -l"
+    );
 }
 
 #[test]

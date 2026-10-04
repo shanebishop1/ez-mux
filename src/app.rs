@@ -52,7 +52,7 @@ pub(crate) fn execute_with_opener(
     } = cli;
 
     let message = match command {
-        Some(Command::Workspace(command)) => crate::workspace::execute(command)?,
+        Some(Command::Workspace { file, command }) => crate::workspace::execute(&file, command)?,
         None => {
             let (pane_count, runtime_context) =
                 resolve_launch_settings(env, os, panes.or(pane_shortcut))?;
@@ -249,11 +249,9 @@ fn execute_internal(
     runtime_context: &config::RuntimeContext,
 ) -> Result<String, AppError> {
     match command {
-        InternalCommand::WorkspaceAgent {
-            project,
-            group,
-            slot,
-        } => crate::workspace::agent(&project, &group, slot),
+        InternalCommand::WorkspaceAgent { file, group, slot } => {
+            crate::workspace::agent(&file, &group, slot)
+        }
         InternalCommand::GroupLayout {
             session,
             directory,
@@ -273,27 +271,6 @@ fn execute_internal(
         InternalCommand::WorkspaceBindings => {
             session::install_workspace_keybinds()?;
             Ok(String::new())
-        }
-        InternalCommand::Opencode {
-            server,
-            directory,
-            key,
-            new,
-            prepare_only,
-            adopt,
-            require_existing,
-        } => {
-            if let Some(id) = adopt {
-                return crate::opencode::adopt(&server, &directory, &key, &id);
-            }
-            if require_existing && !new {
-                crate::opencode::require_saved(&server, &key)?;
-            }
-            if prepare_only {
-                crate::opencode::session(&server, &directory, &key, new)
-            } else {
-                crate::opencode::connect(&server, &directory, &key, new)
-            }
         }
         InternalCommand::Swap { session, slot } => {
             let tmux = session::ProcessTmuxClient;
@@ -592,3 +569,29 @@ fn format_slot_ids(slot_ids: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn workspace_agent_launch(
+    directory: &std::path::Path,
+    slot: u8,
+    runtime: &config::RuntimeContext,
+) -> Result<String, AppError> {
+    let shared_server = shared_server_attach_config(&runtime.remote);
+    let context = session::SlotModeLaunchContext {
+        remote_context: session::RemoteModeContext {
+            remote_path: remote_path_for_routing(&runtime.remote),
+            remote_server_url: runtime.remote.remote_server_url.value.as_deref(),
+            use_tssh: runtime.remote.use_tssh.value,
+            use_mosh: runtime.remote.use_mosh.value,
+        },
+        shared_server: shared_server.as_ref(),
+        agent_command: runtime.agent_command.as_deref(),
+        opencode_theme: runtime.opencode_theme.theme_for_slot(slot),
+    };
+    Ok(session::launch_command_for_mode(
+        slot,
+        session::SlotMode::Agent,
+        &session::mode_launch_contract(session::SlotMode::Agent).launch_command,
+        &directory.display().to_string(),
+        context,
+    )?)
+}

@@ -1,12 +1,11 @@
-use super::backend::{check, credentials, health};
 use super::{
     WorkspaceCommand,
-    config::{self, Group, Project, shell_quote},
+    config::{self, Group, Project},
     runtime,
+    state::error,
 };
-use crate::{app::AppError, opencode::error};
-use std::{fmt::Write as _, process::Command};
-
+use crate::app::AppError;
+use std::{fmt::Write as _, path::Path, process::Command};
 fn selected_group<'a>(
     project: &'a Project,
     name: Option<&str>,
@@ -22,183 +21,56 @@ fn selected_group<'a>(
         .ok_or_else(|| error("Unknown group"))
 }
 
-pub(super) fn execute(command: WorkspaceCommand) -> Result<String, AppError> {
-    let registry = config::load()?;
-    let (name, local) = match &command {
-        WorkspaceCommand::Open { project, local, .. }
-        | WorkspaceCommand::Attach { project, local, .. }
-        | WorkspaceCommand::New { project, local, .. }
-        | WorkspaceCommand::Adopt { project, local, .. }
-        | WorkspaceCommand::Doctor { project, local }
-        | WorkspaceCommand::Close { project, local, .. } => (Some(project.as_str()), *local),
-        WorkspaceCommand::Status { project, local, .. } => (project.as_deref(), *local),
-    };
-    let Some(name) = name else {
-        if !matches!(command, WorkspaceCommand::Status { all: true, .. }) {
-            return Err(error("Specify a project or --all"));
-        }
-        let mut lines = Vec::new();
-        for name in registry.projects.keys() {
-            match execute(WorkspaceCommand::Status {
-                project: Some(name.clone()),
-                all: false,
-                local,
-            }) {
-                Ok(line) => lines.push(line),
-                Err(e) => lines.push(format!("{name}: {e}")),
-            }
-        }
-        return Ok(lines.join("\n"));
-    };
-    let owned_name = name.to_owned();
-    let name = owned_name.as_str();
-    let project = registry
-        .projects
-        .get(name)
-        .ok_or_else(|| error(format!("Unknown project: {name}")))?;
-    if let Some(host) = project.host.as_deref().filter(|_| !local) {
-        return remote(host, project, &command);
-    }
-    let project = config::resolve(name, project)?;
-    dispatch(name, &project, command)
-}
-
-fn dispatch(name: &str, project: &Project, command: WorkspaceCommand) -> Result<String, AppError> {
+pub(super) fn execute(file: &Path, command: WorkspaceCommand) -> Result<String, AppError> {
+    let project = config::load(file)?;
+    let name = &project.name;
     match command {
-        WorkspaceCommand::Attach { group, slot, .. } => {
-            let (group_name, _) = selected_group(project, group.as_deref())?;
-            check(project)?;
-            agent(name, group_name, slot)
-        }
         WorkspaceCommand::Open {
-            project: name,
             group,
             slot,
             no_attach,
-            ..
         } => {
-            let (group_name, group) = selected_group(project, group.as_deref())?;
-            runtime::open(&name, project, group_name, group, slot, !no_attach)?;
+            let (group_name, group) = selected_group(&project, group.as_deref())?;
+            runtime::open(name, &project, group_name, group, slot, !no_attach)?;
             Ok(format!("{name}/{group_name}: ready"))
         }
-        WorkspaceCommand::New {
-            project: name,
-            group,
-            slot,
-            ..
-        } => new_conversation(project, &name, group.as_deref(), slot, None),
-        WorkspaceCommand::Adopt {
-            project: name,
-            group,
-            slot,
-            session,
-            ..
-        } => new_conversation(project, &name, group.as_deref(), slot, Some(&session)),
-        WorkspaceCommand::Status { .. } => status(name, project, false),
-        WorkspaceCommand::Doctor { .. } => status(name, project, true),
-        WorkspaceCommand::Close { group, .. } => {
+        WorkspaceCommand::Status => status(name, &project),
+        WorkspaceCommand::Close { group } => {
             if let Some(group) = group.as_deref() {
-                selected_group(project, Some(group))?;
+                selected_group(&project, Some(group))?;
             }
-            runtime::close(name, project, group.as_deref())?;
-            Ok(format!(
-                "{name}: views closed; backend and conversations retained"
-            ))
+            let _lock = runtime::close(name, &project, group.as_deref())?;
+            Ok(format!("{name}: terminal views closed"))
         }
     }
 }
 
-fn remote(host: &str, project: &Project, command: &WorkspaceCommand) -> Result<String, AppError> {
-    let binary = project.remote_binary.as_deref().unwrap_or(".local/bin/ezm");
-    let (verb, name, group, slot, no_attach) = match command {
-        WorkspaceCommand::Open {
-            project,
-            group,
-            slot,
-            no_attach,
-            ..
-        } => ("open", project, group.as_deref(), *slot, *no_attach),
-        WorkspaceCommand::Attach {
-            project,
-            group,
-            slot,
-            ..
-        } => ("attach", project, group.as_deref(), Some(*slot), false),
-        WorkspaceCommand::New {
-            project,
-            group,
-            slot,
-            ..
-        } => ("new", project, group.as_deref(), Some(*slot), false),
-        WorkspaceCommand::Adopt {
-            project,
-            group,
-            slot,
-            ..
-        } => ("adopt", project, group.as_deref(), Some(*slot), true),
-        WorkspaceCommand::Status {
-            project: Some(project),
-            ..
-        } => ("status", project, None, None, true),
-        WorkspaceCommand::Doctor { project, .. } => ("doctor", project, None, None, true),
-        WorkspaceCommand::Close { project, group, .. } => {
-            ("close", project, group.as_deref(), None, true)
-        }
-        WorkspaceCommand::Status { .. } => {
-            return Err(error("Missing remote project"));
-        }
-    };
-    let mut args = vec![
-        binary.to_owned(),
-        verb.into(),
-        name.clone(),
-        "--local".into(),
-    ];
-    if let WorkspaceCommand::Adopt { session, .. } = command {
-        args.extend(["--session".into(), session.clone()]);
+pub(super) fn agent(file: &Path, group_name: &str, slot_id: u8) -> Result<String, AppError> {
+    let project = config::load(file)?;
+    let (_, group) = selected_group(&project, Some(group_name))?;
+    let slot = group
+        .slots
+        .get(usize::from(slot_id).wrapping_sub(1))
+        .ok_or_else(|| error("Slot is not configured in this group"))?;
+    let mut settings = config::settings(&project)?;
+    if let Some(command) = slot.command.as_ref().or(group.command.as_ref()) {
+        settings.agent_command = Some(command.clone());
     }
-    if let Some(group) = group {
-        args.extend(["--group".into(), group.into()]);
-    }
-    if let Some(slot) = slot {
-        args.extend(["--slot".into(), slot.to_string()]);
-    }
-    if no_attach && verb == "open" {
-        args.push("--no-attach".into());
-    }
-    let loaded = crate::config::load_config(
-        &crate::config::ProcessEnv,
-        crate::config::OperatingSystem::current(),
-    )?;
-    let settings =
-        crate::config::resolve_runtime_context(&crate::config::ProcessEnv, &loaded.values)?;
-    let script = args
-        .iter()
-        .map(|s| shell_quote(s))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let interactive = (verb == "open" && !no_attach) || verb == "attach";
-    let status = crate::session::workspace_remote_command(
-        host,
-        &script,
-        settings.remote.use_tssh.value,
-        settings.remote.use_mosh.value,
-        interactive,
-    )?
-    .status()
-    .map_err(|e| error(e.to_string()))?;
+    let command = crate::app::workspace_agent_launch(&slot.directory, slot_id, &settings)?;
+    let status = Command::new("sh")
+        .args(["-c", &command])
+        .env("EZM_SLOT", slot_id.to_string())
+        .current_dir(&slot.directory)
+        .status()
+        .map_err(|e| error(e.to_string()))?;
     if !status.success() {
-        return Err(error("Remote project operation failed"));
+        return Err(error("Slot command exited unsuccessfully"));
     }
     Ok(String::new())
 }
 
-fn status(name: &str, project: &Project, doctor: bool) -> Result<String, AppError> {
-    let api = health(project);
-    let mut text = format!(
-        "{name}: API {}",
-        api.as_ref().map_or_else(ToString::to_string, Clone::clone)
-    );
+fn status(name: &str, project: &Project) -> Result<String, AppError> {
+    let mut text = name.to_owned();
     for (group_name, group) in &project.groups {
         let (_, owner) = runtime::identities(name, project, group_name);
         let running = runtime::exists(&owner);
@@ -232,137 +104,5 @@ fn status(name: &str, project: &Project, doctor: bool) -> Result<String, AppErro
             );
         }
     }
-    if doctor {
-        if !project.root.is_dir()
-            || project
-                .groups
-                .values()
-                .flat_map(|g| &g.slots)
-                .any(|s| !s.directory.is_dir())
-        {
-            return Err(error(format!("{text}\nMissing project/slot directory")));
-        }
-        api.map_err(|_| error(text.clone()))?;
-    }
     Ok(text)
-}
-fn agent_command(
-    project: &Project,
-    name: &str,
-    group: &str,
-    slot: u8,
-    directory: &str,
-) -> Result<Command, AppError> {
-    let server = project
-        .server
-        .as_deref()
-        .ok_or_else(|| error("Configure an OpenCode server URL or a slot command"))?;
-    let mut command = Command::new(std::env::current_exe().map_err(|e| error(e.to_string()))?);
-    command.envs(credentials(project)?);
-    if let Some(binary) = &project.opencode_binary {
-        command.env("EZM_OPENCODE_BIN", binary);
-    }
-    command.args([
-        "__internal",
-        "opencode",
-        "--server",
-        server,
-        "--directory",
-        directory,
-        "--key",
-        &format!("{name}/{group}/{slot}"),
-    ]);
-    Ok(command)
-}
-pub(super) fn agent(name: &str, group_name: &str, slot_id: u8) -> Result<String, AppError> {
-    let registry = config::load()?;
-    let owned_name = name.to_owned();
-    let name = owned_name.as_str();
-    let project = registry
-        .projects
-        .get(name)
-        .ok_or_else(|| error("Unknown project"))?;
-    let resolved = config::resolve(name, project)?;
-    let project = &resolved;
-    let (_, group) = selected_group(project, Some(group_name))?;
-    let slot = group
-        .slots
-        .get(usize::from(slot_id).wrapping_sub(1))
-        .ok_or_else(|| error("Slot is not configured in this group"))?;
-    let mut launch = agent_command(
-        project,
-        name,
-        group_name,
-        slot_id,
-        &slot.directory.display().to_string(),
-    );
-    let settings = config::settings(project)?;
-    let inherited = if project.server.is_none() {
-        settings.agent_command.as_ref()
-    } else {
-        None
-    };
-    let status = if let Some(command) = slot.command.as_ref().or(inherited) {
-        Command::new("sh")
-            .args(["-c", &command.replace("{slot}", &slot_id.to_string())])
-            .current_dir(&slot.directory)
-            .status()
-    } else {
-        let cmd = launch.as_mut().map_err(|e| error(e.to_string()))?;
-        if slot.require_existing {
-            cmd.arg("--require-existing");
-        }
-        cmd.status()
-    }
-    .map_err(|e| error(e.to_string()))?;
-    if !status.success() {
-        return Err(error(
-            "Agent exited unsuccessfully; saved conversation retained",
-        ));
-    }
-    Ok(String::new())
-}
-
-fn new_conversation(
-    project: &Project,
-    name: &str,
-    group: Option<&str>,
-    slot: u8,
-    adopt: Option<&str>,
-) -> Result<String, AppError> {
-    let (group_name, group) = selected_group(project, group)?;
-    let selected = group
-        .slots
-        .get(usize::from(slot).wrapping_sub(1))
-        .ok_or_else(|| error("Slot is not configured"))?;
-    if selected.command.is_some() {
-        return Err(error("New conversation requires an OpenCode slot"));
-    }
-    let _lock = runtime::workspace_lock(name, project)?;
-    check(project)?;
-    let mut cmd = agent_command(
-        project,
-        name,
-        group_name,
-        slot,
-        &selected.directory.display().to_string(),
-    )?;
-    if let Some(id) = adopt {
-        cmd.args(["--adopt", id]);
-    } else {
-        cmd.arg("--new");
-    }
-    let out = cmd
-        .arg("--prepare-only")
-        .output()
-        .map_err(|e| error(e.to_string()))?;
-    if !out.status.success() {
-        return Err(error(
-            "Could not create new conversation; existing view retained",
-        ));
-    }
-    Ok(format!(
-        "{name}/{group_name}/{slot}: saved conversation {}; existing terminal unchanged (close/reopen to use it)",
-        String::from_utf8_lossy(&out.stdout).trim()
-    ))
 }

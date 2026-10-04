@@ -12,34 +12,24 @@ fn groups_are_independent_windows_and_reopen_preserves_panes() {
     fs::create_dir_all(root.join("build")).unwrap();
     fs::create_dir_all(root.join("review")).unwrap();
     let registry = h.work_dir().join("projects.toml");
-    fs::write(
-        &registry,
-        format!(
-            r"
-[projects.demo]
-root = {root:?}
-[projects.demo.groups.build]
-[[projects.demo.groups.build.slots]]
-directory = {build:?}
-command = 'echo ready >> {ready}; exec sleep 600'
-[projects.demo.groups.review]
-[[projects.demo.groups.review.slots]]
-directory = {review:?}
-command = 'echo ready >> {ready}; exec sleep 600'
-",
-            ready = h.work_dir().join("ready").display(),
-            root = root.to_str().unwrap(),
-            build = root.join("build").to_str().unwrap(),
-            review = root.join("review").to_str().unwrap()
-        ),
-    )
-    .unwrap();
-    let env = [("EZM_PROJECTS_CONFIG", registry.to_str().unwrap())];
+    fs::write(&registry, serde_json::json!({"name":"demo", "root":root,
+        "groups": {"build":{"slots":[{"directory":root.join("build"), "command":format!("echo ready >> {}; exec sleep 600", h.work_dir().join("ready").display())}]},
+        "review":{"slots":[{"directory":root.join("review"), "command":format!("echo ready >> {}; exec sleep 600", h.work_dir().join("ready").display())}]}}
+    }).to_string()).unwrap();
+    let env = [];
     for group in ["build", "review"] {
         let r = h
             .run_ezm_in_dir(
                 &root,
-                &["open", "demo", "--group", group, "--no-attach"],
+                &[
+                    "workspace",
+                    "--file",
+                    registry.to_str().unwrap(),
+                    "open",
+                    "--group",
+                    group,
+                    "--no-attach",
+                ],
                 &env,
                 0,
             )
@@ -62,7 +52,15 @@ command = 'echo ready >> {ready}; exec sleep 600'
     let r = h
         .run_ezm_in_dir(
             &root,
-            &["open", "demo", "--group", "build", "--no-attach"],
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "open",
+                "--group",
+                "build",
+                "--no-attach",
+            ],
             &env,
             0,
         )
@@ -116,7 +114,15 @@ command = 'echo ready >> {ready}; exec sleep 600'
     let conflict = h
         .run_ezm_in_dir(
             &root,
-            &["open", "demo", "--group", "build", "--no-attach"],
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "open",
+                "--group",
+                "build",
+                "--no-attach",
+            ],
             &env,
             0,
         )
@@ -221,7 +227,12 @@ command = 'echo ready >> {ready}; exec sleep 600'
         "mode switching respawned an agent"
     );
     let status = h
-        .run_ezm_in_dir(&root, &["status", "demo"], &env, 0)
+        .run_ezm_in_dir(
+            &root,
+            &["workspace", "--file", registry.to_str().unwrap(), "status"],
+            &env,
+            0,
+        )
         .unwrap();
     assert_eq!(status.exit_code, 0, "{}", status.stderr);
     assert!(status.stdout.contains("build") && status.stdout.contains("review"));
@@ -247,7 +258,19 @@ command = 'echo ready >> {ready}; exec sleep 600'
     ])
     .unwrap();
     let refused = h
-        .run_ezm_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
+        .run_ezm_in_dir(
+            &root,
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "close",
+                "--group",
+                "build",
+            ],
+            &env,
+            0,
+        )
         .unwrap();
     assert_ne!(refused.exit_code, 0);
     assert!(refused.stderr.contains("retains a live pane"));
@@ -269,7 +292,19 @@ command = 'echo ready >> {ready}; exec sleep 600'
     ])
     .unwrap();
     let refused = h
-        .run_ezm_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
+        .run_ezm_in_dir(
+            &root,
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "close",
+                "--group",
+                "build",
+            ],
+            &env,
+            0,
+        )
         .unwrap();
     assert_ne!(refused.exit_code, 0);
     assert!(refused.stderr.contains("different project/group"));
@@ -283,7 +318,19 @@ command = 'echo ready >> {ready}; exec sleep 600'
     ])
     .unwrap();
     let close = h
-        .run_ezm_in_dir(&root, &["close", "demo", "--group", "build"], &env, 0)
+        .run_ezm_in_dir(
+            &root,
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "close",
+                "--group",
+                "build",
+            ],
+            &env,
+            0,
+        )
         .unwrap();
     assert_eq!(close.exit_code, 0, "{}", close.stderr);
     let remaining = h
@@ -305,12 +352,18 @@ fn named_group_inherits_project_agent_and_theme_settings() {
     )
     .unwrap();
     let registry = h.work_dir().join("projects.toml");
-    fs::write(&registry, format!("[projects.demo]\nroot = {root:?}\n[[projects.demo.groups.main.slots]]\ndirectory = {root:?}\n", root=root.to_str().unwrap())).unwrap();
+    fs::write(&registry, serde_json::json!({"name":"demo", "root":root,"groups":{"main":{"slots":[{"directory":root}]}}}).to_string()).unwrap();
     let r = h
         .run_ezm_in_dir(
             &root,
-            &["open", "demo", "--no-attach"],
-            &[("EZM_PROJECTS_CONFIG", registry.to_str().unwrap())],
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "open",
+                "--no-attach",
+            ],
+            &[],
             0,
         )
         .unwrap();
@@ -358,15 +411,23 @@ fn named_project_without_slots_uses_normal_five_pane_discovery() {
     let registry = h.work_dir().join("projects.toml");
     fs::write(
         &registry,
-        format!(
-            "[projects.demo]\nroot = {root:?}\n",
-            root = root.to_str().unwrap()
-        ),
+        serde_json::json!({"name":"demo", "root":root}).to_string(),
     )
     .unwrap();
-    let env = [("EZM_PROJECTS_CONFIG", registry.to_str().unwrap())];
+    let env = [];
     let r = h
-        .run_ezm_in_dir(&root, &["open", "demo", "--no-attach"], &env, 0)
+        .run_ezm_in_dir(
+            &root,
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "open",
+                "--no-attach",
+            ],
+            &env,
+            0,
+        )
         .unwrap();
     assert_eq!(r.exit_code, 0, "{}", r.stderr);
     let sessions = h
@@ -381,7 +442,18 @@ fn named_project_without_slots_uses_normal_five_pane_discovery() {
         .unwrap();
     assert_eq!(panes.lines().count(), 5);
     let r = h
-        .run_ezm_in_dir(&root, &["open", "demo", "--no-attach"], &env, 0)
+        .run_ezm_in_dir(
+            &root,
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "open",
+                "--no-attach",
+            ],
+            &env,
+            0,
+        )
         .unwrap();
     assert_eq!(r.exit_code, 0, "{}", r.stderr);
     assert_eq!(

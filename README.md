@@ -72,11 +72,12 @@ Supported host operating systems are Linux and macOS. The feature-based minimum 
 
 `mosh` and `tssh` are not needed for local sessions. If both switches are enabled, `tssh` takes precedence. SSH credentials, keys, and host configuration remain the responsibility of the transport tool.
 
-## Named projects and groups
+## Workspace groups
 
-Use `ezm open PROJECT`, `ezm status --all`, and explicit `ezm new PROJECT` for
-uniform local/remote workspaces with independent subgroup windows and persistent
-OpenCode v2 conversations. See [workspace configuration and runbook](docs/workspaces.md).
+Use `ezm workspace --file /absolute/layout.json open` to compose independent
+subgroup windows from local worktree slots. Project destination routing and
+agent conversation management belong to external launchers. See the
+[workspace manifest and runbook](docs/workspaces.md).
 
 ## Quick start
 
@@ -125,11 +126,3 @@ See the [configuration reference](docs/configuration.md) for config paths, prece
 ## Development
 
 See [development and verification](docs/development.md) for prerequisites, commands, E2E evidence paths, and the architecture map.
-
-## Project workspaces
-
-`ezm open PROJECT` manages named workspaces locally or over SSH. The project
-orchestrator, layout engine and agent adapters are separate internal components
-of one executable. Backend deployment and supervision remain outside ezm. Named workspaces inherit
-the normal tool settings and discover worktrees unless explicit slots override them.
-See [project workspaces](docs/workspaces.md).

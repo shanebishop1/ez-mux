@@ -5,8 +5,6 @@ pub mod cli;
 pub mod config;
 pub mod exit_code;
 pub mod logging;
-mod opencode;
-mod process;
 pub mod session;
 mod workspace;
 

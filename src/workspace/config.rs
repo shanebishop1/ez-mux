@@ -1,27 +1,15 @@
-use crate::{app::AppError, opencode::error};
+use crate::{app::AppError, workspace::state::error};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 
-#[derive(Debug, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Registry {
-    pub projects: BTreeMap<String, Project>,
-}
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
+    pub name: String,
+    #[serde(skip)]
+    pub manifest: PathBuf,
     #[serde(default)]
     pub root: PathBuf,
-    #[serde(default)]
-    pub host: Option<String>,
-    #[serde(default)]
-    pub remote_binary: Option<String>,
-    #[serde(default)]
-    pub server: Option<String>,
-    #[serde(default)]
-    pub credentials: Option<PathBuf>,
-    #[serde(default)]
-    pub opencode_binary: Option<PathBuf>,
     #[serde(default)]
     pub perles: Option<Auxiliary>,
     #[serde(default)]
@@ -37,6 +25,8 @@ pub struct Auxiliary {
 #[serde(deny_unknown_fields)]
 pub struct Group {
     #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
     pub owner: Option<String>,
     #[serde(default)]
     pub slots: Vec<Slot>,
@@ -48,89 +38,55 @@ pub struct Group {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Slot {
-    #[serde(default)]
-    pub require_existing: bool,
     pub directory: PathBuf,
     #[serde(default)]
     pub command: Option<String>,
 }
 
-pub fn config_path() -> Result<PathBuf, AppError> {
-    if let Some(path) = std::env::var_os("EZM_PROJECTS_CONFIG") {
-        return Ok(path.into());
+pub fn load(file: &std::path::Path) -> Result<Project, AppError> {
+    let source = std::fs::read_to_string(file)
+        .map_err(|e| error(format!("Cannot read workspace manifest: {e}")))?;
+    let mut project: Project =
+        serde_json::from_str(&source).map_err(|_| error("Invalid workspace manifest JSON"))?;
+    identifier(&project.name)?;
+    if !project.root.is_absolute() {
+        return Err(error("Workspace root must be absolute"));
     }
-    let root = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .ok_or_else(|| error("HOME or XDG_CONFIG_HOME is required"))?;
-    Ok(root.join("ez-mux/projects.toml"))
-}
-
-pub fn load() -> Result<Registry, AppError> {
-    let path = config_path()?;
-    let source = std::fs::read_to_string(&path).map_err(|e| {
-        error(format!(
-            "Cannot read project registry {}: {e}",
-            path.display()
-        ))
-    })?;
-    let registry: Registry = toml::from_str(&source)
-        .map_err(|_| error("Invalid project registry TOML; see docs/workspaces.md"))?;
-    validate(&registry)?;
-    Ok(registry)
-}
-
-pub fn validate(registry: &Registry) -> Result<(), AppError> {
+    project.manifest = file.canonicalize().map_err(|e| error(e.to_string()))?;
     let mut owners = std::collections::BTreeSet::new();
-    for (name, project) in &registry.projects {
+    for (name, group) in &project.groups {
         identifier(name)?;
-        if let Some(host) = &project.host {
-            crate::session::validate_remote_ssh_authority(host)?;
-            continue;
-        }
-        if !project.root.is_absolute() {
-            return Err(error("Project roots must be absolute"));
-        }
-        if let Some(host) = &project.host {
-            crate::session::validate_remote_ssh_authority(host)?;
-        }
-        if let Some(url) = &project.server {
-            crate::config::validate_server_url(url, "project registry")?;
-        }
-        for (name, group) in &project.groups {
-            identifier(name)?;
-            if let Some(owner) = &group.owner {
-                identifier(owner)?;
-                if !owners.insert(owner) {
-                    return Err(error("An owner session cannot belong to multiple groups"));
-                }
+        if let Some(owner) = &group.owner {
+            identifier(owner)?;
+            if !owners.insert(owner) {
+                return Err(error("An owner cannot belong to multiple groups"));
             }
-            if name == "perles"
-                || group.slots.len() > 5
-                || group.panes.is_some_and(|p| !(1..=5).contains(&p))
-            {
-                return Err(error("Groups need 1..5 slots; perles is reserved"));
-            }
-            if !group.slots.is_empty()
-                && group
-                    .panes
-                    .is_some_and(|p| usize::from(p) > group.slots.len())
-            {
+        }
+        if name == "perles"
+            || group.slots.len() > 5
+            || group.panes.is_some_and(|n| !(1..=5).contains(&n))
+        {
+            return Err(error("Groups need 1..5 slots; perles is reserved"));
+        }
+        if !group.slots.is_empty()
+            && group
+                .panes
+                .is_some_and(|n| usize::from(n) > group.slots.len())
+        {
+            return Err(error(
+                "Explicit groups cannot request more panes than configured slots",
+            ));
+        }
+        let mut paths = std::collections::BTreeSet::new();
+        for slot in &group.slots {
+            if !slot.directory.is_absolute() || !paths.insert(&slot.directory) {
                 return Err(error(
-                    "Explicit groups cannot request more panes than configured slots",
+                    "Each group slot needs a distinct absolute worktree path",
                 ));
             }
-            let mut paths = std::collections::BTreeSet::new();
-            for slot in &group.slots {
-                if !slot.directory.is_absolute() || !paths.insert(&slot.directory) {
-                    return Err(error(
-                        "Each group slot needs a distinct absolute worktree path",
-                    ));
-                }
-            }
         }
     }
-    Ok(())
+    resolve(&project.name, &project)
 }
 pub fn identifier(value: &str) -> Result<(), AppError> {
     if value.is_empty()
@@ -202,7 +158,6 @@ pub(super) fn resolve(name: &str, definition: &Project) -> Result<Project, AppEr
                 .map(|directory| Slot {
                     directory,
                     command: None,
-                    require_existing: false,
                 })
                 .collect();
         }

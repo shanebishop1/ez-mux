@@ -101,4 +101,4 @@ ezm creates one log file per launch. Default locations are `$XDG_STATE_HOME/ez-m
 ezm logs open-latest
 ```
 
-Named project/group definitions use a separate [workspace registry](workspaces.md).
+Local group layouts use an explicit [workspace manifest](workspaces.md).
