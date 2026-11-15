@@ -129,11 +129,17 @@ pub(super) fn open(
     ])?;
     tmux(&["set-window-option", "-t", &window, "allow-rename", "off"])?;
     tmux(&["rename-window", "-t", &window, group_name])?;
-    let created_parent = !exists(&parent);
-    if created_parent {
-        tmux(&[
+    // A new session always has a window. Remove that placeholder by ID: with
+    // allow-rename on, its shell can retitle it before the group is linked.
+    let placeholder = if exists(&parent) {
+        None
+    } else {
+        let id = tmux(&[
             "new-session",
             "-d",
+            "-P",
+            "-F",
+            "#{window_id}",
             "-s",
             &parent,
             "-n",
@@ -142,7 +148,8 @@ pub(super) fn open(
             &project.root.display().to_string(),
         ])?;
         set(&parent, "@ezm_workspace_project", name)?;
-    }
+        Some(id)
+    };
     let linked = tmux(&["list-windows", "-t", &parent, "-F", "#{window_id}"])?;
     if !linked.lines().any(|id| id == window) {
         tmux(&[
@@ -154,8 +161,8 @@ pub(super) fn open(
             "-a",
         ])?;
     }
-    if created_parent {
-        tmux(&["kill-window", "-t", &format!("{parent}:starting")])?;
+    if let Some(placeholder) = placeholder {
+        tmux(&["kill-window", "-t", &placeholder])?;
     }
     ensure_perles(project, &parent, &owner)?;
     layout(&["workspace-bindings"])?;
