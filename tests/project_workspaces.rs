@@ -487,3 +487,62 @@ fn named_project_without_slots_uses_normal_five_pane_discovery() {
             .unwrap()
     );
 }
+
+#[test]
+fn placeholder_window_is_removed_even_after_the_shell_renames_it() {
+    let _guard = serial_test_guard();
+    let h = FoundationHarness::new_for_suite("project-workspaces-placeholder").unwrap();
+    let root = h.work_dir().join("project");
+    fs::create_dir_all(&root).unwrap();
+    let registry = h.work_dir().join("projects.toml");
+    fs::write(
+        &registry,
+        serde_json::json!({"name":"demo", "root":root,
+            "groups": {"build":{"slots":[{"directory":root, "command":"exec sleep 600"}]}}})
+        .to_string(),
+    )
+    .unwrap();
+    // With allow-rename on, a shell can retitle the placeholder window before ezm
+    // removes it. The hook does the same, deterministically, inside new-session.
+    h.tmux_capture(&["new-session", "-d", "-s", "keeper"])
+        .unwrap();
+    h.tmux_capture(&[
+        "set-hook",
+        "-g",
+        "after-new-session",
+        "if-shell -F '#{==:#{window_name},starting}' \
+         'rename-window renamed-by-shell ; set-option -g @placeholder_renamed 1'",
+    ])
+    .unwrap();
+    let r = h
+        .run_ezm_in_dir(
+            &root,
+            &[
+                "workspace",
+                "--file",
+                registry.to_str().unwrap(),
+                "open",
+                "--group",
+                "build",
+                "--no-attach",
+            ],
+            &[],
+            0,
+        )
+        .unwrap();
+    assert_eq!(r.exit_code, 0, "{}", r.stderr);
+    // Prove the rename happened, so this cannot pass on the name-based kill.
+    let renamed = h
+        .tmux_capture(&["show-options", "-gqv", "@placeholder_renamed"])
+        .unwrap();
+    assert_eq!(renamed.trim(), "1");
+    let windows = h
+        .tmux_capture(&["list-windows", "-a", "-F", "#{session_name}|#{window_name}"])
+        .unwrap();
+    let parent: Vec<_> = windows
+        .lines()
+        .filter(|line| line.starts_with("ezm-project-demo-"))
+        .collect();
+    assert_eq!(parent.len(), 1, "{windows}");
+    assert!(parent[0].ends_with("|build"), "{windows}");
+}
