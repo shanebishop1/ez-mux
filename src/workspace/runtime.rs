@@ -20,6 +20,16 @@ pub(super) fn tmux(args: &[&str]) -> Result<String, AppError> {
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
+/// The window ID that `-P -F '#{window_id}'` printed first. An empty or other
+/// target must never reach `kill-window`: `-t ""` names the current window.
+fn window_id(output: &str) -> Result<String, AppError> {
+    let first = output.lines().next().unwrap_or_default().trim();
+    let digits = first.strip_prefix('@').unwrap_or_default();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(error(format!("tmux printed no window ID: {first:?}")));
+    }
+    Ok(first.to_owned())
+}
 pub(super) fn exists(name: &str) -> bool {
     Command::new("tmux")
         .args(["has-session", "-t", &format!("={name}")])
@@ -148,7 +158,7 @@ pub(super) fn open(
             &project.root.display().to_string(),
         ])?;
         set(&parent, "@ezm_workspace_project", name)?;
-        Some(id)
+        Some(window_id(&id)?)
     };
     let linked = tmux(&["list-windows", "-t", &parent, "-F", "#{window_id}"])?;
     if !linked.lines().any(|id| id == window) {
@@ -426,4 +436,26 @@ fn layout_in(args: &[&str], directory: Option<&std::path::Path>) -> Result<(), A
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_id;
+
+    #[test]
+    fn window_id_takes_the_first_line_and_rejects_anything_else() {
+        assert_eq!(window_id("@4\n").unwrap(), "@4");
+        assert_eq!(window_id("@12\nprinted by a user hook\n").unwrap(), "@12");
+        for bad in [
+            "",
+            "\n",
+            "@",
+            "%3",
+            "@4x",
+            "starting",
+            "printed by a hook\n@4",
+        ] {
+            assert!(window_id(bad).is_err(), "{bad:?}");
+        }
+    }
 }
