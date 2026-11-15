@@ -510,7 +510,8 @@ fn placeholder_window_is_removed_even_after_the_shell_renames_it() {
         "set-hook",
         "-g",
         "after-new-session",
-        "if-shell -F '#{==:#{window_name},starting}' 'rename-window renamed-by-shell'",
+        "if-shell -F '#{==:#{window_name},starting}' \
+         'rename-window renamed-by-shell ; set-option -g @placeholder_renamed 1'",
     ])
     .unwrap();
     let r = h
@@ -530,6 +531,11 @@ fn placeholder_window_is_removed_even_after_the_shell_renames_it() {
         )
         .unwrap();
     assert_eq!(r.exit_code, 0, "{}", r.stderr);
+    // Prove the rename happened, so this cannot pass on the name-based kill.
+    let renamed = h
+        .tmux_capture(&["show-options", "-gqv", "@placeholder_renamed"])
+        .unwrap();
+    assert_eq!(renamed.trim(), "1");
     let windows = h
         .tmux_capture(&["list-windows", "-a", "-F", "#{session_name}|#{window_name}"])
         .unwrap();
